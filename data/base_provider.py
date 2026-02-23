@@ -11,7 +11,8 @@ class MarketDataProvider(ABC):
     @abstractmethod
     def get_listed_stocks(self) -> pd.DataFrame:
         """上場銘柄一覧を取得
-        Returns: columns=[code, name, sector_17, sector_33, market]
+        Returns: columns=[code, name, sector_17, sector_33, market,
+                          sector_17_name, sector_33_name, market_name, scale_category]
         """
 
     @abstractmethod
@@ -60,6 +61,13 @@ class MarketDataProvider(ABC):
         end_date: str | None = None,
     ) -> pd.DataFrame:
         """業種別空売り比率を取得"""
+
+    @abstractmethod
+    def get_trades_spec(self) -> pd.DataFrame:
+        """貸借銘柄情報を取得（get_listed_stocks() から margin_code を抽出）
+        Returns: columns=[code, margin_code, margin_code_name]
+          margin_code: "1"=制度信用, "2"=貸借銘柄(空売り可)
+        """
 
     def is_available(self) -> bool:
         """APIが利用可能かチェック"""

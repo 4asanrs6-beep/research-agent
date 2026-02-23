@@ -54,10 +54,20 @@ class ClaudeCodeClient(BaseAiClient):
         """Claude Code CLI にプロンプトを送信して応答を得る
 
         プロンプトは stdin 経由で渡す（Windows のコマンドライン長制限を回避）。
-        --max-turns 1 でツール使用なしの単一応答に制限し高速化。
+        --system-prompt でデフォルトの coding assistant 動作を上書きし、
+        純粋なテキスト生成に限定する。
         encoding='utf-8' を明示（Windows日本語環境のCP932デコードエラーを回避）。
         """
-        cmd = ["claude", "-p", "--max-turns", "1"]
+        system_prompt = (
+            "あなたはテキスト生成アシスタントです。"
+            "ユーザーのプロンプトに従い、要求されたコンテンツ（Pythonコード、JSON等）のみを出力してください。"
+            "ツール呼び出し、ファイル操作、説明文は一切不要です。要求された形式のコンテンツだけを返してください。"
+        )
+        cmd = [
+            "claude", "-p",
+            "--max-turns", "1",
+            "--system-prompt", system_prompt,
+        ]
 
         # Claude Code セッション内から呼ぶ場合のネスト防止を回避
         env = {**os.environ}
@@ -91,6 +101,14 @@ class ClaudeCodeClient(BaseAiClient):
                 raise RuntimeError(
                     f"Claude Code CLI が空の応答を返しました。"
                     f"{(' stderr: ' + stderr.strip()) if stderr.strip() else ''}"
+                )
+
+            # max-turns 到達時のエラーメッセージを検出
+            if response.startswith("Error: Reached max turns"):
+                logger.error("Claude Code CLI: ターン数上限到達: %s", response)
+                raise RuntimeError(
+                    f"Claude Code CLI がターン数上限に到達しました。"
+                    f"環境変数 CLAUDE_CLI_MAX_TURNS を増やしてください。({response})"
                 )
 
             logger.info("Claude Code CLI 応答取得 (%d文字)", len(response))

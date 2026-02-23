@@ -16,7 +16,7 @@ PLAN_GENERATION_PROMPT = """\
 
 ## 投資アイデア
 {idea_text}
-
+{universe_filter_section}
 ## 利用可能なデータ
 - 株価日足（OHLCV、調整後価格） - J-Quants API経由
 - 上場銘柄一覧（セクター情報含む）
@@ -84,16 +84,43 @@ class AiPlanner:
         """
         self.ai_client = ai_client
 
-    def generate_plan(self, idea_text: str) -> dict:
+    def generate_plan(
+        self,
+        idea_text: str,
+        universe_filter_text: str = "",
+        start_date: str | None = None,
+        end_date: str | None = None,
+    ) -> dict:
         """投資アイデアから分析計画を生成
 
         Args:
             idea_text: ユーザーが入力した投資アイデアのテキスト
+            universe_filter_text: ユニバースフィルタ条件のテキスト
+            start_date: 分析開始日（例: "2021-01-01"）
+            end_date: 分析終了日（例: "2026-02-23"）
 
         Returns:
             分析計画の辞書
         """
-        prompt = PLAN_GENERATION_PROMPT.format(idea_text=idea_text)
+        universe_filter_section = ""
+        if universe_filter_text:
+            universe_filter_section += (
+                "\n## ユニバースの制約条件\n"
+                "以下の条件で分析対象銘柄を絞り込んでください:\n"
+                f"{universe_filter_text}\n\n"
+            )
+        if start_date and end_date:
+            universe_filter_section += (
+                "\n## 分析期間の制約（必須）\n"
+                "分析期間は以下の通り固定です。変更しないでください:\n"
+                f"- 開始日: {start_date}\n"
+                f"- 終了日: {end_date}\n\n"
+            )
+
+        prompt = PLAN_GENERATION_PROMPT.format(
+            idea_text=idea_text,
+            universe_filter_section=universe_filter_section,
+        )
 
         try:
             response = self.ai_client.send_message(prompt)

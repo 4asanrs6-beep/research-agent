@@ -1,4 +1,4 @@
-"""研究エージェントアプリ - メインエントリ（ダッシュボード）"""
+"""研究エージェント — Reuters風ダッシュボード"""
 
 import streamlit as st
 
@@ -6,10 +6,11 @@ from config import DB_PATH, MARKET_DATA_DIR, JQUANTS_API_KEY
 from db.database import Database
 from data.cache import DataCache
 from data.jquants_provider import JQuantsProvider
+from core.styles import apply_reuters_style, render_status_badge, render_card
 
 st.set_page_config(
     page_title="研究エージェント",
-    page_icon="🔬",
+    page_icon="R",
     layout="wide",
 )
 
@@ -26,94 +27,94 @@ def get_data_provider():
 
 
 def main():
-    st.title("🔬 研究エージェント")
-    st.markdown("日本株データを用いた投資仮説の研究・検証プラットフォーム")
+    apply_reuters_style()
 
-    st.divider()
+    # --- サイドバー: 実行中インジケーター ---
+    thread = st.session_state.get("research_thread")
+    if thread and thread.is_alive():
+        progress = st.session_state.get("research_progress", {})
+        st.sidebar.markdown(
+            '<div class="sidebar-running">'
+            '<span class="pulse"></span> 研究を実行中...<br>'
+            f'<small>{progress.get("message", "")}</small></div>',
+            unsafe_allow_html=True,
+        )
+
+    # --- ヘッダー ---
+    st.markdown("# Research Agent")
+    st.caption("日本株データを用いた投資仮説の研究・検証プラットフォーム")
 
     db = get_database()
-
-    # ステータス表示
-    col1, col2, col3, col4 = st.columns(4)
-
-    ideas = db.list_ideas()
     runs = db.list_runs()
     knowledge_list = db.list_knowledge()
+    completed_runs = [r for r in runs if r["status"] == "completed"]
+    valid_k = [k for k in knowledge_list if k["validity"] == "valid"]
 
+    provider = get_data_provider()
+    api_ok = provider.is_available()
+
+    # --- 3メトリクス ---
+    col1, col2, col3 = st.columns(3)
     with col1:
-        st.metric("アイデア", len(ideas))
+        st.markdown(
+            '<div class="reuters-metric">'
+            f'<div class="metric-value">{len(completed_runs)}</div>'
+            '<div class="metric-label">完了した分析</div></div>',
+            unsafe_allow_html=True,
+        )
     with col2:
-        completed_runs = [r for r in runs if r["status"] == "completed"]
-        st.metric("完了した分析", len(completed_runs))
+        st.markdown(
+            '<div class="reuters-metric">'
+            f'<div class="metric-value">{len(valid_k)}</div>'
+            '<div class="metric-label">有効な知見</div></div>',
+            unsafe_allow_html=True,
+        )
     with col3:
-        valid_k = [k for k in knowledge_list if k["validity"] == "valid"]
-        st.metric("有効な知見", len(valid_k))
-    with col4:
-        provider = get_data_provider()
-        api_status = "接続済" if provider.is_available() else "未接続"
-        st.metric("J-Quants API", api_status)
+        api_text = "Online" if api_ok else "Offline"
+        api_color = "#2E7D32" if api_ok else "#C62828"
+        st.markdown(
+            '<div class="reuters-metric">'
+            f'<div class="metric-value" style="color:{api_color};">{api_text}</div>'
+            '<div class="metric-label">J-Quants API</div></div>',
+            unsafe_allow_html=True,
+        )
 
-    st.divider()
+    st.markdown("---")
 
-    # 接続状態チェック
-    col_left, col_right = st.columns(2)
+    # --- 最近の研究 10件 ---
+    st.markdown("## Recent Research")
+    recent_runs = runs[:10]
+    if not recent_runs:
+        st.info("まだ研究実行がありません。「研究」ページからアイデアを入力して実行してください。")
+    else:
+        for run in recent_runs:
+            idea_snap = run.get("idea_snapshot", {})
+            title = idea_snap.get("title", "不明") if isinstance(idea_snap, dict) else "不明"
+            started = run.get("started_at", "")[:10]
+            status = run.get("status", "unknown")
+            eval_label = run.get("evaluation_label", "")
 
-    with col_left:
-        st.subheader("環境設定ステータス")
-        from core.ai_client import ClaudeCodeClient
-        claude_ok = ClaudeCodeClient().is_available()
-        checks = {
-            "J-Quants API": bool(JQUANTS_API_KEY),
-            "Claude Code CLI": claude_ok,
-            "データベース": True,
-        }
-        for name, ok in checks.items():
-            icon = "✅" if ok else "⚠️"
-            if not ok and name == "Claude Code CLI":
-                status_text = "未検出 (claude コマンドを確認してください)"
-            elif not ok:
-                status_text = "未設定 (.envを確認してください)"
-            else:
-                status_text = "利用可能"
-            st.write(f"{icon} **{name}**: {status_text}")
+            bt = run.get("backtest_result") or {}
+            sharpe = bt.get("sharpe_ratio")
+            cum_ret = bt.get("cumulative_return")
 
-        cache = DataCache(MARKET_DATA_DIR)
-        stats = cache.get_stats()
-        st.write(f"📦 **キャッシュ**: {stats['file_count']}ファイル ({stats['total_size_mb']}MB)")
+            badge_html = render_status_badge(status)
+            if eval_label and status == "completed":
+                badge_html += " " + render_status_badge(eval_label)
 
-    with col_right:
-        st.subheader("最近の分析")
-        recent_runs = runs[:5]
-        if recent_runs:
-            for run in recent_runs:
-                idea_snap = run.get("idea_snapshot", {})
-                title = idea_snap.get("title", "不明") if isinstance(idea_snap, dict) else "不明"
-                label = run.get("evaluation_label", "---")
-                status = run.get("status", "unknown")
+            metrics_parts = []
+            if sharpe is not None:
+                metrics_parts.append(f"<span>Sharpe <strong>{sharpe:.2f}</strong></span>")
+            if cum_ret is not None:
+                metrics_parts.append(f"<span>Return <strong>{cum_ret:.1%}</strong></span>")
+            metrics_html = "".join(metrics_parts)
 
-                label_icon = {"valid": "✅", "invalid": "❌", "needs_review": "🔍"}.get(label, "⏳")
-                status_icon = {"completed": "🟢", "running": "🔵", "failed": "🔴"}.get(status, "⚪")
-
-                st.write(f"{status_icon} {label_icon} **{title}** (Run #{run['id']})")
-        else:
-            st.info("まだ分析実行がありません。「アイデア管理」からアイデアを追加してください。")
-
-    st.divider()
-
-    # ページナビゲーション
-    st.subheader("ナビゲーション")
-    nav_col1, nav_col2, nav_col3, nav_col4, nav_col5 = st.columns(5)
-
-    with nav_col1:
-        st.page_link("pages/1_💡_アイデア管理.py", label="💡 アイデア管理", use_container_width=True)
-    with nav_col2:
-        st.page_link("pages/2_🔬_分析実行.py", label="🔬 分析実行", use_container_width=True)
-    with nav_col3:
-        st.page_link("pages/3_📊_分析結果.py", label="📊 分析結果", use_container_width=True)
-    with nav_col4:
-        st.page_link("pages/4_📚_知見ベース.py", label="📚 知見ベース", use_container_width=True)
-    with nav_col5:
-        st.page_link("pages/5_🤖_AI研究.py", label="🤖 AI研究", use_container_width=True)
+            card_html = (
+                f"<h4>{title}</h4>"
+                f'<div class="card-meta">{started} &mdash; Run #{run["id"]} {badge_html}</div>'
+                f'<div class="card-metrics">{metrics_html}</div>'
+            )
+            st.markdown(render_card(card_html, accent=(eval_label == "valid")), unsafe_allow_html=True)
 
 
 if __name__ == "__main__":

@@ -113,8 +113,21 @@ class AiExecutor:
             return future.result(timeout=self.timeout)
 
     @staticmethod
+    def _strip_imports(code: str) -> str:
+        """import文を除去する（pd, np, stats は SAFE_GLOBALS で提供済み）"""
+        lines = code.split("\n")
+        filtered = []
+        for line in lines:
+            stripped = line.strip()
+            if stripped.startswith("import ") or stripped.startswith("from "):
+                continue
+            filtered.append(line)
+        return "\n".join(filtered)
+
+    @staticmethod
     def _execute_code(code: str, namespace: dict, data_provider: Any) -> dict:
         """コードを実行してrun_analysisを呼び出す"""
+        code = AiExecutor._strip_imports(code)
         exec(code, namespace)
 
         run_analysis = namespace.get("run_analysis")

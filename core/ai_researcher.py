@@ -19,6 +19,8 @@ from core.ai_code_generator import AiCodeGenerator
 from core.ai_executor import AiExecutor
 from core.ai_interpreter import AiInterpreter
 from core.knowledge_base import KnowledgeBase
+from core.filtered_provider import FilteredProvider
+from core.universe_filter import UniverseFilterConfig
 
 logger = logging.getLogger(__name__)
 
@@ -70,6 +72,10 @@ class AiResearcher:
         idea_title: str = "",
         category: str = "その他",
         on_progress: Any = None,
+        universe_filter_text: str = "",
+        universe_config: UniverseFilterConfig | None = None,
+        start_date: str | None = None,
+        end_date: str | None = None,
     ) -> ResearchProgress:
         """研究サイクルを実行
 
@@ -78,6 +84,10 @@ class AiResearcher:
             idea_title: アイデアのタイトル（未指定時は自動生成）
             category: 分析カテゴリ
             on_progress: 進捗コールバック (ResearchProgress -> None)
+            universe_filter_text: ユニバースフィルタ条件のテキスト
+            universe_config: 機械的フィルタ用のユニバース設定
+            start_date: 分析開始日（例: "2021-01-01"）
+            end_date: 分析終了日（例: "2026-02-23"）
 
         Returns:
             最終的なResearchProgress
@@ -92,6 +102,12 @@ class AiResearcher:
                 on_progress(progress)
 
         try:
+            # --- 0. FilteredProvider でラップ ---
+            if universe_config and not universe_config.is_empty():
+                effective_provider = FilteredProvider(self.data_provider, universe_config)
+            else:
+                effective_provider = self.data_provider
+
             # --- 1. アイデア保存 ---
             notify("planning", "アイデアを保存中...")
             if not idea_title:
@@ -101,7 +117,12 @@ class AiResearcher:
 
             # --- 2. 分析計画生成 ---
             notify("planning", "AIが分析計画を生成中...")
-            plan = self.planner.generate_plan(idea_text)
+            plan = self.planner.generate_plan(
+                idea_text,
+                universe_filter_text=universe_filter_text,
+                start_date=start_date,
+                end_date=end_date,
+            )
             if "error" in plan:
                 raise RuntimeError(f"計画生成エラー: {plan['error']}")
             progress.plan = plan
@@ -128,12 +149,17 @@ class AiResearcher:
 
             # --- 3. コード生成 ---
             notify("coding", "AIが分析コードを生成中...")
-            code = self.code_generator.generate_code(plan)
+            code = self.code_generator.generate_code(
+                plan,
+                universe_filter_text=universe_filter_text,
+                start_date=start_date,
+                end_date=end_date,
+            )
             progress.generated_code = code
 
             # --- 4. コード実行（エラー時はリトライ） ---
             notify("executing", "分析コードを実行中...")
-            exec_result = self.executor.execute(code, self.data_provider)
+            exec_result = self.executor.execute(code, effective_provider)
 
             for attempt in range(self.max_code_fix_attempts):
                 if exec_result["success"]:
@@ -142,10 +168,14 @@ class AiResearcher:
                     "coding",
                     f"コード修正中 (試行{attempt + 2}/{self.max_code_fix_attempts + 1})...",
                 )
-                code = self.code_generator.fix_code(code, exec_result["error"])
+                try:
+                    code = self.code_generator.fix_code(code, exec_result["error"])
+                except Exception as fix_err:
+                    logger.warning("コード修正失敗 (試行%d): %s", attempt + 2, fix_err)
+                    break
                 progress.generated_code = code
                 notify("executing", "修正コードを実行中...")
-                exec_result = self.executor.execute(code, self.data_provider)
+                exec_result = self.executor.execute(code, effective_provider)
 
             progress.execution_result = exec_result
 
@@ -154,9 +184,12 @@ class AiResearcher:
 
             # 結果をRunに保存
             result_data = exec_result["result"] or {}
+            statistics_to_save = result_data.get("statistics") or {}
+            if result_data.get("recent_examples"):
+                statistics_to_save["recent_examples"] = result_data["recent_examples"]
             self.db.update_run(
                 run_id,
-                statistics_result=result_data.get("statistics"),
+                statistics_result=statistics_to_save,
                 backtest_result=result_data.get("backtest"),
                 data_period=result_data.get("metadata", {}).get("data_period"),
                 universe_snapshot=result_data.get("metadata", {}).get("universe_codes"),
@@ -170,6 +203,7 @@ class AiResearcher:
                 statistics_result=result_data.get("statistics"),
                 backtest_result=result_data.get("backtest"),
             )
+            interpretation["generated_code"] = code
             progress.interpretation = interpretation
 
             # 評価をRunに保存

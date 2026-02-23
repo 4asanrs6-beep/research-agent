@@ -50,14 +50,20 @@ class JQuantsProvider(MarketDataProvider):
                 return cached
 
         client = self._get_client()
-        df = client.get_listed_info()
+        df = client.get_list()
 
         column_map = {
             "Code": "code",
-            "CompanyName": "name",
-            "Sector17Code": "sector_17",
-            "Sector33Code": "sector_33",
-            "MarketCode": "market",
+            "CoName": "name",
+            "S17": "sector_17",
+            "S33": "sector_33",
+            "Mkt": "market",
+            "S17Nm": "sector_17_name",
+            "S33Nm": "sector_33_name",
+            "MktNm": "market_name",
+            "ScaleCat": "scale_category",
+            "Mrgn": "margin_code",
+            "MrgnNm": "margin_code_name",
         }
         available_cols = {k: v for k, v in column_map.items() if k in df.columns}
         df = df.rename(columns=available_cols)
@@ -65,6 +71,16 @@ class JQuantsProvider(MarketDataProvider):
         if self.cache:
             self.cache.put(cache_key, df)
         return df
+
+    def get_trades_spec(self) -> pd.DataFrame:
+        """貸借銘柄情報を取得（get_list() から margin_code を抽出）"""
+        stocks = self.get_listed_stocks()
+        cols = ["code"]
+        if "margin_code" in stocks.columns:
+            cols.append("margin_code")
+        if "margin_code_name" in stocks.columns:
+            cols.append("margin_code_name")
+        return stocks[cols].drop_duplicates(subset=["code"])
 
     def get_price_daily(
         self,
@@ -79,30 +95,39 @@ class JQuantsProvider(MarketDataProvider):
                 return cached
 
         client = self._get_client()
-        kwargs = {}
-        if code:
-            kwargs["code"] = code
-        if start_date:
-            kwargs["from_yyyymmdd"] = start_date.replace("-", "")
-        if end_date:
-            kwargs["to_yyyymmdd"] = end_date.replace("-", "")
 
-        df = client.get_prices_daily_quotes(**kwargs)
+        if code:
+            # 個別銘柄指定: get_eq_bars_daily(code, from, to)
+            kwargs = {"code": code}
+            if start_date:
+                kwargs["from_yyyymmdd"] = start_date.replace("-", "")
+            if end_date:
+                kwargs["to_yyyymmdd"] = end_date.replace("-", "")
+            df = client.get_eq_bars_daily(**kwargs)
+        else:
+            # 全銘柄一括: get_eq_bars_daily_range(start_dt, end_dt)
+            # V2 API は code 未指定の from/to クエリを受け付けないため
+            start = start_date.replace("-", "") if start_date else "20170101"
+            end = end_date.replace("-", "") if end_date else ""
+            range_kwargs = {"start_dt": start}
+            if end:
+                range_kwargs["end_dt"] = end
+            df = client.get_eq_bars_daily_range(**range_kwargs)
 
         column_map = {
             "Date": "date",
             "Code": "code",
-            "Open": "open",
-            "High": "high",
-            "Low": "low",
-            "Close": "close",
-            "Volume": "volume",
-            "AdjustmentFactor": "adjustment_factor",
-            "AdjustmentOpen": "adj_open",
-            "AdjustmentHigh": "adj_high",
-            "AdjustmentLow": "adj_low",
-            "AdjustmentClose": "adj_close",
-            "AdjustmentVolume": "adj_volume",
+            "O": "open",
+            "H": "high",
+            "L": "low",
+            "C": "close",
+            "Vo": "volume",
+            "AdjFactor": "adjustment_factor",
+            "AdjO": "adj_open",
+            "AdjH": "adj_high",
+            "AdjL": "adj_low",
+            "AdjC": "adj_close",
+            "AdjVo": "adj_volume",
         }
         available_cols = {k: v for k, v in column_map.items() if k in df.columns}
         df = df.rename(columns=available_cols)
@@ -111,6 +136,48 @@ class JQuantsProvider(MarketDataProvider):
             df["date"] = pd.to_datetime(df["date"])
 
         if self.cache:
+            self.cache.put(cache_key, df)
+        return df
+
+    # カラム名変換（共有）
+    _PRICE_COLUMN_MAP = {
+        "Date": "date",
+        "Code": "code",
+        "O": "open",
+        "H": "high",
+        "L": "low",
+        "C": "close",
+        "Vo": "volume",
+        "AdjFactor": "adjustment_factor",
+        "AdjO": "adj_open",
+        "AdjH": "adj_high",
+        "AdjL": "adj_low",
+        "AdjC": "adj_close",
+        "AdjVo": "adj_volume",
+    }
+
+    def get_price_daily_by_date(self, date_str: str) -> pd.DataFrame:
+        """特定日の全銘柄株価を取得（日付単位キャッシュ）
+
+        Args:
+            date_str: "YYYY-MM-DD" or "YYYYMMDD"
+        """
+        date_clean = date_str.replace("-", "")
+        cache_key = f"price_alldate_{date_clean}"
+        if self.cache:
+            cached = self.cache.get(cache_key)
+            if cached is not None:
+                return cached
+
+        client = self._get_client()
+        df = client.get_eq_bars_daily(date_yyyymmdd=date_clean)
+
+        available_cols = {k: v for k, v in self._PRICE_COLUMN_MAP.items() if k in df.columns}
+        df = df.rename(columns=available_cols)
+        if "date" in df.columns:
+            df["date"] = pd.to_datetime(df["date"])
+
+        if self.cache and not df.empty:
             self.cache.put(cache_key, df)
         return df
 
@@ -125,10 +192,11 @@ class JQuantsProvider(MarketDataProvider):
                 return cached
 
         client = self._get_client()
+        kwargs = {}
         if code:
-            df = client.get_statements(code=code)
-        else:
-            df = client.get_statements()
+            kwargs["code"] = code
+
+        df = client.get_fin_summary(**kwargs)
 
         if self.cache:
             self.cache.put(cache_key, df)
@@ -153,15 +221,15 @@ class JQuantsProvider(MarketDataProvider):
         if end_date:
             kwargs["to_yyyymmdd"] = end_date.replace("-", "")
 
-        df = client.get_indices(**kwargs)
+        df = client.get_idx_bars_daily(**kwargs)
 
         column_map = {
             "Date": "date",
             "Code": "index_code",
-            "Open": "open",
-            "High": "high",
-            "Low": "low",
-            "Close": "close",
+            "O": "open",
+            "H": "high",
+            "L": "low",
+            "C": "close",
         }
         available_cols = {k: v for k, v in column_map.items() if k in df.columns}
         df = df.rename(columns=available_cols)
@@ -172,6 +240,22 @@ class JQuantsProvider(MarketDataProvider):
         if self.cache:
             self.cache.put(cache_key, df)
         return df
+
+    def get_margin_trading_by_date(self, date_str: str) -> pd.DataFrame:
+        """特定日の全銘柄信用取引データを取得（日付単位キャッシュ）"""
+        date_clean = date_str.replace("-", "")
+        cache_key = f"margin_alldate_{date_clean}"
+        if self.cache:
+            cached = self.cache.get(cache_key)
+            if cached is not None:
+                return cached
+
+        client = self._get_client()
+        df = client.get_mkt_margin_interest(date_yyyymmdd=date_clean)
+
+        if self.cache and df is not None and not df.empty:
+            self.cache.put(cache_key, df)
+        return df if df is not None else pd.DataFrame()
 
     def get_margin_trading(
         self,
@@ -186,6 +270,7 @@ class JQuantsProvider(MarketDataProvider):
                 return cached
 
         client = self._get_client()
+
         kwargs = {}
         if code:
             kwargs["code"] = code
@@ -194,7 +279,7 @@ class JQuantsProvider(MarketDataProvider):
         if end_date:
             kwargs["to_yyyymmdd"] = end_date.replace("-", "")
 
-        df = client.get_markets_weekly_margin_interest(**kwargs)
+        df = client.get_mkt_margin_interest(**kwargs)
 
         if self.cache:
             self.cache.put(cache_key, df)
@@ -215,13 +300,13 @@ class JQuantsProvider(MarketDataProvider):
         client = self._get_client()
         kwargs = {}
         if sector:
-            kwargs["sector33code"] = sector
+            kwargs["sector_33_code"] = sector
         if start_date:
             kwargs["from_yyyymmdd"] = start_date.replace("-", "")
         if end_date:
             kwargs["to_yyyymmdd"] = end_date.replace("-", "")
 
-        df = client.get_markets_short_selling(**kwargs)
+        df = client.get_mkt_short_ratio(**kwargs)
 
         if self.cache:
             self.cache.put(cache_key, df)

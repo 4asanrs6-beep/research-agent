@@ -58,3 +58,27 @@ CLAUDE_CLI_TIMEOUT = int(os.getenv("CLAUDE_CLI_TIMEOUT", "600"))  # CLI呼び出
 
 # コード実行設定
 CODE_EXECUTION_TIMEOUT = int(os.getenv("CODE_EXECUTION_TIMEOUT", "120"))  # 秒
+
+# 標準バックテスト設定
+STANDARD_BACKTEST_DEFAULTS = {
+    # ユニバース
+    "max_stocks": 50,
+    # テクニカルシグナル
+    "volume_surge_window": 20,
+    "ma_deviation_window": 25,
+    "rsi_window": 14,
+    "bb_window": 20,
+    "bb_std": 2.0,
+    "atr_window": 14,
+    "sector_relative_lookback": 20,
+    # ポジション管理
+    "holding_period_days": 20,
+    "max_positions": 10,
+    "allocation_method": "equal_weight",
+    # コスト・資本
+    "initial_capital": 10_000_000,
+    "commission_rate": 0.001,
+    "slippage_rate": 0.001,
+    # シグナル結合
+    "signal_logic": "AND",
+}
