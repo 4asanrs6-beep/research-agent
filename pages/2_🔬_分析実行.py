@@ -5,7 +5,7 @@ from datetime import datetime, timedelta
 
 import streamlit as st
 
-from config import DB_PATH, MARKET_DATA_DIR, JQUANTS_MAIL_ADDRESS, JQUANTS_PASSWORD, BACKTEST_DEFAULTS
+from config import DB_PATH, MARKET_DATA_DIR, JQUANTS_API_KEY, BACKTEST_DEFAULTS
 from db.database import Database
 from data.cache import DataCache
 from data.jquants_provider import JQuantsProvider
@@ -27,7 +27,7 @@ def get_db():
 @st.cache_resource
 def get_provider():
     cache = DataCache(MARKET_DATA_DIR)
-    return JQuantsProvider(JQUANTS_MAIL_ADDRESS, JQUANTS_PASSWORD, cache)
+    return JQuantsProvider(api_key=JQUANTS_API_KEY, cache=cache)
 
 
 def main():

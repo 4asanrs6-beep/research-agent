@@ -8,7 +8,7 @@ import streamlit as st
 
 from config import (
     DB_PATH, MARKET_DATA_DIR, ANALYSIS_CATEGORIES,
-    JQUANTS_MAIL_ADDRESS, JQUANTS_PASSWORD, AI_API_KEY,
+    JQUANTS_API_KEY, AI_API_KEY,
 )
 from db.database import Database
 from data.cache import DataCache
@@ -27,7 +27,7 @@ def get_db():
 @st.cache_resource
 def get_data_provider():
     cache = DataCache(MARKET_DATA_DIR)
-    return JQuantsProvider(JQUANTS_MAIL_ADDRESS, JQUANTS_PASSWORD, cache)
+    return JQuantsProvider(api_key=JQUANTS_API_KEY, cache=cache)
 
 
 def plot_equity_curve(backtest: dict) -> go.Figure | None:

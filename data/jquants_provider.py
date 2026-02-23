@@ -15,12 +15,10 @@ class JQuantsProvider(MarketDataProvider):
 
     def __init__(
         self,
-        mail_address: str,
-        password: str,
+        api_key: str,
         cache: DataCache | None = None,
     ):
-        self.mail_address = mail_address
-        self.password = password
+        self.api_key = api_key
         self.cache = cache
         self._client = None
 
@@ -29,17 +27,14 @@ class JQuantsProvider(MarketDataProvider):
             try:
                 import jquantsapi
 
-                self._client = jquantsapi.Client(
-                    mail_address=self.mail_address,
-                    password=self.password,
-                )
+                self._client = jquantsapi.ClientV2(api_key=self.api_key)
             except Exception as e:
                 logger.error("J-Quants APIクライアントの初期化に失敗: %s", e)
                 raise
         return self._client
 
     def is_available(self) -> bool:
-        if not self.mail_address or not self.password:
+        if not self.api_key:
             return False
         try:
             self._get_client()

@@ -17,9 +17,8 @@ MARKET_DATA_DIR = STORAGE_DIR / "market_data"
 STORAGE_DIR.mkdir(exist_ok=True)
 MARKET_DATA_DIR.mkdir(exist_ok=True)
 
-# J-Quants API
-JQUANTS_MAIL_ADDRESS = os.getenv("JQUANTS_MAIL_ADDRESS", "")
-JQUANTS_PASSWORD = os.getenv("JQUANTS_PASSWORD", "")
+# J-Quants API V2
+JQUANTS_API_KEY = os.getenv("JQUANTS_API_KEY", "")
 
 # 分析カテゴリ
 ANALYSIS_CATEGORIES = [

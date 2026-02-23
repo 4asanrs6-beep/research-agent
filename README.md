@@ -48,9 +48,8 @@ cp .env.example .env
 `.env` ファイルを編集して以下を設定:
 
 ```
-# J-Quants API（必須：市場データ取得用）
-JQUANTS_MAIL_ADDRESS=your_email@example.com
-JQUANTS_PASSWORD=your_password
+# J-Quants API V2（必須：市場データ取得用）
+JQUANTS_API_KEY=your_api_key
 
 # AI API（任意：AI研究機能用）
 AI_API_KEY=your_api_key

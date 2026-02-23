@@ -2,7 +2,7 @@
 
 import streamlit as st
 
-from config import DB_PATH, MARKET_DATA_DIR, JQUANTS_MAIL_ADDRESS, JQUANTS_PASSWORD, AI_API_KEY
+from config import DB_PATH, MARKET_DATA_DIR, JQUANTS_API_KEY, AI_API_KEY
 from db.database import Database
 from data.cache import DataCache
 from data.jquants_provider import JQuantsProvider
@@ -22,11 +22,7 @@ def get_database() -> Database:
 @st.cache_resource
 def get_data_provider():
     cache = DataCache(MARKET_DATA_DIR)
-    return JQuantsProvider(
-        mail_address=JQUANTS_MAIL_ADDRESS,
-        password=JQUANTS_PASSWORD,
-        cache=cache,
-    )
+    return JQuantsProvider(api_key=JQUANTS_API_KEY, cache=cache)
 
 
 def main():
@@ -65,7 +61,7 @@ def main():
     with col_left:
         st.subheader("環境設定ステータス")
         checks = {
-            "J-Quants API": bool(JQUANTS_MAIL_ADDRESS and JQUANTS_PASSWORD),
+            "J-Quants API": bool(JQUANTS_API_KEY),
             "AI API Key": bool(AI_API_KEY),
             "データベース": True,
         }
