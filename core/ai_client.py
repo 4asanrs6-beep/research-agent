@@ -47,18 +47,23 @@ class ClaudeCodeClient(BaseAiClient):
         self.timeout = timeout
 
     def send_message(self, prompt: str) -> str:
-        """Claude Code CLI にプロンプトを送信して応答を得る"""
-        cmd = ["claude", "-p", prompt]
+        """Claude Code CLI にプロンプトを送信して応答を得る
+
+        プロンプトは stdin 経由で渡す（Windowsのコマンドライン長制限を回避）。
+        """
+        cmd = ["claude", "-p", "--output-format", "text"]
 
         # Claude Code セッション内から呼ぶ場合のネスト防止を回避
         env = {**os.environ}
         env.pop("CLAUDECODE", None)
 
-        logger.info("Claude Code CLI 呼び出し (cwd=%s, timeout=%ds)", self.cwd, self.timeout)
+        logger.info("Claude Code CLI 呼び出し (cwd=%s, timeout=%ds, prompt=%d文字)",
+                     self.cwd, self.timeout, len(prompt))
 
         try:
             result = subprocess.run(
                 cmd,
+                input=prompt,
                 capture_output=True,
                 text=True,
                 cwd=self.cwd,
@@ -66,12 +71,22 @@ class ClaudeCodeClient(BaseAiClient):
                 env=env,
             )
 
-            if result.returncode != 0:
-                stderr = result.stderr.strip()
-                logger.error("Claude Code CLI エラー (rc=%d): %s", result.returncode, stderr)
-                raise RuntimeError(f"Claude Code CLI エラー: {stderr}")
+            stdout = result.stdout or ""
+            stderr = result.stderr or ""
 
-            response = result.stdout.strip()
+            if result.returncode != 0:
+                logger.error("Claude Code CLI エラー (rc=%d): %s", result.returncode, stderr.strip())
+                raise RuntimeError(f"Claude Code CLI エラー (rc={result.returncode}): {stderr.strip()}")
+
+            response = stdout.strip()
+            if not response:
+                # stdout が空の場合、stderr にヒントがないか確認
+                logger.error("Claude Code CLI: 空の応答。stderr=%s", stderr.strip())
+                raise RuntimeError(
+                    f"Claude Code CLI が空の応答を返しました。"
+                    f"{(' stderr: ' + stderr.strip()) if stderr.strip() else ''}"
+                )
+
             logger.info("Claude Code CLI 応答取得 (%d文字)", len(response))
             return response
 

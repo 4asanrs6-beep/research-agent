@@ -104,8 +104,10 @@ class AiPlanner:
             logger.error("AI計画生成エラー: %s", e)
             return {"error": str(e)}
 
-    def _parse_response(self, response: str) -> dict:
+    def _parse_response(self, response: str | None) -> dict:
         """AIレスポンスからJSONを抽出・パース"""
+        if not response:
+            raise ValueError("AIから空の応答を受信しました")
         text = response.strip()
 
         # ```json ... ``` ブロックを抽出

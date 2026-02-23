@@ -184,8 +184,10 @@ class AiCodeGenerator:
             logger.error("AIコード修正エラー: %s", e)
             raise
 
-    def _extract_code(self, response: str) -> str:
+    def _extract_code(self, response: str | None) -> str:
         """AIレスポンスからPythonコードを抽出"""
+        if not response:
+            raise ValueError("AIから空の応答を受信しました")
         text = response.strip()
 
         # ```python ... ``` ブロックを抽出

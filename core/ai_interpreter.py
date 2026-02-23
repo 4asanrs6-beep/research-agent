@@ -172,8 +172,10 @@ class AiInterpreter:
                 result[k] = v
         return result
 
-    def _parse_response(self, response: str) -> dict:
+    def _parse_response(self, response: str | None) -> dict:
         """AIレスポンスからJSONを抽出"""
+        if not response:
+            raise ValueError("AIから空の応答を受信しました")
         text = response.strip()
 
         if "```json" in text:
