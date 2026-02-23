@@ -12,10 +12,13 @@ BASE_DIR = Path(__file__).parent
 STORAGE_DIR = BASE_DIR / "storage"
 DB_PATH = STORAGE_DIR / "research.db"
 MARKET_DATA_DIR = STORAGE_DIR / "market_data"
+KNOWLEDGE_DIR = BASE_DIR / "knowledge"
 
 # ディレクトリ作成
 STORAGE_DIR.mkdir(exist_ok=True)
 MARKET_DATA_DIR.mkdir(exist_ok=True)
+for _d in [KNOWLEDGE_DIR, KNOWLEDGE_DIR / "alpha", KNOWLEDGE_DIR / "failed", KNOWLEDGE_DIR / "notes"]:
+    _d.mkdir(exist_ok=True)
 
 # J-Quants API V2
 JQUANTS_API_KEY = os.getenv("JQUANTS_API_KEY", "")

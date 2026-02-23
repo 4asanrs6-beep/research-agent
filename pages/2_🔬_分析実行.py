@@ -176,6 +176,8 @@ def main():
                     hypothesis=idea.description,
                     evaluation=evaluation,
                     tags=[idea.category],
+                    statistics_result=stats_result,
+                    backtest_result=bt_result,
                 )
 
                 planner.update(plan.id, status="completed")

@@ -181,17 +181,18 @@ class AiResearcher:
                 finished_at=datetime.now().isoformat(),
             )
 
-            # --- 6. 知見保存 ---
+            # --- 6. 知見保存（DB + Markdown） ---
             notify("saving", "知見を保存中...")
             ke = interpretation.get("knowledge_entry", {})
-            knowledge = self.knowledge_base.save(
-                hypothesis=ke.get("hypothesis", idea_text),
-                validity=interpretation.get("evaluation_label", "needs_review"),
+            knowledge = self.knowledge_base.save_from_run(
                 run_id=run_id,
-                valid_conditions=ke.get("valid_conditions"),
-                invalid_conditions=ke.get("invalid_conditions"),
-                summary=interpretation.get("summary", ""),
+                hypothesis=ke.get("hypothesis", idea_text),
+                evaluation=interpretation,
                 tags=ke.get("tags", [category]),
+                plan=plan,
+                statistics_result=result_data.get("statistics"),
+                backtest_result=result_data.get("backtest"),
+                generated_code=code,
             )
             progress.knowledge_id = knowledge.id
 
