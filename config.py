@@ -54,7 +54,7 @@ BACKTEST_DEFAULTS = {
 }
 
 # AI研究エージェント設定（Claude Code CLI経由）
-CLAUDE_CLI_TIMEOUT = int(os.getenv("CLAUDE_CLI_TIMEOUT", "300"))  # CLI呼び出しタイムアウト秒
+CLAUDE_CLI_TIMEOUT = int(os.getenv("CLAUDE_CLI_TIMEOUT", "600"))  # CLI呼び出しタイムアウト秒
 
 # コード実行設定
 CODE_EXECUTION_TIMEOUT = int(os.getenv("CODE_EXECUTION_TIMEOUT", "120"))  # 秒

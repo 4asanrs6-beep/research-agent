@@ -32,27 +32,32 @@ class ClaudeCodeClient(BaseAiClient):
     Claude Code が knowledge/ フォルダ等を参照可能。
     """
 
-    def __init__(self, cwd: str | Path | None = None, timeout: int = 300):
+    def __init__(self, cwd: str | Path | None = None, timeout: int | None = None):
         """
         Args:
             cwd: Claude Code を実行する作業ディレクトリ
                  (デフォルト: research-agent プロジェクトルート)
-            timeout: 実行タイムアウト秒数
+            timeout: 実行タイムアウト秒数 (デフォルト: config.CLAUDE_CLI_TIMEOUT)
         """
         if cwd is None:
             from config import BASE_DIR
             self.cwd = str(BASE_DIR)
         else:
             self.cwd = str(cwd)
-        self.timeout = timeout
+        if timeout is None:
+            from config import CLAUDE_CLI_TIMEOUT
+            self.timeout = CLAUDE_CLI_TIMEOUT
+        else:
+            self.timeout = timeout
 
     def send_message(self, prompt: str) -> str:
         """Claude Code CLI にプロンプトを送信して応答を得る
 
-        プロンプトは直接引数として渡す。
+        プロンプトは stdin 経由で渡す（Windows のコマンドライン長制限を回避）。
+        --max-turns 1 でツール使用なしの単一応答に制限し高速化。
         encoding='utf-8' を明示（Windows日本語環境のCP932デコードエラーを回避）。
         """
-        cmd = ["claude", "-p", prompt]
+        cmd = ["claude", "-p", "--max-turns", "1"]
 
         # Claude Code セッション内から呼ぶ場合のネスト防止を回避
         env = {**os.environ}
@@ -64,6 +69,7 @@ class ClaudeCodeClient(BaseAiClient):
         try:
             result = subprocess.run(
                 cmd,
+                input=prompt,
                 capture_output=True,
                 encoding="utf-8",
                 errors="replace",
