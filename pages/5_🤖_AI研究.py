@@ -8,7 +8,7 @@ import streamlit as st
 
 from config import (
     DB_PATH, MARKET_DATA_DIR, ANALYSIS_CATEGORIES,
-    JQUANTS_API_KEY, AI_API_KEY,
+    JQUANTS_API_KEY,
 )
 from db.database import Database
 from data.cache import DataCache
@@ -61,11 +61,14 @@ def main():
     st.title("🤖 AI研究エージェント")
     st.caption("AIが投資アイデアを自動で分析・検証します")
 
-    # API状態チェック
-    if not AI_API_KEY:
+    # Claude Code CLI 状態チェック
+    from core.ai_client import ClaudeCodeClient
+    claude_available = ClaudeCodeClient().is_available()
+    if not claude_available:
         st.warning(
-            "⚠️ AI_API_KEY が未設定です。.envファイルにAI_API_KEYを設定してください。\n\n"
-            "未設定でもデモモード（ダミーAI応答）で動作します。"
+            "⚠️ Claude Code CLI が検出されません。\n\n"
+            "`claude` コマンドがインストールされていることを確認してください。\n"
+            "未検出でもデモモード（ダミー応答）で動作します。"
         )
 
     st.divider()

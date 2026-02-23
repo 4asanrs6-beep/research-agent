@@ -5,7 +5,7 @@ from core.analyzer import Analyzer
 from core.backtester import Backtester
 from core.evaluator import Evaluator
 from core.knowledge_base import KnowledgeBase
-from core.ai_client import BaseAiClient, AnthropicClient, DummyAiClient, create_ai_client
+from core.ai_client import BaseAiClient, ClaudeCodeClient, DummyAiClient, create_ai_client
 from core.ai_planner import AiPlanner
 from core.ai_code_generator import AiCodeGenerator
 from core.ai_executor import AiExecutor
@@ -19,6 +19,6 @@ __all__ = [
     "IdeaManager", "Planner", "Analyzer",
     "Backtester", "Evaluator", "KnowledgeBase",
     # AI研究エージェント
-    "BaseAiClient", "AnthropicClient", "DummyAiClient", "create_ai_client",
+    "BaseAiClient", "ClaudeCodeClient", "DummyAiClient", "create_ai_client",
     "AiPlanner", "AiCodeGenerator", "AiExecutor", "AiInterpreter", "AiResearcher",
 ]

@@ -1,63 +1,109 @@
-"""AIモデルクライアント抽象化レイヤー
+"""AIクライアント - Claude Code CLI経由
 
-将来のモデル変更に対応するため、AIクライアントを抽象化。
-現在はAnthropic APIをサポート。
+Anthropic APIを直接呼び出すのではなく、
+ローカルの Claude Code CLI を subprocess 経由で呼び出す。
+これにより Claude Code が knowledge/ フォルダやワークスペースを
+参照しながら分析を行える。
 """
 
 import json
 import logging
+import subprocess
+import os
 from abc import ABC, abstractmethod
-from typing import Any
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
 
 class BaseAiClient(ABC):
-    """AIクライアントの抽象基底クラス
-
-    全てのAIモジュール (AiPlanner, AiCodeGenerator, AiInterpreter) は
-    このインターフェースを持つクライアントを受け取る。
-    """
+    """AIクライアントの抽象基底クラス"""
 
     @abstractmethod
     def send_message(self, prompt: str) -> str:
         """プロンプトを送信してテキスト応答を返す"""
 
 
-class AnthropicClient(BaseAiClient):
-    """Anthropic API クライアント"""
+class ClaudeCodeClient(BaseAiClient):
+    """Claude Code CLI を subprocess 経由で呼び出すクライアント
 
-    def __init__(
-        self,
-        api_key: str,
-        model: str = "claude-sonnet-4-20250514",
-        max_tokens: int = 4096,
-    ):
-        self.api_key = api_key
-        self.model = model
-        self.max_tokens = max_tokens
-        self._client = None
+    claude -p <prompt> を実行し、標準出力を応答として返す。
+    作業ディレクトリを research-agent に設定することで、
+    Claude Code が knowledge/ フォルダ等を参照可能。
+    """
 
-    def _get_client(self):
-        if self._client is None:
-            import anthropic
-            self._client = anthropic.Anthropic(api_key=self.api_key)
-        return self._client
+    def __init__(self, cwd: str | Path | None = None, timeout: int = 300):
+        """
+        Args:
+            cwd: Claude Code を実行する作業ディレクトリ
+                 (デフォルト: research-agent プロジェクトルート)
+            timeout: 実行タイムアウト秒数
+        """
+        if cwd is None:
+            from config import BASE_DIR
+            self.cwd = str(BASE_DIR)
+        else:
+            self.cwd = str(cwd)
+        self.timeout = timeout
 
     def send_message(self, prompt: str) -> str:
-        client = self._get_client()
-        message = client.messages.create(
-            model=self.model,
-            max_tokens=self.max_tokens,
-            messages=[{"role": "user", "content": prompt}],
-        )
-        return message.content[0].text
+        """Claude Code CLI にプロンプトを送信して応答を得る"""
+        cmd = ["claude", "-p", prompt]
+
+        # Claude Code セッション内から呼ぶ場合のネスト防止を回避
+        env = {**os.environ}
+        env.pop("CLAUDECODE", None)
+
+        logger.info("Claude Code CLI 呼び出し (cwd=%s, timeout=%ds)", self.cwd, self.timeout)
+
+        try:
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                cwd=self.cwd,
+                timeout=self.timeout,
+                env=env,
+            )
+
+            if result.returncode != 0:
+                stderr = result.stderr.strip()
+                logger.error("Claude Code CLI エラー (rc=%d): %s", result.returncode, stderr)
+                raise RuntimeError(f"Claude Code CLI エラー: {stderr}")
+
+            response = result.stdout.strip()
+            logger.info("Claude Code CLI 応答取得 (%d文字)", len(response))
+            return response
+
+        except subprocess.TimeoutExpired:
+            raise RuntimeError(f"Claude Code CLI タイムアウト ({self.timeout}秒)")
+        except FileNotFoundError:
+            raise RuntimeError(
+                "claude コマンドが見つかりません。"
+                "Claude Code CLI がインストールされていることを確認してください。"
+            )
+
+    def is_available(self) -> bool:
+        """Claude Code CLI が利用可能かチェック"""
+        try:
+            env = {**os.environ}
+            env.pop("CLAUDECODE", None)
+            result = subprocess.run(
+                ["claude", "--version"],
+                capture_output=True,
+                text=True,
+                timeout=10,
+                env=env,
+            )
+            return result.returncode == 0
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            return False
 
 
 class DummyAiClient(BaseAiClient):
     """テスト・デモ用ダミーAIクライアント
 
-    APIキーが未設定の場合に使用。固定レスポンスを返す。
+    Claude Code CLI が利用不可の場合に使用。固定レスポンスを返す。
     """
 
     def send_message(self, prompt: str) -> str:
@@ -124,14 +170,12 @@ from scipy import stats
 
 def run_analysis(data_provider):
     """月曜効果の分析（デモ）"""
-    # データ取得（デモ用にランダムデータ生成）
     try:
         prices = data_provider.get_price_daily(
             start_date="2019-01-01",
             end_date="2024-12-31"
         )
     except Exception:
-        # API未接続時はダミーデータを使用
         dates = pd.bdate_range("2019-01-01", "2024-12-31")
         np.random.seed(42)
         codes = ["7203", "9984", "6758"]
@@ -155,12 +199,10 @@ def run_analysis(data_provider):
     prices["date"] = pd.to_datetime(prices["date"])
     prices = prices.sort_values(["code", "date"])
 
-    # 日次リターン計算
     prices["return"] = prices.groupby("code")[close_col].pct_change()
     prices["day_of_week"] = prices["date"].dt.dayofweek
     prices = prices.dropna(subset=["return"])
 
-    # 月曜 vs その他の比較
     monday = prices[prices["day_of_week"] == 0]["return"].values
     others = prices[prices["day_of_week"] != 0]["return"].values
 
@@ -187,12 +229,10 @@ def run_analysis(data_provider):
         "is_significant": p_value < 0.05,
     }
 
-    # シンプルバックテスト
     initial_capital = 10_000_000
     capital = initial_capital
     equity = []
     trades = []
-
     sample_code = prices["code"].unique()[0]
     code_prices = prices[prices["code"] == sample_code].copy()
 
@@ -232,7 +272,7 @@ def run_analysis(data_provider):
         "benchmark_cumulative_return": 0.0,
         "benchmark_annual_return": 0.0,
         "benchmark_sharpe_ratio": 0.0,
-        "equity_curve": equity[-252:],  # 直近1年分のみ
+        "equity_curve": equity[-252:],
         "benchmark_curve": [],
         "trade_log": trades[-20:],
     }
@@ -280,24 +320,16 @@ def run_analysis(data_provider):
         return f"```json\n{json.dumps(interp, ensure_ascii=False, indent=2)}\n```"
 
 
-def create_ai_client(
-    api_key: str = "",
-    model: str = "",
-    max_tokens: int = 4096,
-    base_url: str = "",
-) -> BaseAiClient:
-    """設定に基づいてAIクライアントを生成するファクトリ
+def create_ai_client(cwd: str | Path | None = None) -> BaseAiClient:
+    """AIクライアントを生成するファクトリ
 
-    APIキーが未設定の場合はDummyAiClientを返す。
+    Claude Code CLI が利用可能ならそれを使用。
+    利用不可の場合は DummyAiClient にフォールバック。
     """
-    from config import AI_API_KEY, AI_MODEL_NAME, AI_MAX_TOKENS
-
-    key = api_key or AI_API_KEY
-    mdl = model or AI_MODEL_NAME
-    tokens = max_tokens or AI_MAX_TOKENS
-
-    if not key:
-        logger.warning("AI_API_KEYが未設定のため、DummyAiClientを使用します")
+    client = ClaudeCodeClient(cwd=cwd)
+    if client.is_available():
+        logger.info("Claude Code CLI を使用します")
+        return client
+    else:
+        logger.warning("Claude Code CLI が利用不可のため、DummyAiClient を使用します")
         return DummyAiClient()
-
-    return AnthropicClient(api_key=key, model=mdl, max_tokens=tokens)

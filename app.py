@@ -2,7 +2,7 @@
 
 import streamlit as st
 
-from config import DB_PATH, MARKET_DATA_DIR, JQUANTS_API_KEY, AI_API_KEY
+from config import DB_PATH, MARKET_DATA_DIR, JQUANTS_API_KEY
 from db.database import Database
 from data.cache import DataCache
 from data.jquants_provider import JQuantsProvider
@@ -60,14 +60,21 @@ def main():
 
     with col_left:
         st.subheader("環境設定ステータス")
+        from core.ai_client import ClaudeCodeClient
+        claude_ok = ClaudeCodeClient().is_available()
         checks = {
             "J-Quants API": bool(JQUANTS_API_KEY),
-            "AI API Key": bool(AI_API_KEY),
+            "Claude Code CLI": claude_ok,
             "データベース": True,
         }
         for name, ok in checks.items():
             icon = "✅" if ok else "⚠️"
-            status_text = "設定済" if ok else "未設定 (.envを確認してください)"
+            if not ok and name == "Claude Code CLI":
+                status_text = "未検出 (claude コマンドを確認してください)"
+            elif not ok:
+                status_text = "未設定 (.envを確認してください)"
+            else:
+                status_text = "利用可能"
             st.write(f"{icon} **{name}**: {status_text}")
 
         cache = DataCache(MARKET_DATA_DIR)

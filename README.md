@@ -29,7 +29,7 @@
 | 市場データ | J-Quants API V2 (jquants-api-client) |
 | 分析 | pandas / numpy / scipy |
 | データキャッシュ | Parquet |
-| AI | Anthropic API (変更可能) |
+| AI | Claude Code CLI (ローカル実行) |
 
 ## セットアップ
 
@@ -50,13 +50,10 @@ cp .env.example .env
 ```
 # J-Quants API V2（必須：市場データ取得用）
 JQUANTS_API_KEY=your_api_key
-
-# AI API（任意：AI研究機能用）
-AI_API_KEY=your_api_key
 ```
 
 - J-Quants APIアカウント: https://jpx-jquants.com/
-- Anthropic APIキー: https://console.anthropic.com/
+- AI機能: Claude Code CLI がインストール済みであれば追加設定不要
 
 ### 3. 起動
 
@@ -78,7 +75,7 @@ streamlit run app.py
 3. AIが自動で計画→コード生成→実行→評価を実行
 4. 結果がタブ形式で表示される
 
-> AI_API_KEY未設定でもデモモード（ダミー応答）で動作確認できます。
+> Claude Code CLI 未検出でもデモモード（ダミー応答）で動作確認できます。
 
 ## プロジェクト構成
 

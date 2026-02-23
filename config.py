@@ -53,11 +53,8 @@ BACKTEST_DEFAULTS = {
     "rebalance_frequency": "monthly",  # daily, weekly, monthly
 }
 
-# AI研究エージェント設定
-AI_API_KEY = os.getenv("AI_API_KEY", "")
-AI_MODEL_NAME = os.getenv("AI_MODEL_NAME", "claude-sonnet-4-20250514")
-AI_API_BASE_URL = os.getenv("AI_API_BASE_URL", "https://api.anthropic.com")
-AI_MAX_TOKENS = int(os.getenv("AI_MAX_TOKENS", "4096"))
+# AI研究エージェント設定（Claude Code CLI経由）
+CLAUDE_CLI_TIMEOUT = int(os.getenv("CLAUDE_CLI_TIMEOUT", "300"))  # CLI呼び出しタイムアウト秒
 
 # コード実行設定
 CODE_EXECUTION_TIMEOUT = int(os.getenv("CODE_EXECUTION_TIMEOUT", "120"))  # 秒
