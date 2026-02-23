@@ -49,9 +49,10 @@ class ClaudeCodeClient(BaseAiClient):
     def send_message(self, prompt: str) -> str:
         """Claude Code CLI にプロンプトを送信して応答を得る
 
-        プロンプトは stdin 経由で渡す（Windowsのコマンドライン長制限を回避）。
+        プロンプトは直接引数として渡す。
+        encoding='utf-8' を明示（Windows日本語環境のCP932デコードエラーを回避）。
         """
-        cmd = ["claude", "-p", "--output-format", "text"]
+        cmd = ["claude", "-p", prompt]
 
         # Claude Code セッション内から呼ぶ場合のネスト防止を回避
         env = {**os.environ}
@@ -63,9 +64,9 @@ class ClaudeCodeClient(BaseAiClient):
         try:
             result = subprocess.run(
                 cmd,
-                input=prompt,
                 capture_output=True,
-                text=True,
+                encoding="utf-8",
+                errors="replace",
                 cwd=self.cwd,
                 timeout=self.timeout,
                 env=env,
@@ -80,7 +81,6 @@ class ClaudeCodeClient(BaseAiClient):
 
             response = stdout.strip()
             if not response:
-                # stdout が空の場合、stderr にヒントがないか確認
                 logger.error("Claude Code CLI: 空の応答。stderr=%s", stderr.strip())
                 raise RuntimeError(
                     f"Claude Code CLI が空の応答を返しました。"
@@ -106,7 +106,7 @@ class ClaudeCodeClient(BaseAiClient):
             result = subprocess.run(
                 ["claude", "--version"],
                 capture_output=True,
-                text=True,
+                encoding="utf-8",
                 timeout=10,
                 env=env,
             )
