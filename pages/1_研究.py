@@ -1,24 +1,29 @@
-"""研究ページ — アイデア入力 → 計画レビュー → 実行 → 結果表示
+"""研究ページ — 仮説入力 → パラメータ選択 → イテレーション実行 → 結果表示
+
+新設計: AIはコード生成せず、SignalConfigのパラメータをJSON出力するだけ。
+StandardBacktesterで実行し、結果が悪ければAIがパラメータ調整して再実行（最大N回）。
 
 全 AI 処理はバックグラウンドスレッドで実行。
-ページ遷移しても処理は継続し、戻れば最新の状態が表示される。
-待機画面は @st.fragment(run_every=2) でフラグメントのみ再描画し、
-ページ全体の点滅を防止する。
+待機画面は @st.fragment(run_every=2) でフラグメントのみ再描画。
 """
 
+import json
 import threading
 from datetime import date, datetime
 
+import pandas as pd
 import streamlit as st
 
 from config import (
     DB_PATH, MARKET_DATA_DIR, ANALYSIS_CATEGORIES, JQUANTS_API_KEY,
+    AI_RESEARCH_MAX_ITERATIONS,
 )
 from db.database import Database
 from data.cache import DataCache
 from data.jquants_provider import JQuantsProvider
 from core.ai_client import create_ai_client
 from core.ai_researcher import AiResearcher, ResearchProgress
+from core.ai_parameter_selector import ParameterSelectionResult, dict_to_signal_config
 from core.universe_filter import (
     UniverseFilterConfig,
     build_universe_description,
@@ -26,8 +31,8 @@ from core.universe_filter import (
     TOPIX_SCALE_CATEGORIES,
     SECTOR_17_LIST,
 )
-from core.styles import apply_reuters_style, apply_waiting_overlay
-from core.result_display import render_result_tabs, render_plan
+from core.styles import apply_reuters_style, apply_waiting_overlay, render_status_badge
+from core.result_display import render_result_tabs
 from core.sidebar import render_sidebar_running_indicator
 
 st.set_page_config(page_title="研究", page_icon="R", layout="wide")
@@ -47,57 +52,51 @@ def get_data_provider():
 # ===========================================================================
 # バックグラウンドスレッド関数（Streamlit API 使用禁止）
 # ===========================================================================
-def _thread_generate_plan(shared, db, provider, idea_text, idea_title, category,
-                          universe_filter_text, universe_config, start_date, end_date):
+def _thread_generate_params(shared, hypothesis, universe_desc, start_date, end_date):
+    """AIにSignalConfigパラメータを選択させる"""
     try:
         ai_client = create_ai_client()
-        researcher = AiResearcher(db=db, ai_client=ai_client, data_provider=provider)
-        shared["message"] = "AIが分析計画を作成しています..."
-        plan, idea_id, plan_id = researcher.generate_plan_only(
-            idea_text=idea_text,
-            idea_title=idea_title,
-            category=category,
-            universe_filter_text=universe_filter_text,
-            universe_config=universe_config,
+        from core.ai_parameter_selector import AiParameterSelector
+        selector = AiParameterSelector(ai_client)
+        shared["message"] = "AIがパラメータを選択しています..."
+        result = selector.select_parameters(
+            hypothesis=hypothesis,
+            universe_desc=universe_desc,
             start_date=start_date,
             end_date=end_date,
         )
-        shared["_result"] = (plan, idea_id, plan_id)
+        shared["_result"] = result
     except Exception as e:
         shared["error"] = str(e)
 
 
-def _thread_refine_plan(shared, db, provider, plan, feedback, plan_id):
+def _thread_execute_loop(shared, db, provider, hypothesis, idea_title, category,
+                         signal_config_dict, universe_config, start_date, end_date,
+                         max_iterations, universe_filter_text):
+    """イテレーションループを実行"""
     try:
         ai_client = create_ai_client()
-        researcher = AiResearcher(db=db, ai_client=ai_client, data_provider=provider)
-        shared["message"] = "AIが計画を修正しています..."
-        new_plan = researcher.refine_plan(plan, feedback, plan_id)
-        shared["_result"] = new_plan
-    except Exception as e:
-        shared["error"] = str(e)
+        researcher = AiResearcher(
+            db=db, ai_client=ai_client, data_provider=provider,
+            max_iterations=max_iterations,
+        )
 
+        def on_progress(prog):
+            shared["message"] = prog.message
+            shared["current_iteration"] = prog.current_iteration
+            shared["max_iterations"] = prog.max_iterations
 
-def _thread_execute(shared, db, provider, plan, meta):
-    try:
-        ai_client = create_ai_client()
-        researcher = AiResearcher(db=db, ai_client=ai_client, data_provider=provider)
-
-        def on_status(msg):
-            shared["message"] = msg
-
-        result = researcher.execute_from_plan(
-            plan=plan,
-            idea_id=meta["idea_id"],
-            plan_id=meta["plan_id"],
-            idea_text=meta["idea_text"],
-            idea_title=meta.get("idea_title", ""),
-            category=meta.get("category", ""),
-            universe_filter_text=meta.get("universe_filter_text", ""),
-            universe_config=meta.get("universe_config"),
-            start_date=meta.get("start_date"),
-            end_date=meta.get("end_date"),
-            on_status=on_status,
+        result = researcher.run_research_loop(
+            hypothesis=hypothesis,
+            idea_title=idea_title,
+            category=category,
+            universe_config=universe_config,
+            start_date=start_date,
+            end_date=end_date,
+            initial_config_dict=signal_config_dict,
+            max_iterations=max_iterations,
+            on_progress=on_progress,
+            universe_filter_text=universe_filter_text,
         )
         shared["_result"] = result
     except Exception as e:
@@ -111,7 +110,7 @@ def main():
     apply_reuters_style()
     render_sidebar_running_indicator()
     st.markdown("# Research")
-    st.caption("投資アイデアを入力してAIが自動で分析・検証します")
+    st.caption("投資仮説を入力 → AIがパラメータ選択 → 自動イテレーションで検証")
 
     _check_thread_completion()
 
@@ -119,21 +118,20 @@ def main():
 
     if phase == "idle":
         _show_input_form()
-    elif phase in ("generating_plan", "refining_plan"):
+    elif phase == "generating_params":
         apply_waiting_overlay()
-        label = "計画を生成中..." if phase == "generating_plan" else "計画を修正中..."
-        _waiting_fragment(label)
-    elif phase == "plan_ready":
-        _show_plan_review()
+        _waiting_fragment("パラメータを生成中...")
+    elif phase == "params_ready":
+        _show_params_review()
     elif phase == "executing":
         apply_waiting_overlay()
-        _waiting_fragment("分析を実行中...")
+        _waiting_fragment("イテレーション実行中...")
     elif phase == "done":
         _show_result()
 
 
 # ===========================================================================
-# スレッド完了チェック（毎描画の先頭で呼ぶ）
+# スレッド完了チェック
 # ===========================================================================
 def _check_thread_completion():
     thread = st.session_state.get("rp_thread")
@@ -143,16 +141,13 @@ def _check_thread_completion():
     progress = st.session_state.get("rp_progress", {})
     phase = st.session_state.get("rp_phase", "idle")
 
-    # スレッド参照をクリア
     st.session_state.pop("rp_thread", None)
     st.session_state.pop("rp_start_time", None)
 
     # --- エラー ---
     if "error" in progress:
-        if phase == "generating_plan":
+        if phase == "generating_params":
             st.session_state["rp_phase"] = "idle"
-        elif phase == "refining_plan":
-            st.session_state["rp_phase"] = "plan_ready"
         elif phase == "executing":
             meta = st.session_state.get("rp_meta", {})
             st.session_state["rp_result"] = ResearchProgress(
@@ -164,7 +159,6 @@ def _check_thread_completion():
                 universe_filter_text=meta.get("universe_filter_text", ""),
                 start_date=meta.get("start_date", ""),
                 end_date=meta.get("end_date", ""),
-                plan=st.session_state.get("rp_plan", {}),
             )
             st.session_state["rp_phase"] = "done"
         st.session_state["_rp_error"] = progress["error"]
@@ -175,32 +169,19 @@ def _check_thread_completion():
     if result is None:
         return
 
-    if phase == "generating_plan":
-        plan, idea_id, plan_id = result
-        st.session_state["rp_plan"] = plan
-        meta = st.session_state.get("rp_meta", {})
-        meta["idea_id"] = idea_id
-        meta["plan_id"] = plan_id
-        st.session_state["rp_meta"] = meta
-        st.session_state["rp_phase"] = "plan_ready"
-    elif phase == "refining_plan":
-        st.session_state["rp_plan"] = result
-        st.session_state["rp_phase"] = "plan_ready"
+    if phase == "generating_params":
+        st.session_state["rp_param_result"] = result
+        st.session_state["rp_phase"] = "params_ready"
     elif phase == "executing":
         st.session_state["rp_result"] = result
         st.session_state["rp_phase"] = "done"
 
 
 # ===========================================================================
-# 待機画面（@st.fragment で部分再描画 — ページ全体は再描画しない）
+# 待機画面
 # ===========================================================================
 @st.fragment(run_every=2)
 def _waiting_fragment(title: str):
-    """フラグメント内で進捗を自動更新する。
-
-    スレッドが完了したら st.rerun(scope="app") でページ全体を再描画し、
-    次のフェーズへ遷移する。
-    """
     thread = st.session_state.get("rp_thread")
     if thread is not None and not thread.is_alive():
         _check_thread_completion()
@@ -212,6 +193,12 @@ def _waiting_fragment(title: str):
 
     st.markdown(f"### {title}")
     st.write(progress.get("message", "処理中..."))
+
+    # イテレーション進捗
+    cur = progress.get("current_iteration", 0)
+    mx = progress.get("max_iterations", 0)
+    if cur > 0 and mx > 0:
+        st.progress(cur / mx, text=f"イテレーション {cur}/{mx}")
 
     elapsed = ""
     if start_time:
@@ -227,7 +214,7 @@ def _waiting_fragment(title: str):
 def _show_input_form():
     error = st.session_state.pop("_rp_error", None)
     if error:
-        st.error(f"計画生成エラー: {error}")
+        st.error(f"エラー: {error}")
 
     from core.ai_client import ClaudeCodeClient
     if not ClaudeCodeClient().is_available():
@@ -238,14 +225,14 @@ def _show_input_form():
 
     idea_title = st.text_input(
         "タイトル",
-        placeholder="例: 月曜日の株式リターンは低い（月曜効果）",
+        placeholder="例: 3日連続陽線+出来高急増銘柄の20日後リターン",
     )
     idea_text = st.text_area(
-        "アイデアの詳細説明",
+        "投資仮説の詳細",
         height=150,
         placeholder=(
-            "例: 月曜日は他の曜日と比較して平均リターンが低い傾向がある。"
-            "週末効果とも呼ばれるこのアノマリーが日本市場でも有効かを検証したい。"
+            "例: 3日連続で陽線を付け、かつ直近の出来高が過去20日平均の2倍以上に急増した銘柄は、"
+            "20営業日後にTOPIXを上回るリターンを示すはずだ。"
         ),
     )
     category = st.selectbox("カテゴリ", ANALYSIS_CATEGORIES)
@@ -303,10 +290,10 @@ def _show_input_form():
 
     st.markdown("---")
 
-    # --- 計画生成ボタン ---
-    if st.button("計画を生成", type="primary", width='stretch', disabled=not idea_text):
+    # --- パラメータ生成ボタン ---
+    if st.button("AIにパラメータを選択させる", type="primary", width='stretch', disabled=not idea_text):
         if not idea_text:
-            st.error("アイデアの説明を入力してください。")
+            st.error("仮説の説明を入力してください。")
             return
 
         shared = {"message": "開始中..."}
@@ -321,15 +308,13 @@ def _show_input_form():
         }
         st.session_state["rp_progress"] = shared
         st.session_state["rp_start_time"] = datetime.now()
-        st.session_state["rp_phase"] = "generating_plan"
+        st.session_state["rp_phase"] = "generating_params"
         st.session_state["rp_meta"] = meta
 
         t = threading.Thread(
-            target=_thread_generate_plan,
+            target=_thread_generate_params,
             args=(
-                shared, get_db(), get_data_provider(),
-                idea_text, meta["idea_title"], category,
-                universe_filter_text, universe_config,
+                shared, idea_text, universe_filter_text,
                 str(start_date), str(end_date),
             ),
             daemon=True,
@@ -340,75 +325,120 @@ def _show_input_form():
 
 
 # ===========================================================================
-# ステージ 2: 計画レビュー
+# ステージ 2: パラメータレビュー
 # ===========================================================================
-def _show_plan_review():
+def _show_params_review():
     error = st.session_state.pop("_rp_error", None)
     if error:
-        st.error(f"計画修正エラー: {error}")
+        st.error(f"エラー: {error}")
 
-    plan = st.session_state["rp_plan"]
+    param_result: ParameterSelectionResult = st.session_state["rp_param_result"]
     meta = st.session_state["rp_meta"]
 
-    st.markdown("## 分析計画")
+    st.markdown("## AIが選択したパラメータ")
 
     # 入力条件
     with st.expander("入力条件", expanded=False):
         st.markdown(f"**タイトル:** {meta['idea_title']}")
         st.markdown(f"**カテゴリ:** {meta['category']}")
-        st.markdown("**アイデア詳細:**")
+        st.markdown("**仮説:**")
         st.info(meta["idea_text"])
         if meta["start_date"] or meta["end_date"]:
             st.markdown(f"**分析期間:** {meta['start_date']} 〜 {meta['end_date']}")
         if meta["universe_filter_text"]:
             st.markdown(f"**ユニバース条件:** {meta['universe_filter_text']}")
 
-    # 計画の表示（共通コンポーネント）
-    render_plan(plan)
+    # パラメータ選択理由
+    if param_result.reasoning:
+        st.markdown("#### パラメータ選択理由")
+        st.write(param_result.reasoning)
+
+    # 仮説↔パラメータ対応
+    if param_result.hypothesis_mapping:
+        st.markdown("#### 仮説とパラメータの対応")
+        st.write(param_result.hypothesis_mapping)
+
+    # テスト不可能な側面
+    if param_result.unmappable_aspects:
+        st.warning("**この仮説ではテストできない側面:**\n" +
+                   "\n".join(f"- {a}" for a in param_result.unmappable_aspects))
+
+    # パラメータテーブル
+    st.markdown("#### シグナルパラメータ")
+    cfg_dict = param_result.signal_config_dict
+    _JP_LABELS = {
+        "consecutive_bullish_days": "連続陽線日数",
+        "consecutive_bearish_days": "連続陰線日数",
+        "volume_surge_ratio": "出来高倍率閾値",
+        "volume_surge_window": "出来高MA期間",
+        "price_vs_ma25": "25日線との関係",
+        "price_vs_ma75": "75日線との関係",
+        "price_vs_ma200": "200日線との関係",
+        "ma_deviation_pct": "移動平均乖離率(%)",
+        "rsi_lower": "RSI下限",
+        "rsi_upper": "RSI上限",
+        "bb_buy_below_lower": "BB下限タッチで買い",
+        "ma_cross_short": "GC/DC 短期MA",
+        "ma_cross_long": "GC/DC 長期MA",
+        "ma_cross_type": "GC/DC方向",
+        "macd_fast": "MACD短期",
+        "macd_slow": "MACD長期",
+        "atr_max": "ATRフィルター(%)",
+        "ichimoku_cloud": "一目均衡表: 雲",
+        "ichimoku_tenkan_above_kijun": "転換線>基準線",
+        "sector_relative_strength_min": "セクター相対強度下限(%)",
+        "margin_ratio_min": "貸借倍率下限",
+        "margin_ratio_max": "貸借倍率上限",
+        "short_selling_ratio_max": "空売り比率上限",
+        "holding_period_days": "測定期間(営業日)",
+        "signal_logic": "シグナル結合ロジック",
+    }
+    rows = []
+    for k, v in cfg_dict.items():
+        label = _JP_LABELS.get(k, k)
+        rows.append({"パラメータ": label, "キー": k, "値": str(v)})
+    if rows:
+        st.dataframe(pd.DataFrame(rows), width='stretch', hide_index=True)
+    else:
+        st.warning("パラメータが空です")
+
+    # 生のJSON（折りたたみ）
+    with st.expander("JSON（コピー用）"):
+        st.code(json.dumps(cfg_dict, ensure_ascii=False, indent=2), language="json")
 
     st.markdown("---")
 
-    # --- 計画修正 ---
-    with st.expander("計画を修正する"):
-        feedback = st.text_area(
-            "修正したい内容を自由に記述してください",
-            placeholder="例: バックテスト戦略をロングショートに変更してほしい / 分析期間を3年に短縮して",
-            key="plan_feedback",
-        )
-        if st.button("修正して再生成", disabled=not feedback):
-            shared = {"message": "開始中..."}
-            st.session_state["rp_progress"] = shared
-            st.session_state["rp_start_time"] = datetime.now()
-            st.session_state["rp_phase"] = "refining_plan"
-
-            t = threading.Thread(
-                target=_thread_refine_plan,
-                args=(shared, get_db(), get_data_provider(), plan, feedback, meta["plan_id"]),
-                daemon=True,
-            )
-            st.session_state["rp_thread"] = t
-            t.start()
-            st.rerun()
-
-    st.markdown("---")
+    # イテレーション設定
+    max_iter = st.slider(
+        "イテレーション回数",
+        min_value=1, max_value=5,
+        value=AI_RESEARCH_MAX_ITERATIONS,
+        help="結果が悪い場合にAIがパラメータを自動調整して再実行する回数",
+    )
 
     col1, col2 = st.columns(2)
     with col1:
-        execute = st.button("この計画で実行する", type="primary", width='stretch')
+        execute = st.button("この設定で実行", type="primary", width='stretch')
     with col2:
         if st.button("やり直す", width='stretch'):
             _clear_state()
             st.rerun()
 
     if execute:
-        shared = {"message": "開始中..."}
+        shared = {"message": "開始中...", "current_iteration": 0, "max_iterations": max_iter}
         st.session_state["rp_progress"] = shared
         st.session_state["rp_start_time"] = datetime.now()
         st.session_state["rp_phase"] = "executing"
 
         t = threading.Thread(
-            target=_thread_execute,
-            args=(shared, get_db(), get_data_provider(), plan, meta),
+            target=_thread_execute_loop,
+            args=(
+                shared, get_db(), get_data_provider(),
+                meta["idea_text"], meta["idea_title"], meta["category"],
+                cfg_dict, meta["universe_config"],
+                meta["start_date"], meta["end_date"],
+                max_iter, meta["universe_filter_text"],
+            ),
             daemon=True,
         )
         st.session_state["rp_thread"] = t
@@ -425,12 +455,6 @@ def _show_result():
     if result.phase == "error":
         st.error(f"研究中にエラーが発生しました: {result.error}")
         _render_conditions_expander(result)
-        if result.plan:
-            with st.expander("AI生成計画"):
-                render_plan(result.plan)
-        if result.generated_code:
-            with st.expander("生成されたコード"):
-                st.code(result.generated_code, language="python")
         if st.button("新しい研究を開始"):
             _clear_state()
             st.rerun()
@@ -440,24 +464,110 @@ def _show_result():
 
     _render_conditions_expander(result)
 
-    if result.plan:
-        with st.expander("AI生成計画"):
-            render_plan(result.plan)
+    iterations = result.iterations or []
+    best_idx = result.best_iteration_index
 
-    # データ準備
-    exec_result = result.execution_result.get("result", {}) if result.execution_result else {}
-    stats = exec_result.get("statistics", {}) or {}
-    backtest = exec_result.get("backtest", {}) or {}
-    interpretation = result.interpretation or {}
-    generated_code = result.generated_code or ""
-    recent_examples = exec_result.get("recent_examples") or stats.get("recent_examples")
+    if not iterations:
+        st.warning("イテレーション結果がありません")
+        if st.button("新しい研究を開始"):
+            _clear_state()
+            st.rerun()
+        return
 
-    render_result_tabs(interpretation, stats, backtest, generated_code, recent_examples)
+    # --- タブ構成: ベスト結果 + 各イテレーション + AI解釈 ---
+    tab_labels = ["ベスト結果"]
+    for it in iterations:
+        label = f"イテレーション {it.iteration}"
+        if best_idx is not None and it.iteration - 1 == best_idx:
+            label += " *"
+        tab_labels.append(label)
+    tab_labels.append("AI総合評価")
+
+    tabs = st.tabs(tab_labels)
+
+    # --- ベスト結果タブ ---
+    with tabs[0]:
+        if best_idx is not None and best_idx < len(iterations):
+            best_it = iterations[best_idx]
+            st.markdown(f"**ベストイテレーション: #{best_it.iteration}**")
+            _render_iteration_result(best_it, is_best=True)
+        else:
+            st.warning("ベスト結果を特定できませんでした")
+
+    # --- 各イテレーションタブ ---
+    for i, it in enumerate(iterations):
+        with tabs[i + 1]:
+            is_best = (best_idx is not None and i == best_idx)
+            if is_best:
+                st.info("このイテレーションがベスト結果に選ばれました")
+            _render_iteration_result(it, is_best=is_best)
+
+    # --- AI総合評価タブ ---
+    with tabs[-1]:
+        interp = result.interpretation
+        if interp:
+            label = interp.get("evaluation_label", "needs_review")
+            confidence = interp.get("confidence", 0)
+            st.markdown(
+                f"### {render_status_badge(label)} &nbsp; 信頼度: {confidence:.0%}",
+                unsafe_allow_html=True,
+            )
+            if interp.get("summary"):
+                st.write(interp["summary"])
+            if interp.get("reasons"):
+                st.markdown("**判定理由:**")
+                for r in interp["reasons"]:
+                    st.write(f"- {r}")
+            for section, title in [("strengths", "強み"), ("weaknesses", "弱み"), ("suggestions", "改善提案")]:
+                items = interp.get(section, [])
+                if items:
+                    st.markdown(f"**{title}:**")
+                    for item in items:
+                        st.write(f"- {item}")
+        else:
+            st.info("AI評価データがありません")
 
     st.markdown("---")
     if st.button("新しい研究を開始", type="primary"):
         _clear_state()
         st.rerun()
+
+
+def _render_iteration_result(it, is_best=False):
+    """1つのイテレーション結果を表示"""
+    bt = it.backtest_result
+
+    # エラーの場合
+    if "error" in bt:
+        st.error(f"バックテストエラー: {bt['error']}")
+        if it.ai_reasoning:
+            st.write(f"**AI判断:** {it.ai_reasoning}")
+        return
+
+    # パラメータ変更の説明
+    if it.changes_description:
+        st.caption(f"変更: {it.changes_description}")
+    if it.ai_reasoning:
+        st.write(f"**AI判断:** {it.ai_reasoning}")
+
+    # StandardBacktester結果を render_result_tabs で表示
+    stats = bt.get("statistics", {})
+    backtest = bt.get("backtest", bt)
+    evaluation = bt.get("evaluation", {})
+    recent_examples = bt.get("recent_examples")
+    pending_signals = bt.get("pending_signals")
+    config_snapshot = bt.get("config_snapshot", {})
+
+    render_result_tabs(
+        interpretation=evaluation,
+        stats=stats,
+        backtest=backtest,
+        code_or_config=config_snapshot,
+        recent_examples=recent_examples,
+        code_tab_label="パラメータ設定",
+        code_language="json",
+        pending_signals=pending_signals,
+    )
 
 
 def _render_conditions_expander(result: ResearchProgress):
@@ -468,7 +578,7 @@ def _render_conditions_expander(result: ResearchProgress):
         if result.category:
             st.markdown(f"**カテゴリ:** {result.category}")
         if result.idea_text:
-            st.markdown("**アイデア詳細:**")
+            st.markdown("**仮説:**")
             st.info(result.idea_text)
         if result.start_date or result.end_date:
             st.markdown(f"**分析期間:** {result.start_date} 〜 {result.end_date}")
@@ -483,10 +593,6 @@ def _clear_state():
     for key in list(st.session_state.keys()):
         if key.startswith("rp_") or key == "_rp_error":
             st.session_state.pop(key, None)
-    # 旧バージョンのキーも掃除
-    for key in ("research_thread", "research_progress", "research_start_time",
-                "research_result", "research_plan", "research_plan_meta"):
-        st.session_state.pop(key, None)
 
 
 if __name__ == "__main__":

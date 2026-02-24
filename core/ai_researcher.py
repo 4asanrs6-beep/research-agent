@@ -1,10 +1,11 @@
-"""自動研究実行モジュール（AI研究サイクル）
+"""自動研究実行モジュール（パラメータ選択 + イテレーション方式）
 
-研究サイクル全体を管理:
-  アイデア入力 → 分析計画生成 → コード生成 → コード実行 → 結果解釈 → 知見保存
+研究サイクル:
+  仮説入力 → AIがSignalConfigパラメータ選択 → StandardBacktesterで実行
+  → 結果が悪ければAIがパラメータ調整して再実行（最大N回）
+  → ベスト結果を選択 → AI解釈 → 知見保存
 
-Phase1: ユーザー入力のアイデアを使用
-Phase2（将来）: AIが自動でアイデア生成
+コード生成は行わない。AIはJSON出力のみ。
 """
 
 import json
@@ -13,86 +14,149 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 
+from config import AI_RESEARCH_MAX_ITERATIONS, AI_RESEARCH_MIN_SIGNALS, AI_RESEARCH_MAX_STOCKS
 from db.database import Database
-from core.ai_planner import AiPlanner
-from core.ai_code_generator import AiCodeGenerator
-from core.ai_executor import AiExecutor
+from core.ai_parameter_selector import (
+    AiParameterSelector,
+    ParameterSelectionResult,
+    dict_to_signal_config,
+    signal_config_to_dict,
+)
 from core.ai_interpreter import AiInterpreter
 from core.knowledge_base import KnowledgeBase
-from core.filtered_provider import FilteredProvider
+from core.standard_backtester import StandardBacktester
+from core.signal_generator import SignalConfig
 from core.universe_filter import UniverseFilterConfig
 
 logger = logging.getLogger(__name__)
 
 
 @dataclass
+class IterationResult:
+    """1回のイテレーション結果"""
+    iteration: int
+    signal_config_dict: dict
+    backtest_result: dict           # StandardBacktester.run() の戻り値
+    ai_reasoning: str
+    changes_description: str
+
+
+@dataclass
 class ResearchProgress:
     """研究実行の進捗状態"""
-    phase: str = "idle"  # idle, planning, coding, executing, interpreting, saving, done, error
+    phase: str = "idle"  # idle, generating_params, params_ready, executing, interpreting, saving, done, error
     message: str = ""
-    plan: dict = field(default_factory=dict)
-    generated_code: str = ""
-    execution_result: dict = field(default_factory=dict)
+    # パラメータ選択結果
+    parameter_selection: dict = field(default_factory=dict)
+    signal_config_dict: dict = field(default_factory=dict)
+    # イテレーション
+    current_iteration: int = 0
+    max_iterations: int = AI_RESEARCH_MAX_ITERATIONS
+    iterations: list = field(default_factory=list)  # list[IterationResult]
+    # ベスト結果
+    best_iteration_index: int | None = None
+    best_result: dict = field(default_factory=dict)
+    # AI解釈
     interpretation: dict = field(default_factory=dict)
+    # DB参照
     run_id: int | None = None
     knowledge_id: int | None = None
     error: str | None = None
+    # 表示用メタデータ
+    idea_title: str = ""
+    idea_text: str = ""
+    category: str = ""
+    start_date: str = ""
+    end_date: str = ""
+    universe_filter_text: str = ""
+
+
+def _compute_composite_score(bt_result: dict, stats: dict) -> float:
+    """イテレーション結果のスコアを算出（ベスト選択用）
+
+    スコア = 統計的有意(+2) + |Cohen's d|*3 + シグナル>=20(+1) + 超過リターン*10
+    """
+    score = 0.0
+    if stats.get("is_significant"):
+        score += 2.0
+    cohens_d = abs(stats.get("cohens_d", 0))
+    score += cohens_d * 3.0
+    n_valid = bt_result.get("n_valid_signals", 0)
+    if n_valid >= AI_RESEARCH_MIN_SIGNALS:
+        score += 1.0
+    mean_excess = bt_result.get("mean_excess_return", 0)
+    score += mean_excess * 10.0
+    return score
 
 
 class AiResearcher:
-    """AI研究エージェント: 研究サイクル全体を自動実行"""
+    """AI研究エージェント: パラメータ選択 + イテレーション方式"""
 
     def __init__(
         self,
         db: Database,
         ai_client: Any,
         data_provider: Any,
-        max_code_fix_attempts: int = 2,
+        max_iterations: int = AI_RESEARCH_MAX_ITERATIONS,
     ):
-        """
-        Args:
-            db: データベースインスタンス
-            ai_client: AIモデルクライアント
-            data_provider: MarketDataProviderインスタンス
-            max_code_fix_attempts: コードエラー時の最大修正回数
-        """
         self.db = db
         self.data_provider = data_provider
-        self.max_code_fix_attempts = max_code_fix_attempts
+        self.max_iterations = max_iterations
 
-        self.planner = AiPlanner(ai_client)
-        self.code_generator = AiCodeGenerator(ai_client)
-        self.executor = AiExecutor()
+        self.param_selector = AiParameterSelector(ai_client)
         self.interpreter = AiInterpreter(ai_client)
         self.knowledge_base = KnowledgeBase(db)
+        self.backtester = StandardBacktester(data_provider, db)
 
-    def run_research(
+    def select_parameters(
         self,
-        idea_text: str,
-        idea_title: str = "",
-        category: str = "その他",
+        hypothesis: str,
+        universe_desc: str = "",
+        start_date: str = "",
+        end_date: str = "",
+    ) -> ParameterSelectionResult:
+        """仮説からSignalConfigパラメータを選択する（UIに表示してユーザー確認を得るためのステップ）"""
+        return self.param_selector.select_parameters(
+            hypothesis=hypothesis,
+            universe_desc=universe_desc,
+            start_date=start_date,
+            end_date=end_date,
+        )
+
+    def run_research_loop(
+        self,
+        hypothesis: str,
+        idea_title: str,
+        category: str,
+        universe_config: UniverseFilterConfig,
+        start_date: str,
+        end_date: str,
+        initial_config_dict: dict,
+        max_iterations: int | None = None,
         on_progress: Any = None,
         universe_filter_text: str = "",
-        universe_config: UniverseFilterConfig | None = None,
-        start_date: str | None = None,
-        end_date: str | None = None,
     ) -> ResearchProgress:
-        """研究サイクルを実行
+        """イテレーションループを実行
 
-        Args:
-            idea_text: 投資アイデアのテキスト
-            idea_title: アイデアのタイトル（未指定時は自動生成）
-            category: 分析カテゴリ
-            on_progress: 進捗コールバック (ResearchProgress -> None)
-            universe_filter_text: ユニバースフィルタ条件のテキスト
-            universe_config: 機械的フィルタ用のユニバース設定
-            start_date: 分析開始日（例: "2021-01-01"）
-            end_date: 分析終了日（例: "2026-02-23"）
-
-        Returns:
-            最終的なResearchProgress
+        1. initial_config_dict で StandardBacktester.run()
+        2. AI が結果を評価しパラメータ調整
+        3. 改善見込みなし or 最大回数到達まで繰り返し
+        4. ベスト結果を選択し AI 解釈
+        5. DB・知見保存
         """
-        progress = ResearchProgress()
+        if max_iterations is None:
+            max_iterations = self.max_iterations
+
+        progress = ResearchProgress(
+            idea_title=idea_title,
+            idea_text=hypothesis,
+            category=category,
+            start_date=start_date,
+            end_date=end_date,
+            universe_filter_text=universe_filter_text,
+            signal_config_dict=initial_config_dict,
+            max_iterations=max_iterations,
+        )
 
         def notify(phase: str, message: str):
             progress.phase = phase
@@ -102,135 +166,232 @@ class AiResearcher:
                 on_progress(progress)
 
         try:
-            # --- 0. FilteredProvider でラップ ---
-            if universe_config and not universe_config.is_empty():
-                effective_provider = FilteredProvider(self.data_provider, universe_config)
-            else:
-                effective_provider = self.data_provider
-
-            # --- 1. アイデア保存 ---
-            notify("planning", "アイデアを保存中...")
+            # --- 0. DB にアイデア・プラン保存 ---
+            notify("executing", "アイデアを保存中...")
             if not idea_title:
-                idea_title = idea_text[:50]
-            idea_id = self.db.create_idea(idea_title, idea_text, category)
+                idea_title = hypothesis[:50]
+            idea_id = self.db.create_idea(idea_title, hypothesis, category)
             self.db.update_idea(idea_id, status="active")
 
-            # --- 2. 分析計画生成 ---
-            notify("planning", "AIが分析計画を生成中...")
-            plan = self.planner.generate_plan(
-                idea_text,
-                universe_filter_text=universe_filter_text,
-                start_date=start_date,
-                end_date=end_date,
-            )
-            if "error" in plan:
-                raise RuntimeError(f"計画生成エラー: {plan['error']}")
-            progress.plan = plan
-
-            # DB にプラン保存
+            plan_data = {
+                "plan_name": f"AI研究: {idea_title}",
+                "hypothesis": hypothesis,
+                "methodology": {"approach": "パラメータ選択 + イテレーション"},
+                "analysis_period": {"start_date": start_date, "end_date": end_date},
+            }
             plan_id = self.db.create_plan(
                 idea_id=idea_id,
-                name=plan.get("plan_name", "AI生成プラン"),
-                analysis_method="ai_generated",
-                universe=plan.get("universe", {}).get("type", "all"),
-                universe_detail=plan.get("universe", {}).get("detail"),
-                start_date=plan.get("analysis_period", {}).get("start_date"),
-                end_date=plan.get("analysis_period", {}).get("end_date"),
-                parameters=plan.get("methodology", {}),
-                backtest_config=plan.get("backtest", {}),
+                name=plan_data["plan_name"],
+                analysis_method="ai_parameter_selection",
+                start_date=start_date,
+                end_date=end_date,
+                parameters={"signal_config": initial_config_dict},
             )
             self.db.update_plan(plan_id, status="ready")
 
-            # Run 作成
             idea_snapshot = self.db.get_idea(idea_id)
             plan_snapshot = self.db.get_plan(plan_id)
             run_id = self.db.create_run(plan_id, idea_snapshot, plan_snapshot)
             progress.run_id = run_id
 
-            # --- 3. コード生成 ---
-            notify("coding", "AIが分析コードを生成中...")
-            code = self.code_generator.generate_code(
-                plan,
-                universe_filter_text=universe_filter_text,
-                start_date=start_date,
-                end_date=end_date,
-            )
-            progress.generated_code = code
+            # --- 1. イテレーションループ ---
+            current_config_dict = dict(initial_config_dict)
+            previous_iterations_summary: list[dict] = []
 
-            # --- 4. コード実行（エラー時はリトライ） ---
-            notify("executing", "分析コードを実行中...")
-            exec_result = self.executor.execute(code, effective_provider)
+            for i in range(max_iterations):
+                iteration_num = i + 1
+                progress.current_iteration = iteration_num
+                notify("executing", f"イテレーション {iteration_num}/{max_iterations}: バックテスト実行中...")
 
-            for attempt in range(self.max_code_fix_attempts):
-                if exec_result["success"]:
-                    break
-                notify(
-                    "coding",
-                    f"コード修正中 (試行{attempt + 2}/{self.max_code_fix_attempts + 1})...",
+                # バックテスト実行
+                signal_config = dict_to_signal_config(current_config_dict)
+                bt_result = self.backtester.run(
+                    signal_config=signal_config,
+                    universe_config=universe_config,
+                    start_date=start_date,
+                    end_date=end_date,
+                    max_stocks=AI_RESEARCH_MAX_STOCKS,
+                    on_progress=lambda msg, pct: notify(
+                        "executing",
+                        f"イテレーション {iteration_num}/{max_iterations}: {msg}",
+                    ),
                 )
-                try:
-                    code = self.code_generator.fix_code(code, exec_result["error"])
-                except Exception as fix_err:
-                    logger.warning("コード修正失敗 (試行%d): %s", attempt + 2, fix_err)
+
+                # エラーチェック
+                if "error" in bt_result:
+                    error_msg = bt_result["error"]
+                    logger.warning("イテレーション%d バックテストエラー: %s", iteration_num, error_msg)
+                    # エラーでも IterationResult として記録
+                    it_result = IterationResult(
+                        iteration=iteration_num,
+                        signal_config_dict=dict(current_config_dict),
+                        backtest_result=bt_result,
+                        ai_reasoning=f"バックテストエラー: {error_msg}",
+                        changes_description="初回" if i == 0 else "調整後",
+                    )
+                    progress.iterations.append(it_result)
+
+                    # 最初のイテレーションでエラーなら条件緩和を試みる
+                    if i == 0:
+                        # シグナル0件の場合、AIに条件緩和を依頼
+                        result_summary = {
+                            "n_signals": 0, "n_valid": 0,
+                            "mean_excess": 0.0, "p_value": 1.0,
+                            "cohens_d": 0.0, "win_rate": 0.0,
+                            "is_significant": False,
+                            "error": error_msg,
+                        }
+                        previous_iterations_summary.append({
+                            "iteration": iteration_num,
+                            "n_signals": 0,
+                            "mean_excess": 0.0,
+                            "p_value": 1.0,
+                            "cohens_d": 0.0,
+                            "changes_description": "初回（エラー）",
+                        })
+                        if i < max_iterations - 1:
+                            notify("executing", f"イテレーション {iteration_num}/{max_iterations}: パラメータ調整中...")
+                            adjusted = self.param_selector.adjust_parameters(
+                                hypothesis=hypothesis,
+                                current_config_dict=current_config_dict,
+                                result_summary=result_summary,
+                                iteration=iteration_num + 1,
+                                max_iterations=max_iterations,
+                                previous_iterations=previous_iterations_summary,
+                            )
+                            if adjusted is not None:
+                                current_config_dict = adjusted.signal_config_dict
+                                continue
+                        break
                     break
-                progress.generated_code = code
-                notify("executing", "修正コードを実行中...")
-                exec_result = self.executor.execute(code, effective_provider)
 
-            progress.execution_result = exec_result
+                # 成功したイテレーション結果を記録
+                stats = bt_result.get("statistics", {})
+                changes_desc = "初回" if i == 0 else "AIによるパラメータ調整"
 
-            if not exec_result["success"]:
-                raise RuntimeError(f"コード実行失敗: {exec_result['error']}")
+                it_result = IterationResult(
+                    iteration=iteration_num,
+                    signal_config_dict=dict(current_config_dict),
+                    backtest_result=bt_result,
+                    ai_reasoning="",
+                    changes_description=changes_desc,
+                )
+                progress.iterations.append(it_result)
 
-            # 結果をRunに保存
-            result_data = exec_result["result"] or {}
-            statistics_to_save = result_data.get("statistics") or {}
-            if result_data.get("recent_examples"):
-                statistics_to_save["recent_examples"] = result_data["recent_examples"]
+                # 結果サマリー
+                n_valid = bt_result.get("backtest", bt_result).get("n_valid_signals", 0)
+                result_summary = {
+                    "n_signals": stats.get("n_signals", n_valid),
+                    "n_valid": stats.get("n_excess", n_valid),
+                    "mean_excess": stats.get("excess_mean", 0.0),
+                    "p_value": stats.get("p_value", 1.0),
+                    "cohens_d": stats.get("cohens_d", 0.0),
+                    "win_rate": stats.get("win_rate", 0.0),
+                    "is_significant": stats.get("is_significant", False),
+                }
+
+                previous_iterations_summary.append({
+                    "iteration": iteration_num,
+                    "n_signals": result_summary["n_signals"],
+                    "mean_excess": result_summary["mean_excess"],
+                    "p_value": result_summary["p_value"],
+                    "cohens_d": result_summary["cohens_d"],
+                    "changes_description": changes_desc,
+                })
+
+                # 最終イテレーション → ループ終了
+                if i >= max_iterations - 1:
+                    break
+
+                # AI にパラメータ調整を依頼
+                notify("executing", f"イテレーション {iteration_num}/{max_iterations}: AIがパラメータ調整中...")
+                adjusted = self.param_selector.adjust_parameters(
+                    hypothesis=hypothesis,
+                    current_config_dict=current_config_dict,
+                    result_summary=result_summary,
+                    iteration=iteration_num + 1,
+                    max_iterations=max_iterations,
+                    previous_iterations=previous_iterations_summary,
+                )
+
+                if adjusted is None:
+                    # AI判断: これ以上改善なし
+                    logger.info("AI判断により早期停止 (イテレーション%d)", iteration_num)
+                    break
+
+                current_config_dict = adjusted.signal_config_dict
+                # 次のイテレーションに理由を記録
+                it_result.ai_reasoning = adjusted.reasoning
+
+            # --- 2. ベスト結果選択 ---
+            notify("interpreting", "ベスト結果を選択中...")
+            best_idx = self._select_best_iteration(progress.iterations)
+            progress.best_iteration_index = best_idx
+
+            if best_idx is not None:
+                best_it = progress.iterations[best_idx]
+                progress.best_result = best_it.backtest_result
+            elif progress.iterations:
+                # スコア計算不能でも最後の結果を使用
+                progress.best_iteration_index = len(progress.iterations) - 1
+                progress.best_result = progress.iterations[-1].backtest_result
+            else:
+                raise RuntimeError("イテレーション結果がありません")
+
+            # --- 3. AI解釈（ベスト結果に対して） ---
+            best_bt = progress.best_result
+            if "error" not in best_bt:
+                notify("interpreting", "AIが結果を解釈中...")
+                best_stats = best_bt.get("statistics", {})
+                best_backtest = best_bt.get("backtest", best_bt)
+
+                interpretation = self.interpreter.interpret(
+                    idea_text=hypothesis,
+                    plan=plan_data,
+                    statistics_result=best_stats,
+                    backtest_result=best_backtest,
+                )
+                progress.interpretation = interpretation
+            else:
+                progress.interpretation = {
+                    "evaluation_label": "needs_review",
+                    "confidence": 0.0,
+                    "summary": f"バックテストエラー: {best_bt.get('error', '')}",
+                    "reasons": [best_bt.get("error", "不明なエラー")],
+                    "strengths": [],
+                    "weaknesses": [],
+                    "suggestions": ["パラメータを見直してください"],
+                    "knowledge_entry": {"hypothesis": hypothesis, "tags": [category]},
+                }
+
+            # --- 4. DB保存 ---
+            notify("saving", "結果を保存中...")
+            best_stats_to_save = best_bt.get("statistics", {})
+            best_backtest_to_save = best_bt.get("backtest", best_bt)
+
             self.db.update_run(
                 run_id,
-                statistics_result=statistics_to_save,
-                backtest_result=result_data.get("backtest"),
-                data_period=result_data.get("metadata", {}).get("data_period"),
-                universe_snapshot=result_data.get("metadata", {}).get("universe_codes"),
-            )
-
-            # --- 5. 結果解釈 ---
-            notify("interpreting", "AIが結果を解釈中...")
-            interpretation = self.interpreter.interpret(
-                idea_text=idea_text,
-                plan=plan,
-                statistics_result=result_data.get("statistics"),
-                backtest_result=result_data.get("backtest"),
-            )
-            interpretation["generated_code"] = code
-            progress.interpretation = interpretation
-
-            # 評価をRunに保存
-            self.db.update_run(
-                run_id,
-                evaluation=interpretation,
-                evaluation_label=interpretation.get("evaluation_label", "needs_review"),
+                statistics_result=best_stats_to_save,
+                backtest_result=best_backtest_to_save,
+                evaluation=progress.interpretation,
+                evaluation_label=progress.interpretation.get("evaluation_label", "needs_review"),
                 status="completed",
                 finished_at=datetime.now().isoformat(),
             )
 
-            # --- 6. 知見保存（DB + Markdown） ---
-            notify("saving", "知見を保存中...")
-            ke = interpretation.get("knowledge_entry", {})
+            # 知見保存
+            ke = progress.interpretation.get("knowledge_entry", {})
             knowledge = self.knowledge_base.save_from_run(
                 run_id=run_id,
-                hypothesis=ke.get("hypothesis", idea_text),
-                evaluation=interpretation,
+                hypothesis=ke.get("hypothesis", hypothesis),
+                evaluation=progress.interpretation,
                 tags=ke.get("tags", [category]),
-                plan=plan,
-                statistics_result=result_data.get("statistics"),
-                backtest_result=result_data.get("backtest"),
-                generated_code=code,
+                plan=plan_data,
+                statistics_result=best_stats_to_save,
+                backtest_result=best_backtest_to_save,
             )
             progress.knowledge_id = knowledge.id
 
-            # アイデアのステータス更新
             self.db.update_idea(idea_id, status="completed")
             self.db.update_plan(plan_id, status="completed")
 
@@ -243,7 +404,6 @@ class AiResearcher:
             progress.message = f"エラー: {e}"
             logger.error("研究実行エラー: %s", e, exc_info=True)
 
-            # Runが作成済みなら失敗ステータスに更新
             if progress.run_id:
                 self.db.update_run(
                     progress.run_id,
@@ -256,21 +416,22 @@ class AiResearcher:
                 on_progress(progress)
             return progress
 
-    # === Phase2用: AIアイデア生成（将来拡張） ===
+    def _select_best_iteration(self, iterations: list) -> int | None:
+        """イテレーション結果からベストを選択"""
+        if not iterations:
+            return None
 
-    def generate_ideas(self, context: str = "", n_ideas: int = 3) -> list[dict]:
-        """AIが自動で研究アイデアを生成（将来実装）
+        best_idx = None
+        best_score = -float("inf")
 
-        Args:
-            context: ヒントやコンテキスト情報
-            n_ideas: 生成するアイデアの数
+        for idx, it in enumerate(iterations):
+            bt = it.backtest_result
+            if "error" in bt:
+                continue
+            stats = bt.get("statistics", {})
+            score = _compute_composite_score(bt.get("backtest", bt), stats)
+            if score > best_score:
+                best_score = score
+                best_idx = idx
 
-        Returns:
-            [{"title": str, "description": str, "category": str}, ...]
-        """
-        # Phase2で実装予定
-        # 既存の知見ベースを参照し、まだ検証されていない仮説を自動生成
-        raise NotImplementedError(
-            "AIアイデア自動生成はPhase2で実装予定です。"
-            "現在はユーザー入力のアイデアを使用してください。"
-        )
+        return best_idx

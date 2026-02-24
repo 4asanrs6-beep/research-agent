@@ -473,15 +473,19 @@ def run_analysis(data_provider):
         return f"```json\n{json.dumps(interp, ensure_ascii=False, indent=2)}\n```"
 
 
-def create_ai_client(cwd: str | Path | None = None) -> BaseAiClient:
+def create_ai_client(cwd: str | Path | None = None, model: str | None = None) -> BaseAiClient:
     """AIクライアントを生成するファクトリ
 
     Claude Code CLI が利用可能ならそれを使用。
     利用不可の場合は DummyAiClient にフォールバック。
+
+    Args:
+        cwd: 作業ディレクトリ
+        model: 使用モデル（省略時は config.CLAUDE_CLI_MODEL）
     """
-    client = ClaudeCodeClient(cwd=cwd)
+    client = ClaudeCodeClient(cwd=cwd, model=model)
     if client.is_available():
-        logger.info("Claude Code CLI を使用します")
+        logger.info("Claude Code CLI を使用します (model=%s)", client.model)
         return client
     else:
         logger.warning("Claude Code CLI が利用不可のため、DummyAiClient を使用します")

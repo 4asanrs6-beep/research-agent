@@ -1,9 +1,14 @@
-"""生成された分析コードの安全な実行モジュール
+"""生成された分析コードの安全な実行モジュール（非推奨）
+
+[DEPRECATED] 研究ページはパラメータ選択方式（ai_parameter_selector.py + ai_researcher.py）に
+移行しました。コード生成・exec()実行は廃止されています。
+このモジュールは後方互換のために残してあります。
 
 AIが生成したPythonコードを制限された環境で実行し、結果を取得する。
 """
 
 import logging
+import re
 import traceback
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
 from typing import Any
@@ -86,6 +91,15 @@ class AiExecutor:
         """
         logger.info("コード実行開始 (timeout=%ds)", self.timeout)
 
+        # Python 3.11以前ではf-string内のネスト[]が構文エラーになるため事前修正
+        code = self._fix_fstring_syntax(code)
+
+        # 構文チェック
+        try:
+            compile(code, "<ai_generated>", "exec")
+        except SyntaxError as se:
+            logger.warning("生成コードに構文エラーあり（実行時に修正試行）: %s", se)
+
         try:
             result = self._run_with_timeout(code, data_provider)
             logger.info("コード実行完了")
@@ -111,6 +125,59 @@ class AiExecutor:
         with ThreadPoolExecutor(max_workers=1) as executor:
             future = executor.submit(self._execute_code, code, namespace, data_provider)
             return future.result(timeout=self.timeout)
+
+    @staticmethod
+    def _fix_fstring_syntax(code: str) -> str:
+        """Python 3.11以前で動かないf-stringネスト構文を修正する
+
+        例: f'{v['key']}' → f'{v["key"]}'
+            f"{v["key"]}" → f"{v['key']}"
+
+        構文エラーのない行は一切変更しない。
+        """
+        lines = code.split("\n")
+        fixed = []
+        for line in lines:
+            try:
+                compile(line + "\n", "<check>", "exec")
+                fixed.append(line)
+                continue
+            except SyntaxError:
+                pass
+            except Exception:
+                fixed.append(line)
+                continue
+
+            # f-string を含む行のみ修正対象
+            if "f'" not in line and 'f"' not in line:
+                fixed.append(line)
+                continue
+
+            new_line = line
+            # f'...{x['k']}...' → f'...{x["k"]}...'
+            new_line = re.sub(
+                r"""(f'[^']*\{[^}]*)\[\'([^']*)\'\]([^}]*\}[^']*')""",
+                r'\1["\2"]\3',
+                new_line,
+            )
+            # f"...{x["k"]}..." → f"...{x['k']}..."
+            new_line = re.sub(
+                r'''(f"[^"]*\{[^}]*)\["([^"]*)"\]([^}]*\}[^"]*")''',
+                r"\1['\2']\3",
+                new_line,
+            )
+            if new_line != line:
+                try:
+                    compile(new_line + "\n", "<check>", "exec")
+                    fixed.append(new_line)
+                    continue
+                except SyntaxError:
+                    pass
+
+            # それでもダメならそのまま（AIのfix_codeに任せる）
+            fixed.append(line)
+
+        return "\n".join(fixed)
 
     @staticmethod
     def _strip_imports(code: str) -> str:

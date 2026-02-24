@@ -54,12 +54,19 @@ BACKTEST_DEFAULTS = {
 }
 
 # AI研究エージェント設定（Claude Code CLI経由）
+CLAUDE_CLI_MODEL = os.getenv("CLAUDE_CLI_MODEL", "claude-opus-4-6")  # 計画生成・結果解釈用
+CLAUDE_CLI_CODE_MODEL = os.getenv("CLAUDE_CLI_CODE_MODEL", "sonnet")  # コード生成用（高速）
 CLAUDE_CLI_TIMEOUT = int(os.getenv("CLAUDE_CLI_TIMEOUT", "600"))  # CLI呼び出しタイムアウト秒
 
 # コード実行設定
 CODE_EXECUTION_TIMEOUT = int(os.getenv("CODE_EXECUTION_TIMEOUT", "120"))  # 秒
 
 # 標準バックテスト設定
+# AI研究イテレーション設定
+AI_RESEARCH_MAX_ITERATIONS = 3      # パラメータ調整の最大イテレーション回数
+AI_RESEARCH_MIN_SIGNALS = 20        # 最小シグナル数（これ未満なら条件緩和を促す）
+AI_RESEARCH_MAX_STOCKS = 50         # AI研究で使用する最大銘柄数
+
 STANDARD_BACKTEST_DEFAULTS = {
     # ユニバース
     "max_stocks": 50,

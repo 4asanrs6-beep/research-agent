@@ -141,7 +141,7 @@ class AiInterpreter:
             }
 
     def _format_plan_summary(self, plan: dict) -> str:
-        """計画の要約テキストを生成"""
+        """計画の要約テキストを生成（コード生成プラン・パラメータ選択プラン両対応）"""
         parts = []
         if plan.get("plan_name"):
             parts.append(f"計画名: {plan['plan_name']}")
@@ -154,6 +154,10 @@ class AiInterpreter:
             parts.append("ステップ:")
             for s in methodology["steps"]:
                 parts.append(f"  - {s}")
+        # パラメータ選択プランの場合、signal_configを表示
+        params = plan.get("parameters", {})
+        if params.get("signal_config"):
+            parts.append(f"シグナル設定: {json.dumps(params['signal_config'], ensure_ascii=False)}")
         universe = plan.get("universe", {})
         if universe.get("detail"):
             parts.append(f"対象: {universe['detail']}")
