@@ -2,7 +2,6 @@
 
 import json
 import threading
-import time
 from datetime import date, datetime
 
 import streamlit as st
@@ -23,8 +22,9 @@ from core.universe_filter import (
     TOPIX_SCALE_CATEGORIES,
     SECTOR_17_LIST,
 )
-from core.styles import apply_reuters_style
+from core.styles import apply_reuters_style, apply_waiting_overlay
 from core.result_display import render_result_tabs
+from core.sidebar import render_sidebar_running_indicator
 
 st.set_page_config(page_title="標準バックテスト", page_icon="R", layout="wide")
 
@@ -91,17 +91,7 @@ def _run_bt_thread(
 # ---------------------------------------------------------------------------
 def main():
     apply_reuters_style()
-
-    # サイドバー: 実行中インジケーター
-    thread = st.session_state.get("bt_thread")
-    if thread and thread.is_alive():
-        prog = st.session_state.get("bt_progress", {})
-        st.sidebar.markdown(
-            '<div class="sidebar-running">'
-            '<span class="pulse"></span> バックテスト実行中...<br>'
-            f'<small>{prog.get("message", "")}</small></div>',
-            unsafe_allow_html=True,
-        )
+    render_sidebar_running_indicator()
 
     st.markdown("# Standard Backtest")
     st.caption("パラメータ設定による定型バックテスト")
@@ -121,7 +111,8 @@ def main():
     has_result = "bt_result" in st.session_state
 
     if is_running:
-        _show_progress()
+        apply_waiting_overlay()
+        _progress_fragment()
         return
     if has_result:
         _show_result()
@@ -130,9 +121,22 @@ def main():
 
 
 # ---------------------------------------------------------------------------
-# 進捗表示
+# 進捗表示（@st.fragment で部分再描画）
 # ---------------------------------------------------------------------------
-def _show_progress():
+@st.fragment(run_every=1)
+def _progress_fragment():
+    """フラグメント内で進捗を自動更新する。"""
+    thread = st.session_state.get("bt_thread")
+    if thread is not None and not thread.is_alive():
+        # 結果を昇格させてページ全体を再描画
+        prog = st.session_state.get("bt_progress", {})
+        if "_result" in prog:
+            st.session_state["bt_result"] = prog.pop("_result")
+        elif prog.get("error"):
+            st.session_state["bt_result"] = {"error": prog["error"]}
+        st.rerun(scope="app")
+        return
+
     progress = st.session_state.get("bt_progress", {})
     start_time = st.session_state.get("bt_start_time")
 
@@ -151,9 +155,6 @@ def _show_progress():
         f"**{msg}** &nbsp; <span style='color:#999;font-size:0.9em;'>{elapsed_str}</span>",
         unsafe_allow_html=True,
     )
-
-    time.sleep(1)
-    st.rerun()
 
 
 # ---------------------------------------------------------------------------
@@ -582,7 +583,7 @@ def _show_input_form():
     # ==================================================================
     # 実行ボタン
     # ==================================================================
-    if st.button("バックテスト実行", type="primary", use_container_width=True):
+    if st.button("バックテスト実行", type="primary", width='stretch'):
         # --- SignalConfig 構築 ---
         sig_cfg = SignalConfig(
             consecutive_bullish_days=bullish_days if use_bullish else None,

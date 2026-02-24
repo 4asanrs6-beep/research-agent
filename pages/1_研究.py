@@ -1,7 +1,12 @@
-"""研究ページ — アイデア入力 + バックグラウンド実行 + 6タブ結果表示"""
+"""研究ページ — アイデア入力 → 計画レビュー → 実行 → 結果表示
+
+全 AI 処理はバックグラウンドスレッドで実行。
+ページ遷移しても処理は継続し、戻れば最新の状態が表示される。
+待機画面は @st.fragment(run_every=2) でフラグメントのみ再描画し、
+ページ全体の点滅を防止する。
+"""
 
 import threading
-import time
 from datetime import date, datetime
 
 import streamlit as st
@@ -21,8 +26,9 @@ from core.universe_filter import (
     TOPIX_SCALE_CATEGORIES,
     SECTOR_17_LIST,
 )
-from core.styles import apply_reuters_style
-from core.result_display import render_result_tabs
+from core.styles import apply_reuters_style, apply_waiting_overlay
+from core.result_display import render_result_tabs, render_plan
+from core.sidebar import render_sidebar_running_indicator
 
 st.set_page_config(page_title="研究", page_icon="R", layout="wide")
 
@@ -38,207 +44,191 @@ def get_data_provider():
     return JQuantsProvider(api_key=JQUANTS_API_KEY, cache=cache)
 
 
-# ---------------------------------------------------------------------------
-# バックグラウンド研究スレッド
-# ---------------------------------------------------------------------------
-def _run_research_thread(
-    progress_dict: dict,
-    db: Database,
-    provider,
-    idea_text: str,
-    idea_title: str,
-    category: str,
-    universe_filter_text: str,
-    universe_config: UniverseFilterConfig | None,
-    start_date: str,
-    end_date: str,
-):
-    """バックグラウンドスレッドで研究を実行する関数
-
-    NOTE: st.session_state / @st.cache_resource はスレッド内から使えない。
-    db, provider は呼び出し元（メインスレッド）で解決して渡す。
-    progress_dict は通常の Python dict で、両スレッドが同じオブジェクトを共有する。
-    """
+# ===========================================================================
+# バックグラウンドスレッド関数（Streamlit API 使用禁止）
+# ===========================================================================
+def _thread_generate_plan(shared, db, provider, idea_text, idea_title, category,
+                          universe_filter_text, universe_config, start_date, end_date):
     try:
         ai_client = create_ai_client()
         researcher = AiResearcher(db=db, ai_client=ai_client, data_provider=provider)
-
-        def on_progress(p: ResearchProgress):
-            progress_dict["phase"] = p.phase
-            progress_dict["message"] = p.message
-            progress_dict["run_id"] = p.run_id
-            if p.error:
-                progress_dict["error"] = p.error
-
-        result = researcher.run_research(
+        shared["message"] = "AIが分析計画を作成しています..."
+        plan, idea_id, plan_id = researcher.generate_plan_only(
             idea_text=idea_text,
             idea_title=idea_title,
             category=category,
-            on_progress=on_progress,
             universe_filter_text=universe_filter_text,
             universe_config=universe_config,
             start_date=start_date,
             end_date=end_date,
         )
-        # 結果もスレッドセーフな共有 dict に格納
-        progress_dict["_result"] = result
+        shared["_result"] = (plan, idea_id, plan_id)
     except Exception as e:
-        progress_dict["phase"] = "error"
-        progress_dict["error"] = str(e)
+        shared["error"] = str(e)
 
 
-# ---------------------------------------------------------------------------
-# メインページ
-# ---------------------------------------------------------------------------
+def _thread_refine_plan(shared, db, provider, plan, feedback, plan_id):
+    try:
+        ai_client = create_ai_client()
+        researcher = AiResearcher(db=db, ai_client=ai_client, data_provider=provider)
+        shared["message"] = "AIが計画を修正しています..."
+        new_plan = researcher.refine_plan(plan, feedback, plan_id)
+        shared["_result"] = new_plan
+    except Exception as e:
+        shared["error"] = str(e)
+
+
+def _thread_execute(shared, db, provider, plan, meta):
+    try:
+        ai_client = create_ai_client()
+        researcher = AiResearcher(db=db, ai_client=ai_client, data_provider=provider)
+
+        def on_status(msg):
+            shared["message"] = msg
+
+        result = researcher.execute_from_plan(
+            plan=plan,
+            idea_id=meta["idea_id"],
+            plan_id=meta["plan_id"],
+            idea_text=meta["idea_text"],
+            idea_title=meta.get("idea_title", ""),
+            category=meta.get("category", ""),
+            universe_filter_text=meta.get("universe_filter_text", ""),
+            universe_config=meta.get("universe_config"),
+            start_date=meta.get("start_date"),
+            end_date=meta.get("end_date"),
+            on_status=on_status,
+        )
+        shared["_result"] = result
+    except Exception as e:
+        shared["error"] = str(e)
+
+
+# ===========================================================================
+# メイン
+# ===========================================================================
 def main():
     apply_reuters_style()
-
-    # --- サイドバー: 実行中インジケーター ---
-    thread = st.session_state.get("research_thread")
-    if thread and thread.is_alive():
-        prog = st.session_state.get("research_progress", {})
-        st.sidebar.markdown(
-            '<div class="sidebar-running">'
-            '<span class="pulse"></span> 研究を実行中...<br>'
-            f'<small>{prog.get("message", "")}</small></div>',
-            unsafe_allow_html=True,
-        )
-
+    render_sidebar_running_indicator()
     st.markdown("# Research")
     st.caption("投資アイデアを入力してAIが自動で分析・検証します")
 
-    # ==================================================================
-    # 状態判定
-    # ==================================================================
-    thread = st.session_state.get("research_thread")
-    is_running = thread is not None and thread.is_alive()
+    _check_thread_completion()
 
-    # スレッド終了後: progress_dict["_result"] → session_state に昇格
-    if thread is not None and not thread.is_alive() and "research_result" not in st.session_state:
-        progress_dict = st.session_state.get("research_progress", {})
-        if "_result" in progress_dict:
-            st.session_state["research_result"] = progress_dict.pop("_result")
-        elif progress_dict.get("phase") == "error":
-            # エラー終了: ダミーの ResearchProgress を作成
-            err_result = ResearchProgress()
-            err_result.phase = "error"
-            err_result.error = progress_dict.get("error", "不明なエラー")
-            st.session_state["research_result"] = err_result
+    phase = st.session_state.get("rp_phase", "idle")
 
-    has_result = "research_result" in st.session_state
-
-    # ==================================================================
-    # A) 実行中 → 進捗表示
-    # ==================================================================
-    if is_running:
-        _show_progress()
-        return
-
-    # ==================================================================
-    # B) 結果あり → 結果表示
-    # ==================================================================
-    if has_result:
+    if phase == "idle":
+        _show_input_form()
+    elif phase in ("generating_plan", "refining_plan"):
+        apply_waiting_overlay()
+        label = "計画を生成中..." if phase == "generating_plan" else "計画を修正中..."
+        _waiting_fragment(label)
+    elif phase == "plan_ready":
+        _show_plan_review()
+    elif phase == "executing":
+        apply_waiting_overlay()
+        _waiting_fragment("分析を実行中...")
+    elif phase == "done":
         _show_result()
+
+
+# ===========================================================================
+# スレッド完了チェック（毎描画の先頭で呼ぶ）
+# ===========================================================================
+def _check_thread_completion():
+    thread = st.session_state.get("rp_thread")
+    if thread is None or thread.is_alive():
         return
 
-    # ==================================================================
-    # C) それ以外 → 入力フォーム
-    # ==================================================================
-    _show_input_form()
+    progress = st.session_state.get("rp_progress", {})
+    phase = st.session_state.get("rp_phase", "idle")
+
+    # スレッド参照をクリア
+    st.session_state.pop("rp_thread", None)
+    st.session_state.pop("rp_start_time", None)
+
+    # --- エラー ---
+    if "error" in progress:
+        if phase == "generating_plan":
+            st.session_state["rp_phase"] = "idle"
+        elif phase == "refining_plan":
+            st.session_state["rp_phase"] = "plan_ready"
+        elif phase == "executing":
+            meta = st.session_state.get("rp_meta", {})
+            st.session_state["rp_result"] = ResearchProgress(
+                phase="error",
+                error=progress["error"],
+                idea_title=meta.get("idea_title", ""),
+                idea_text=meta.get("idea_text", ""),
+                category=meta.get("category", ""),
+                universe_filter_text=meta.get("universe_filter_text", ""),
+                start_date=meta.get("start_date", ""),
+                end_date=meta.get("end_date", ""),
+                plan=st.session_state.get("rp_plan", {}),
+            )
+            st.session_state["rp_phase"] = "done"
+        st.session_state["_rp_error"] = progress["error"]
+        return
+
+    # --- 成功 ---
+    result = progress.get("_result")
+    if result is None:
+        return
+
+    if phase == "generating_plan":
+        plan, idea_id, plan_id = result
+        st.session_state["rp_plan"] = plan
+        meta = st.session_state.get("rp_meta", {})
+        meta["idea_id"] = idea_id
+        meta["plan_id"] = plan_id
+        st.session_state["rp_meta"] = meta
+        st.session_state["rp_phase"] = "plan_ready"
+    elif phase == "refining_plan":
+        st.session_state["rp_plan"] = result
+        st.session_state["rp_phase"] = "plan_ready"
+    elif phase == "executing":
+        st.session_state["rp_result"] = result
+        st.session_state["rp_phase"] = "done"
 
 
-# ---------------------------------------------------------------------------
-# 進捗表示
-# ---------------------------------------------------------------------------
-PHASE_PROGRESS = {
-    "planning": 0.15,
-    "coding": 0.35,
-    "executing": 0.55,
-    "interpreting": 0.75,
-    "saving": 0.90,
-    "done": 1.0,
-    "error": 1.0,
-}
+# ===========================================================================
+# 待機画面（@st.fragment で部分再描画 — ページ全体は再描画しない）
+# ===========================================================================
+@st.fragment(run_every=2)
+def _waiting_fragment(title: str):
+    """フラグメント内で進捗を自動更新する。
 
-PHASE_LABELS = {
-    "planning": "分析計画を生成中...",
-    "coding": "分析コードを生成中...",
-    "executing": "コードを実行中...",
-    "interpreting": "結果を解釈中...",
-    "saving": "知見を保存中...",
-    "done": "研究完了",
-    "error": "エラーが発生しました",
-}
+    スレッドが完了したら st.rerun(scope="app") でページ全体を再描画し、
+    次のフェーズへ遷移する。
+    """
+    thread = st.session_state.get("rp_thread")
+    if thread is not None and not thread.is_alive():
+        _check_thread_completion()
+        st.rerun(scope="app")
+        return
 
+    progress = st.session_state.get("rp_progress", {})
+    start_time = st.session_state.get("rp_start_time")
 
-def _show_progress():
-    progress = st.session_state.get("research_progress", {})
-    start_time = st.session_state.get("research_start_time")
+    st.markdown(f"### {title}")
+    st.write(progress.get("message", "処理中..."))
 
-    phase = progress.get("phase", "planning")
-    pct = PHASE_PROGRESS.get(phase, 0.1)
-    label = PHASE_LABELS.get(phase, phase)
-
-    # 経過時間
-    elapsed_str = ""
+    elapsed = ""
     if start_time:
-        elapsed = datetime.now() - start_time
-        total_sec = int(elapsed.total_seconds())
+        total_sec = int((datetime.now() - start_time).total_seconds())
         mm, ss = divmod(total_sec, 60)
-        elapsed_str = f"{mm:02d}:{ss:02d}"
-
-    st.progress(pct)
-    st.markdown(
-        f"**{label}** &nbsp; <span style='color:#999;font-size:0.9em;'>{elapsed_str}</span>",
-        unsafe_allow_html=True,
-    )
-    if progress.get("message"):
-        st.caption(progress["message"])
-
-    # 1秒後にリラン
-    time.sleep(1)
-    st.rerun()
+        elapsed = f"経過時間: {mm:02d}:{ss:02d}"
+    st.caption(elapsed)
 
 
-# ---------------------------------------------------------------------------
-# 結果表示
-# ---------------------------------------------------------------------------
-def _show_result():
-    result: ResearchProgress = st.session_state["research_result"]
-
-    if result.phase == "error":
-        st.error(f"研究中にエラーが発生しました: {result.error}")
-        if result.generated_code:
-            with st.expander("生成されたコード"):
-                st.code(result.generated_code, language="python")
-        if st.button("新しい研究を開始"):
-            _clear_state()
-            st.rerun()
-        return
-
-    st.success(f"研究が完了しました (Run #{result.run_id})")
-
-    # データ準備
-    exec_result = result.execution_result.get("result", {}) if result.execution_result else {}
-    stats = exec_result.get("statistics", {}) or {}
-    backtest = exec_result.get("backtest", {}) or {}
-    interpretation = result.interpretation or {}
-    generated_code = result.generated_code or ""
-    recent_examples = exec_result.get("recent_examples") or stats.get("recent_examples")
-
-    render_result_tabs(interpretation, stats, backtest, generated_code, recent_examples)
-
-    st.markdown("---")
-    if st.button("新しい研究を開始", type="primary"):
-        _clear_state()
-        st.rerun()
-
-
-# ---------------------------------------------------------------------------
-# 入力フォーム
-# ---------------------------------------------------------------------------
+# ===========================================================================
+# ステージ 1: 入力フォーム
+# ===========================================================================
 def _show_input_form():
-    # Claude Code CLI チェック
+    error = st.session_state.pop("_rp_error", None)
+    if error:
+        st.error(f"計画生成エラー: {error}")
+
     from core.ai_client import ClaudeCodeClient
     if not ClaudeCodeClient().is_available():
         st.warning(
@@ -313,41 +303,189 @@ def _show_input_form():
 
     st.markdown("---")
 
-    # --- 実行ボタン ---
-    if st.button("研究を実行", type="primary", use_container_width=True, disabled=not idea_text):
+    # --- 計画生成ボタン ---
+    if st.button("計画を生成", type="primary", width='stretch', disabled=not idea_text):
         if not idea_text:
             st.error("アイデアの説明を入力してください。")
             return
 
-        # セッション初期化 — progress_dict は通常の dict
-        progress_dict = {"phase": "planning", "message": "開始中..."}
-        st.session_state["research_progress"] = progress_dict
-        st.session_state["research_start_time"] = datetime.now()
-        st.session_state.pop("research_result", None)
+        shared = {"message": "開始中..."}
+        meta = {
+            "idea_text": idea_text,
+            "idea_title": idea_title or idea_text[:50],
+            "category": category,
+            "universe_filter_text": universe_filter_text,
+            "universe_config": universe_config,
+            "start_date": str(start_date),
+            "end_date": str(end_date),
+        }
+        st.session_state["rp_progress"] = shared
+        st.session_state["rp_start_time"] = datetime.now()
+        st.session_state["rp_phase"] = "generating_plan"
+        st.session_state["rp_meta"] = meta
 
         t = threading.Thread(
-            target=_run_research_thread,
+            target=_thread_generate_plan,
             args=(
-                progress_dict,
-                get_db(),
-                get_data_provider(),
-                idea_text,
-                idea_title or idea_text[:50],
-                category,
-                universe_filter_text,
-                universe_config,
-                str(start_date),
-                str(end_date),
+                shared, get_db(), get_data_provider(),
+                idea_text, meta["idea_title"], category,
+                universe_filter_text, universe_config,
+                str(start_date), str(end_date),
             ),
             daemon=True,
         )
-        st.session_state["research_thread"] = t
+        st.session_state["rp_thread"] = t
         t.start()
         st.rerun()
 
 
+# ===========================================================================
+# ステージ 2: 計画レビュー
+# ===========================================================================
+def _show_plan_review():
+    error = st.session_state.pop("_rp_error", None)
+    if error:
+        st.error(f"計画修正エラー: {error}")
+
+    plan = st.session_state["rp_plan"]
+    meta = st.session_state["rp_meta"]
+
+    st.markdown("## 分析計画")
+
+    # 入力条件
+    with st.expander("入力条件", expanded=False):
+        st.markdown(f"**タイトル:** {meta['idea_title']}")
+        st.markdown(f"**カテゴリ:** {meta['category']}")
+        st.markdown("**アイデア詳細:**")
+        st.info(meta["idea_text"])
+        if meta["start_date"] or meta["end_date"]:
+            st.markdown(f"**分析期間:** {meta['start_date']} 〜 {meta['end_date']}")
+        if meta["universe_filter_text"]:
+            st.markdown(f"**ユニバース条件:** {meta['universe_filter_text']}")
+
+    # 計画の表示（共通コンポーネント）
+    render_plan(plan)
+
+    st.markdown("---")
+
+    # --- 計画修正 ---
+    with st.expander("計画を修正する"):
+        feedback = st.text_area(
+            "修正したい内容を自由に記述してください",
+            placeholder="例: バックテスト戦略をロングショートに変更してほしい / 分析期間を3年に短縮して",
+            key="plan_feedback",
+        )
+        if st.button("修正して再生成", disabled=not feedback):
+            shared = {"message": "開始中..."}
+            st.session_state["rp_progress"] = shared
+            st.session_state["rp_start_time"] = datetime.now()
+            st.session_state["rp_phase"] = "refining_plan"
+
+            t = threading.Thread(
+                target=_thread_refine_plan,
+                args=(shared, get_db(), get_data_provider(), plan, feedback, meta["plan_id"]),
+                daemon=True,
+            )
+            st.session_state["rp_thread"] = t
+            t.start()
+            st.rerun()
+
+    st.markdown("---")
+
+    col1, col2 = st.columns(2)
+    with col1:
+        execute = st.button("この計画で実行する", type="primary", width='stretch')
+    with col2:
+        if st.button("やり直す", width='stretch'):
+            _clear_state()
+            st.rerun()
+
+    if execute:
+        shared = {"message": "開始中..."}
+        st.session_state["rp_progress"] = shared
+        st.session_state["rp_start_time"] = datetime.now()
+        st.session_state["rp_phase"] = "executing"
+
+        t = threading.Thread(
+            target=_thread_execute,
+            args=(shared, get_db(), get_data_provider(), plan, meta),
+            daemon=True,
+        )
+        st.session_state["rp_thread"] = t
+        t.start()
+        st.rerun()
+
+
+# ===========================================================================
+# ステージ 3: 結果表示
+# ===========================================================================
+def _show_result():
+    result: ResearchProgress = st.session_state["rp_result"]
+
+    if result.phase == "error":
+        st.error(f"研究中にエラーが発生しました: {result.error}")
+        _render_conditions_expander(result)
+        if result.plan:
+            with st.expander("AI生成計画"):
+                render_plan(result.plan)
+        if result.generated_code:
+            with st.expander("生成されたコード"):
+                st.code(result.generated_code, language="python")
+        if st.button("新しい研究を開始"):
+            _clear_state()
+            st.rerun()
+        return
+
+    st.success(f"研究が完了しました (Run #{result.run_id})")
+
+    _render_conditions_expander(result)
+
+    if result.plan:
+        with st.expander("AI生成計画"):
+            render_plan(result.plan)
+
+    # データ準備
+    exec_result = result.execution_result.get("result", {}) if result.execution_result else {}
+    stats = exec_result.get("statistics", {}) or {}
+    backtest = exec_result.get("backtest", {}) or {}
+    interpretation = result.interpretation or {}
+    generated_code = result.generated_code or ""
+    recent_examples = exec_result.get("recent_examples") or stats.get("recent_examples")
+
+    render_result_tabs(interpretation, stats, backtest, generated_code, recent_examples)
+
+    st.markdown("---")
+    if st.button("新しい研究を開始", type="primary"):
+        _clear_state()
+        st.rerun()
+
+
+def _render_conditions_expander(result: ResearchProgress):
+    """研究条件の折りたたみ表示"""
+    with st.expander("研究条件", expanded=False):
+        if result.idea_title:
+            st.markdown(f"**タイトル:** {result.idea_title}")
+        if result.category:
+            st.markdown(f"**カテゴリ:** {result.category}")
+        if result.idea_text:
+            st.markdown("**アイデア詳細:**")
+            st.info(result.idea_text)
+        if result.start_date or result.end_date:
+            st.markdown(f"**分析期間:** {result.start_date} 〜 {result.end_date}")
+        if result.universe_filter_text:
+            st.markdown(f"**ユニバース条件:** {result.universe_filter_text}")
+
+
+# ===========================================================================
+# ユーティリティ
+# ===========================================================================
 def _clear_state():
-    for key in ("research_thread", "research_progress", "research_start_time", "research_result"):
+    for key in list(st.session_state.keys()):
+        if key.startswith("rp_") or key == "_rp_error":
+            st.session_state.pop(key, None)
+    # 旧バージョンのキーも掃除
+    for key in ("research_thread", "research_progress", "research_start_time",
+                "research_result", "research_plan", "research_plan_meta"):
         st.session_state.pop(key, None)
 
 

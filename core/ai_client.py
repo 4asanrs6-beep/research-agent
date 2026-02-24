@@ -1,15 +1,13 @@
 """AIクライアント - Claude Code CLI経由
 
-Anthropic APIを直接呼び出すのではなく、
 ローカルの Claude Code CLI を subprocess 経由で呼び出す。
-これにより Claude Code が knowledge/ フォルダやワークスペースを
-参照しながら分析を行える。
 """
 
 import json
 import logging
 import subprocess
 import os
+import tempfile
 from abc import ABC, abstractmethod
 from pathlib import Path
 
@@ -32,12 +30,13 @@ class ClaudeCodeClient(BaseAiClient):
     Claude Code が knowledge/ フォルダ等を参照可能。
     """
 
-    def __init__(self, cwd: str | Path | None = None, timeout: int | None = None):
+    def __init__(self, cwd: str | Path | None = None, timeout: int | None = None, model: str | None = None):
         """
         Args:
             cwd: Claude Code を実行する作業ディレクトリ
                  (デフォルト: research-agent プロジェクトルート)
             timeout: 実行タイムアウト秒数 (デフォルト: config.CLAUDE_CLI_TIMEOUT)
+            model: 使用モデル (デフォルト: config.CLAUDE_CLI_MODEL)
         """
         if cwd is None:
             from config import BASE_DIR
@@ -49,51 +48,124 @@ class ClaudeCodeClient(BaseAiClient):
             self.timeout = CLAUDE_CLI_TIMEOUT
         else:
             self.timeout = timeout
+        if model is None:
+            from config import CLAUDE_CLI_MODEL
+            self.model = CLAUDE_CLI_MODEL
+        else:
+            self.model = model
 
     def send_message(self, prompt: str) -> str:
         """Claude Code CLI にプロンプトを送信して応答を得る
 
-        プロンプトは stdin 経由で渡す（Windows のコマンドライン長制限を回避）。
-        --system-prompt でデフォルトの coding assistant 動作を上書きし、
-        純粋なテキスト生成に限定する。
-        encoding='utf-8' を明示（Windows日本語環境のCP932デコードエラーを回避）。
+        Windows でのパイプバッファ・デッドロックを完全に回避するため、
+        stdin / stdout / stderr をすべて一時ファイル経由にする。
+        タイムアウト時は自動リトライ（最大2回）。
+        Windows ではプロセスツリーごと kill して孤児プロセスを防ぐ。
         """
-        system_prompt = (
-            "あなたはテキスト生成アシスタントです。"
-            "ユーザーのプロンプトに従い、要求されたコンテンツ（Pythonコード、JSON等）のみを出力してください。"
-            "ツール呼び出し、ファイル操作、説明文は一切不要です。要求された形式のコンテンツだけを返してください。"
-        )
+        max_attempts = 2
+        per_attempt_timeout = self.timeout  # 各試行のタイムアウト
+
+        last_error = None
+        for attempt in range(1, max_attempts + 1):
+            try:
+                return self._call_cli(prompt, per_attempt_timeout, attempt)
+            except RuntimeError as e:
+                last_error = e
+                err_str = str(e)
+                # タイムアウトの場合のみリトライ
+                if "タイムアウト" in err_str and attempt < max_attempts:
+                    logger.warning("CLI タイムアウト (試行 %d/%d)、リトライします...",
+                                   attempt, max_attempts)
+                    self._kill_stale_claude_processes()
+                    continue
+                raise
+        raise last_error  # 到達しないはずだが安全のため
+
+    def _call_cli(self, prompt: str, timeout: int, attempt: int = 1) -> str:
+        """CLI を1回呼び出して応答を返す"""
         cmd = [
             "claude", "-p",
+            "--model", self.model,
             "--max-turns", "1",
-            "--system-prompt", system_prompt,
+            "--output-format", "text",
+            "--tools", "",
+            "--no-session-persistence",
         ]
 
         # Claude Code セッション内から呼ぶ場合のネスト防止を回避
         env = {**os.environ}
         env.pop("CLAUDECODE", None)
+        env.pop("CLAUDE_CODE_SESSION_ID", None)
 
-        logger.info("Claude Code CLI 呼び出し (cwd=%s, timeout=%ds, prompt=%d文字)",
-                     self.cwd, self.timeout, len(prompt))
+        logger.info("Claude Code CLI 呼び出し (試行%d, cwd=%s, timeout=%ds, model=%s, prompt=%d文字)",
+                     attempt, self.cwd, timeout, self.model, len(prompt))
+
+        # stdin / stdout / stderr すべてを一時ファイルにして
+        # Windows のパイプバッファ制限を完全に回避
+        tmp_dir = tempfile.mkdtemp(prefix="claude_")
+        stdin_path = os.path.join(tmp_dir, "stdin.txt")
+        stdout_path = os.path.join(tmp_dir, "stdout.txt")
+        stderr_path = os.path.join(tmp_dir, "stderr.txt")
 
         try:
-            result = subprocess.run(
-                cmd,
-                input=prompt,
-                capture_output=True,
-                encoding="utf-8",
-                errors="replace",
-                cwd=self.cwd,
-                timeout=self.timeout,
-                env=env,
+            # システム指示をプロンプト先頭に統合
+            # （--system-prompt の日本語がWindowsコマンドラインで問題を起こす場合の回避）
+            full_prompt = (
+                "【指示】要求されたコンテンツ（Pythonコード、JSON等）のみを出力してください。"
+                "説明文は不要です。\n\n"
+                + prompt
             )
+            with open(stdin_path, "w", encoding="utf-8") as f:
+                f.write(full_prompt)
 
-            stdout = result.stdout or ""
-            stderr = result.stderr or ""
+            with open(stdin_path, "r", encoding="utf-8") as f_in, \
+                 open(stdout_path, "w", encoding="utf-8") as f_out, \
+                 open(stderr_path, "w", encoding="utf-8") as f_err:
 
-            if result.returncode != 0:
-                logger.error("Claude Code CLI エラー (rc=%d): %s", result.returncode, stderr.strip())
-                raise RuntimeError(f"Claude Code CLI エラー (rc={result.returncode}): {stderr.strip()}")
+                creationflags = 0
+                if os.name == "nt":
+                    creationflags = subprocess.CREATE_NO_WINDOW
+
+                proc = subprocess.Popen(
+                    cmd,
+                    stdin=f_in,
+                    stdout=f_out,
+                    stderr=f_err,
+                    cwd=self.cwd,
+                    env=env,
+                    creationflags=creationflags,
+                )
+
+                try:
+                    proc.wait(timeout=timeout)
+                except subprocess.TimeoutExpired:
+                    self._kill_process_tree(proc.pid)
+                    try:
+                        proc.wait(timeout=15)
+                    except subprocess.TimeoutExpired:
+                        pass
+                    # タイムアウト時に stderr からヒントを読む
+                    stderr_hint = ""
+                    try:
+                        f_err.flush()
+                        with open(stderr_path, "r", encoding="utf-8", errors="replace") as se:
+                            stderr_hint = se.read().strip()[:200]
+                    except Exception:
+                        pass
+                    hint = f" stderr: {stderr_hint}" if stderr_hint else ""
+                    raise RuntimeError(
+                        f"Claude Code CLI タイムアウト ({timeout}秒, 試行{attempt}){hint}"
+                    )
+
+            # プロセス終了後にファイルから読み取り
+            with open(stdout_path, "r", encoding="utf-8", errors="replace") as f:
+                stdout = f.read()
+            with open(stderr_path, "r", encoding="utf-8", errors="replace") as f:
+                stderr = f.read()
+
+            if proc.returncode != 0:
+                logger.error("Claude Code CLI エラー (rc=%d): %s", proc.returncode, stderr.strip())
+                raise RuntimeError(f"Claude Code CLI エラー (rc={proc.returncode}): {stderr.strip()}")
 
             response = stdout.strip()
             if not response:
@@ -111,16 +183,58 @@ class ClaudeCodeClient(BaseAiClient):
                     f"環境変数 CLAUDE_CLI_MAX_TURNS を増やしてください。({response})"
                 )
 
-            logger.info("Claude Code CLI 応答取得 (%d文字)", len(response))
+            logger.info("Claude Code CLI 応答取得 (%d文字, 試行%d)", len(response), attempt)
             return response
 
-        except subprocess.TimeoutExpired:
-            raise RuntimeError(f"Claude Code CLI タイムアウト ({self.timeout}秒)")
         except FileNotFoundError:
             raise RuntimeError(
                 "claude コマンドが見つかりません。"
                 "Claude Code CLI がインストールされていることを確認してください。"
             )
+        finally:
+            import shutil
+            try:
+                shutil.rmtree(tmp_dir, ignore_errors=True)
+            except Exception:
+                pass
+
+    @staticmethod
+    def _kill_process_tree(pid: int):
+        """プロセスツリーごと強制終了する（Windowsでの孤児プロセス防止）"""
+        if os.name == "nt":
+            try:
+                subprocess.run(
+                    ["taskkill", "/F", "/T", "/PID", str(pid)],
+                    capture_output=True, timeout=10,
+                    creationflags=subprocess.CREATE_NO_WINDOW,
+                )
+                logger.info("プロセスツリー kill 完了 (PID=%d)", pid)
+            except Exception as e:
+                logger.warning("プロセスツリー kill 失敗 (PID=%d): %s", pid, e)
+        else:
+            try:
+                os.kill(pid, 9)
+            except OSError:
+                pass
+
+    @staticmethod
+    def _kill_stale_claude_processes():
+        """リトライ前に残存する claude プロセスを掃除する（Windows用）"""
+        if os.name != "nt":
+            return
+        try:
+            # claude.exe の子プロセス (node.js) が残っている場合に対処
+            result = subprocess.run(
+                ["tasklist", "/FI", "IMAGENAME eq claude.exe", "/FO", "CSV", "/NH"],
+                capture_output=True, encoding="utf-8", timeout=5,
+                creationflags=subprocess.CREATE_NO_WINDOW,
+            )
+            # 自プロセスではない claude.exe があれば kill
+            # （注意: ユーザーが別途 claude を使っている場合があるのでログのみ）
+            if result.stdout and "claude.exe" in result.stdout:
+                logger.info("残存する claude プロセスを検出: %s", result.stdout.strip()[:200])
+        except Exception:
+            pass
 
     def is_available(self) -> bool:
         """Claude Code CLI が利用可能かチェック"""

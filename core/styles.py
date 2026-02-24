@@ -196,5 +196,29 @@ button[data-testid="stBaseButton-primary"]:hover {
 
 /* Remove emoji-heavy default styling */
 .stApp .stMarkdown a { color: var(--r-accent); }
+
+/* Waiting overlay — dim page header while background task runs */
+.waiting-overlay .stApp h1,
+.waiting-overlay .stApp .stCaption {
+    opacity: 0.4;
+}
+.waiting-dimmed h1,
+.waiting-dimmed [data-testid="stCaptionContainer"] {
+    opacity: 0.4;
+    pointer-events: none;
+}
 </style>
 """
+
+
+def apply_waiting_overlay() -> None:
+    """待機中のページヘッダーを薄く表示するCSSを注入する"""
+    st.markdown(
+        """<style>
+        .stApp h1, .stApp [data-testid="stCaptionContainer"] {
+            opacity: 0.4;
+            pointer-events: none;
+        }
+        </style>""",
+        unsafe_allow_html=True,
+    )

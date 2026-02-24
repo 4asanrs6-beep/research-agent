@@ -13,6 +13,73 @@ import streamlit as st
 from core.styles import render_status_badge
 
 
+def render_plan(plan: dict):
+    """AI生成の分析計画を見やすく表示する（共通コンポーネント）"""
+
+    hypothesis = plan.get("hypothesis", "")
+    if hypothesis:
+        st.markdown(f"> {hypothesis}")
+
+    # 方法論
+    methodology = plan.get("methodology", {})
+    if methodology:
+        st.markdown("#### 方法論")
+        if methodology.get("approach"):
+            st.markdown(f"**アプローチ:** {methodology['approach']}")
+        steps = methodology.get("steps", [])
+        if steps:
+            for i, step in enumerate(steps, 1):
+                st.markdown(f"{i}. {step}")
+        tests = methodology.get("statistical_tests", [])
+        metrics = methodology.get("metrics", [])
+        if tests or metrics:
+            tc1, tc2 = st.columns(2)
+            if tests:
+                tc1.markdown(f"**統計検定:** {', '.join(tests)}")
+            if metrics:
+                tc2.markdown(f"**評価指標:** {', '.join(metrics)}")
+
+    # 対象・期間
+    universe = plan.get("universe", {})
+    period = plan.get("analysis_period", {})
+    if universe or period:
+        pc1, pc2 = st.columns(2)
+        if universe:
+            with pc1:
+                st.markdown("#### ユニバース")
+                st.markdown(f"**対象:** {universe.get('detail', 'N/A')}")
+                if universe.get("reason"):
+                    st.caption(universe["reason"])
+        if period:
+            with pc2:
+                st.markdown("#### 分析期間")
+                st.markdown(
+                    f"**期間:** {period.get('start_date', '')} 〜 {period.get('end_date', '')}"
+                )
+                if period.get("reason"):
+                    st.caption(period["reason"])
+
+    # バックテスト
+    backtest_cfg = plan.get("backtest", {})
+    if backtest_cfg:
+        st.markdown("#### バックテスト戦略")
+        if backtest_cfg.get("strategy_description"):
+            st.markdown(backtest_cfg["strategy_description"])
+        bc1, bc2, bc3 = st.columns(3)
+        if backtest_cfg.get("entry_rule"):
+            bc1.markdown(f"**エントリー:** {backtest_cfg['entry_rule']}")
+        if backtest_cfg.get("exit_rule"):
+            bc2.markdown(f"**エグジット:** {backtest_cfg['exit_rule']}")
+        if backtest_cfg.get("rebalance_frequency"):
+            bc3.markdown(f"**リバランス:** {backtest_cfg['rebalance_frequency']}")
+
+    # 期待される結果
+    expected = plan.get("expected_outcome", "")
+    if expected:
+        st.markdown("#### 期待される結果")
+        st.markdown(expected)
+
+
 def plot_equity(backtest: dict) -> go.Figure | None:
     """エクイティカーブを描画する（トレードモード用）"""
     equity = backtest.get("equity_curve", [])
@@ -255,13 +322,13 @@ def _render_event_study_tabs(
                     v_str = str(v)
                 rows.append({"項目": label_jp, "値": v_str})
             if rows:
-                st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+                st.dataframe(pd.DataFrame(rows), width='stretch', hide_index=True)
 
     # --- リターン分布 ---
     with tabs[1]:
         fig = _plot_return_distribution(backtest)
         if fig:
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width='stretch')
         else:
             st.info("リターン分布データがありません")
 
@@ -281,7 +348,7 @@ def _render_event_study_tabs(
                     "シグナル日", "銘柄コード", "企業名", "リターン(%)", "超過リターン(%)",
                     "シグナル日終値", "測定日終値", "測定期間(日)", "貸借倍率",
                 ])
-                st.dataframe(tl_df, use_container_width=True, hide_index=True)
+                st.dataframe(tl_df, width='stretch', hide_index=True)
 
     # --- 自動評価 ---
     with tabs[2]:
@@ -377,7 +444,7 @@ def _render_trade_tabs(
                 st.metric("Trades", backtest.get("total_trades", 0))
             fig = plot_equity(backtest)
             if fig:
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(fig, width='stretch')
             trade_log = backtest.get("trade_log", [])
             if trade_log:
                 is_evt = "entry_price" in trade_log[0]
@@ -392,7 +459,7 @@ def _render_trade_tabs(
                         "price": "価格", "pnl": "損益",
                     }
                     tl_df = tl_df.rename(columns={k: v for k, v in _LOG_COL_MAP.items() if k in tl_df.columns})
-                    st.dataframe(tl_df, use_container_width=True, hide_index=True)
+                    st.dataframe(tl_df, width='stretch', hide_index=True)
         else:
             st.info("バックテスト結果がありません")
 
@@ -462,7 +529,7 @@ def _render_recent_examples(recent_examples: list | None):
             "シグナル日", "銘柄コード", "企業名", "リターン(%)",
             "シグナル日終値", "測定日終値", "測定期間(日)", "貸借倍率",
         ])
-        st.dataframe(df, use_container_width=True, hide_index=True)
+        st.dataframe(df, width='stretch', hide_index=True)
     else:
         st.info("直近事例データがありません")
 
@@ -495,7 +562,7 @@ def _render_pending_signals(pending_signals: list):
         "シグナル日", "銘柄コード", "企業名", "暫定リターン(%)",
         "シグナル日終値", "直近終値", "経過日数", "残り日数", "貸借倍率",
     ])
-    st.dataframe(df, use_container_width=True, hide_index=True)
+    st.dataframe(df, width='stretch', hide_index=True)
 
 
 def _render_config_table(config: dict):
@@ -556,7 +623,7 @@ def _render_config_table(config: dict):
             label = _JP_LABELS.get(k, k)
             rows.append({"パラメータ": label, "値": str(v)})
         if rows:
-            st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+            st.dataframe(pd.DataFrame(rows), width='stretch', hide_index=True)
 
     if universe_cfg:
         st.markdown("#### ユニバース設定")
@@ -578,7 +645,7 @@ def _render_config_table(config: dict):
             label = _UNI_LABELS.get(k, k)
             rows.append({"パラメータ": label, "値": str(v)})
         if rows:
-            st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+            st.dataframe(pd.DataFrame(rows), width='stretch', hide_index=True)
 
     # その他メタデータ
     meta_keys = [k for k in config if k not in ("signal_config", "universe_config")]
@@ -603,4 +670,4 @@ def _render_config_table(config: dict):
             else:
                 v_str = str(v)
             meta_rows.append({"パラメータ": label, "値": v_str})
-        st.dataframe(pd.DataFrame(meta_rows), use_container_width=True, hide_index=True)
+        st.dataframe(pd.DataFrame(meta_rows), width='stretch', hide_index=True)
