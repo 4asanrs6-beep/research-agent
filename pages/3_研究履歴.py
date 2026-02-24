@@ -1,4 +1,4 @@
-"""研究履歴ページ — 過去の研究結果一覧 + 詳細表示 + 計画編集・再実行"""
+"""研究履歴ページ — 過去の研究結果一覧 + 詳細表示 + パラメータ編集・再実行"""
 
 import json
 import threading
@@ -6,7 +6,7 @@ from datetime import datetime
 
 import streamlit as st
 
-from config import DB_PATH, MARKET_DATA_DIR, JQUANTS_API_KEY
+from config import DB_PATH, MARKET_DATA_DIR, JQUANTS_API_KEY, AI_RESEARCH_MAX_ITERATIONS
 from db.database import Database
 from data.cache import DataCache
 from data.jquants_provider import JQuantsProvider
@@ -15,6 +15,8 @@ from core.result_display import render_result_tabs, render_plan
 from core.sidebar import render_sidebar_running_indicator
 from core.ai_client import create_ai_client
 from core.ai_researcher import AiResearcher
+from core.ai_parameter_selector import ParameterSelectionResult
+from core.universe_filter import UniverseFilterConfig
 
 st.set_page_config(page_title="研究履歴", page_icon="R", layout="wide")
 
@@ -146,17 +148,28 @@ def _show_detail(db: Database, run_id: int):
             if uni_detail:
                 st.markdown(f"**ユニバース条件:** {uni_detail}")
 
-    # --- AI計画の表示 ---
+    # --- 計画情報の表示 ---
     plan_snap = run.get("plan_snapshot", {})
     is_standard_bt = (
         isinstance(plan_snap, dict)
         and plan_snap.get("analysis_method") == "standard_backtest"
     )
+    is_ai_param = (
+        isinstance(plan_snap, dict)
+        and plan_snap.get("analysis_method") == "ai_parameter_selection"
+    )
 
+    # 旧AI生成計画の表示
     ai_plan = _extract_ai_plan(plan_snap)
     if ai_plan:
         with st.expander("AI生成計画", expanded=False):
             render_plan(ai_plan)
+
+    # 新パラメータ選択方式のシグナル設定表示
+    signal_config_dict = _extract_signal_config(plan_snap)
+    if signal_config_dict:
+        with st.expander("シグナルパラメータ設定", expanded=False):
+            st.json(signal_config_dict)
 
     if status == "failed":
         evaluation = run.get("evaluation") or {}
@@ -166,61 +179,62 @@ def _show_detail(db: Database, run_id: int):
     stats = run.get("statistics_result") or {}
     backtest = run.get("backtest_result") or {}
     evaluation = run.get("evaluation") or {}
-    generated_code = evaluation.get("generated_code", "")
     recent_examples = stats.get("recent_examples")
 
     if status != "failed":
-        if is_standard_bt:
+        if is_standard_bt or is_ai_param:
             config_snapshot = plan_snap.get("parameters", {})
             render_result_tabs(
                 evaluation, stats, backtest, config_snapshot, recent_examples,
                 code_tab_label="パラメータ設定", code_language="json",
             )
         else:
+            generated_code = evaluation.get("generated_code", "")
             render_result_tabs(evaluation, stats, backtest, generated_code, recent_examples)
 
-    # --- 再実行セクション（AI研究のみ） ---
-    if ai_plan and not is_standard_bt:
-        _render_rerun_section(db, run, ai_plan, idea_snap, plan_snap)
+    # --- 再実行セクション ---
+    if is_ai_param and signal_config_dict:
+        _render_rerun_section(db, run, signal_config_dict, idea_snap, plan_snap)
+    elif ai_plan and not is_standard_bt:
+        _render_rerun_section_legacy(db, run, ai_plan, idea_snap, plan_snap)
 
 
 # ===========================================================================
-# AI計画の抽出
+# データ抽出ヘルパー
 # ===========================================================================
+def _extract_signal_config(plan_snap: dict) -> dict | None:
+    """plan_snapshot から signal_config_dict を抽出する（新パラメータ選択方式用）"""
+    if not isinstance(plan_snap, dict):
+        return None
+    if plan_snap.get("analysis_method") != "ai_parameter_selection":
+        return None
+    parameters = plan_snap.get("parameters", {})
+    return parameters.get("signal_config")
+
+
 def _extract_ai_plan(plan_snap: dict) -> dict | None:
-    """plan_snapshot からAI計画dictを復元する。
-
-    plan_snapshot は DB の plans テーブルの全カラムが入っている。
-    AI計画の主要フィールド（methodology → parameters, backtest → backtest_config）を
-    復元して返す。
-    """
+    """plan_snapshot からAI計画dictを復元する（旧コード生成方式用）"""
     if not isinstance(plan_snap, dict):
         return None
 
-    # 標準BTの場合はAI計画なし
-    if plan_snap.get("analysis_method") == "standard_backtest":
+    # 標準BT/パラメータ選択方式はAI計画なし
+    if plan_snap.get("analysis_method") in ("standard_backtest", "ai_parameter_selection"):
         return None
 
-    # plan_snapshot に直接 AI 計画の構造があるか確認
-    # （hypothesis, methodology, universe, backtest 等のキーがあれば直接計画）
     if "hypothesis" in plan_snap or "methodology" in plan_snap:
         return plan_snap
 
-    # DB の plans テーブル構造から復元
     parameters = plan_snap.get("parameters", {})
     backtest_config = plan_snap.get("backtest_config", {})
 
     if not parameters and not backtest_config:
         return None
 
-    # 復元: parameters → methodology, backtest_config → backtest
     restored = {}
     if parameters:
         restored["methodology"] = parameters
     if backtest_config:
         restored["backtest"] = backtest_config
-
-    # その他の情報を追加
     if plan_snap.get("universe_detail"):
         restored["universe"] = {"detail": plan_snap["universe_detail"]}
     if plan_snap.get("start_date") or plan_snap.get("end_date"):
@@ -235,229 +249,209 @@ def _extract_ai_plan(plan_snap: dict) -> dict | None:
 
 
 # ===========================================================================
-# 再実行セクション
+# 再実行セクション（新パラメータ選択方式）
 # ===========================================================================
 def _render_rerun_section(
+    db: Database,
+    run: dict,
+    signal_config_dict: dict,
+    idea_snap: dict,
+    plan_snap: dict,
+):
+    """シグナルパラメータを編集して再実行するUIを表示する"""
+    st.markdown("---")
+    st.markdown("### 再実行")
+
+    config_json = json.dumps(signal_config_dict, ensure_ascii=False, indent=2, default=str)
+
+    edited_json = st.text_area(
+        "シグナルパラメータを編集（JSON形式）",
+        value=config_json,
+        height=300,
+        key=f"rerun_config_{run['id']}",
+    )
+
+    idea_title = idea_snap.get("title", "") if isinstance(idea_snap, dict) else ""
+    idea_text = idea_snap.get("description", "") if isinstance(idea_snap, dict) else ""
+    category = idea_snap.get("category", "その他") if isinstance(idea_snap, dict) else "その他"
+    start_date = plan_snap.get("start_date", "") if isinstance(plan_snap, dict) else ""
+    end_date = plan_snap.get("end_date", "") if isinstance(plan_snap, dict) else ""
+    universe_filter_text = plan_snap.get("universe_detail", "") if isinstance(plan_snap, dict) else ""
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        if st.button("パラメータレビュー画面で編集", key=f"to_review_{run['id']}"):
+            try:
+                edited_config = json.loads(edited_json)
+            except json.JSONDecodeError as e:
+                st.error(f"JSONの形式が正しくありません: {e}")
+                return
+
+            _navigate_to_params_review(
+                edited_config=edited_config,
+                idea_title=idea_title,
+                idea_text=idea_text,
+                category=category,
+                start_date=start_date,
+                end_date=end_date,
+                universe_filter_text=universe_filter_text,
+            )
+
+    with col2:
+        if st.button("このパラメータで直接実行", type="primary", key=f"direct_run_{run['id']}"):
+            try:
+                edited_config = json.loads(edited_json)
+            except json.JSONDecodeError as e:
+                st.error(f"JSONの形式が正しくありません: {e}")
+                return
+
+            _navigate_to_direct_execute(
+                edited_config=edited_config,
+                idea_title=idea_title,
+                idea_text=idea_text,
+                category=category,
+                start_date=start_date,
+                end_date=end_date,
+                universe_filter_text=universe_filter_text,
+            )
+
+
+def _navigate_to_params_review(
+    edited_config: dict,
+    idea_title: str,
+    idea_text: str,
+    category: str,
+    start_date: str,
+    end_date: str,
+    universe_filter_text: str,
+):
+    """研究ページの params_ready 状態へ遷移する。
+
+    ParameterSelectionResult を構築してセッションにセット。
+    """
+    param_result = ParameterSelectionResult(
+        signal_config_dict=edited_config,
+        universe_adjustments=None,
+        reasoning="履歴から復元したパラメータ設定",
+        hypothesis_mapping="（履歴から再実行）",
+        unmappable_aspects=[],
+    )
+
+    st.session_state["rp_param_result"] = param_result
+    st.session_state["rp_meta"] = {
+        "idea_text": idea_text,
+        "idea_title": f"[再実行] {idea_title}",
+        "category": category,
+        "universe_filter_text": universe_filter_text,
+        "universe_config": UniverseFilterConfig(),  # デフォルト（全銘柄）
+        "start_date": start_date,
+        "end_date": end_date,
+    }
+    st.session_state["rp_phase"] = "params_ready"
+
+    st.session_state.pop("history_detail_run_id", None)
+    st.switch_page("pages/1_研究.py")
+
+
+def _navigate_to_direct_execute(
+    edited_config: dict,
+    idea_title: str,
+    idea_text: str,
+    category: str,
+    start_date: str,
+    end_date: str,
+    universe_filter_text: str,
+):
+    """研究ページの executing 状態へ遷移し、バックグラウンド実行を開始する。"""
+    meta = {
+        "idea_text": idea_text,
+        "idea_title": f"[再実行] {idea_title}",
+        "category": category,
+        "universe_filter_text": universe_filter_text,
+        "universe_config": UniverseFilterConfig(),
+        "start_date": start_date,
+        "end_date": end_date,
+    }
+
+    shared = {
+        "message": "開始中...",
+        "current_iteration": 0,
+        "max_iterations": AI_RESEARCH_MAX_ITERATIONS,
+    }
+    st.session_state["rp_progress"] = shared
+    st.session_state["rp_start_time"] = datetime.now()
+    st.session_state["rp_phase"] = "executing"
+    st.session_state["rp_meta"] = meta
+
+    t = threading.Thread(
+        target=_thread_execute_from_history,
+        args=(
+            shared, get_db(), get_data_provider(),
+            idea_text, meta["idea_title"], category,
+            edited_config, UniverseFilterConfig(),
+            start_date, end_date,
+            AI_RESEARCH_MAX_ITERATIONS, universe_filter_text,
+        ),
+        daemon=True,
+    )
+    st.session_state["rp_thread"] = t
+    t.start()
+
+    st.session_state.pop("history_detail_run_id", None)
+    st.switch_page("pages/1_研究.py")
+
+
+# ===========================================================================
+# 再実行セクション（旧コード生成方式 — レガシー）
+# ===========================================================================
+def _render_rerun_section_legacy(
     db: Database,
     run: dict,
     ai_plan: dict,
     idea_snap: dict,
     plan_snap: dict,
 ):
-    """計画の編集・再実行UIを表示する"""
+    """旧方式の計画表示（参照のみ、再実行は非対応）"""
     st.markdown("---")
-    st.markdown("### 再実行")
-
-    # 計画をJSON形式で編集可能にする
-    plan_json = json.dumps(ai_plan, ensure_ascii=False, indent=2, default=str)
-
-    edited_json = st.text_area(
-        "計画を編集（JSON形式）",
-        value=plan_json,
-        height=300,
-        key=f"rerun_plan_{run['id']}",
-    )
-
-    # 入力情報の復元
-    idea_title = idea_snap.get("title", "") if isinstance(idea_snap, dict) else ""
-    idea_text = idea_snap.get("description", "") if isinstance(idea_snap, dict) else ""
-    category = idea_snap.get("category", "その他") if isinstance(idea_snap, dict) else "その他"
-
-    col1, col2 = st.columns(2)
-
-    with col1:
-        if st.button("計画レビュー画面で編集", key=f"to_review_{run['id']}"):
-            try:
-                edited_plan = json.loads(edited_json)
-            except json.JSONDecodeError as e:
-                st.error(f"JSONの形式が正しくありません: {e}")
-                return
-
-            _navigate_to_plan_review(
-                db=db,
-                plan=edited_plan,
-                idea_title=idea_title,
-                idea_text=idea_text,
-                category=category,
-                plan_snap=plan_snap,
-            )
-
-    with col2:
-        if st.button("この計画で直接実行", type="primary", key=f"direct_run_{run['id']}"):
-            try:
-                edited_plan = json.loads(edited_json)
-            except json.JSONDecodeError as e:
-                st.error(f"JSONの形式が正しくありません: {e}")
-                return
-
-            _navigate_to_direct_execute(
-                db=db,
-                plan=edited_plan,
-                idea_title=idea_title,
-                idea_text=idea_text,
-                category=category,
-                plan_snap=plan_snap,
-            )
-
-
-def _navigate_to_plan_review(
-    db: Database,
-    plan: dict,
-    idea_title: str,
-    idea_text: str,
-    category: str,
-    plan_snap: dict,
-):
-    """研究ページの plan_ready 状態へ遷移する。
-
-    新しい idea + plan レコードを作成し、研究ページのセッション状態をセット。
-    """
-    # 新しい DB レコードを作成（元の履歴は不変）
-    idea_id = db.create_idea(
-        title=f"[再実行] {idea_title}",
-        description=idea_text,
-        category=category,
-    )
-    db.update_idea(idea_id, status="active")
-
-    plan_id = db.create_plan(
-        idea_id=idea_id,
-        name=plan.get("plan_name", "AI生成プラン（再実行）"),
-        analysis_method="ai_generated",
-        universe=plan.get("universe", {}).get("type", "all"),
-        universe_detail=plan.get("universe", {}).get("detail"),
-        start_date=plan.get("analysis_period", {}).get("start_date"),
-        end_date=plan.get("analysis_period", {}).get("end_date"),
-        parameters=plan.get("methodology", {}),
-        backtest_config=plan.get("backtest", {}),
-    )
-    db.update_plan(plan_id, status="ready")
-
-    # 研究ページのセッション状態をセット
-    universe_filter_text = plan_snap.get("universe_detail", "") if isinstance(plan_snap, dict) else ""
-    start_date = plan.get("analysis_period", {}).get("start_date", "")
-    end_date = plan.get("analysis_period", {}).get("end_date", "")
-
-    st.session_state["rp_plan"] = plan
-    st.session_state["rp_meta"] = {
-        "idea_id": idea_id,
-        "plan_id": plan_id,
-        "idea_text": idea_text,
-        "idea_title": idea_title,
-        "category": category,
-        "universe_filter_text": universe_filter_text,
-        "universe_config": None,
-        "start_date": start_date,
-        "end_date": end_date,
-    }
-    st.session_state["rp_phase"] = "plan_ready"
-
-    # 履歴の詳細表示をクリア
-    st.session_state.pop("history_detail_run_id", None)
-
-    st.switch_page("pages/1_研究.py")
-
-
-def _navigate_to_direct_execute(
-    db: Database,
-    plan: dict,
-    idea_title: str,
-    idea_text: str,
-    category: str,
-    plan_snap: dict,
-):
-    """研究ページの executing 状態へ遷移し、バックグラウンド実行を開始する。
-
-    新しい idea + plan レコードを作成して即座に実行スレッドを起動。
-    """
-    # 新しい DB レコードを作成
-    idea_id = db.create_idea(
-        title=f"[再実行] {idea_title}",
-        description=idea_text,
-        category=category,
-    )
-    db.update_idea(idea_id, status="active")
-
-    plan_id = db.create_plan(
-        idea_id=idea_id,
-        name=plan.get("plan_name", "AI生成プラン（再実行）"),
-        analysis_method="ai_generated",
-        universe=plan.get("universe", {}).get("type", "all"),
-        universe_detail=plan.get("universe", {}).get("detail"),
-        start_date=plan.get("analysis_period", {}).get("start_date"),
-        end_date=plan.get("analysis_period", {}).get("end_date"),
-        parameters=plan.get("methodology", {}),
-        backtest_config=plan.get("backtest", {}),
-    )
-    db.update_plan(plan_id, status="ready")
-
-    universe_filter_text = plan_snap.get("universe_detail", "") if isinstance(plan_snap, dict) else ""
-    start_date = plan.get("analysis_period", {}).get("start_date", "")
-    end_date = plan.get("analysis_period", {}).get("end_date", "")
-
-    meta = {
-        "idea_id": idea_id,
-        "plan_id": plan_id,
-        "idea_text": idea_text,
-        "idea_title": idea_title,
-        "category": category,
-        "universe_filter_text": universe_filter_text,
-        "universe_config": None,
-        "start_date": start_date,
-        "end_date": end_date,
-    }
-
-    # 実行スレッドを起動（日本語ファイル名の pages/1_研究.py はimportできないため
-    # スレッド起動関数をインラインで定義）
-    shared = {"message": "開始中..."}
-    st.session_state["rp_progress"] = shared
-    st.session_state["rp_start_time"] = datetime.now()
-    st.session_state["rp_phase"] = "executing"
-    st.session_state["rp_plan"] = plan
-    st.session_state["rp_meta"] = meta
-
-    t = threading.Thread(
-        target=_thread_execute_from_history,
-        args=(shared, get_db(), get_data_provider(), plan, meta),
-        daemon=True,
-    )
-    st.session_state["rp_thread"] = t
-    t.start()
-
-    # 履歴の詳細表示をクリア
-    st.session_state.pop("history_detail_run_id", None)
-
-    st.switch_page("pages/1_研究.py")
+    st.info("この研究は旧方式（コード生成）で実行されました。再実行するには新規に研究を作成してください。")
 
 
 # ===========================================================================
-# インラインスレッド関数（pages/1_研究.py の _thread_execute と同等）
+# インラインスレッド関数（pages/1_研究.py の _thread_execute_loop と同等）
 # ===========================================================================
-def _thread_execute_from_history(shared, db, provider, plan, meta):
+def _thread_execute_from_history(shared, db, provider, hypothesis, idea_title,
+                                  category, signal_config_dict, universe_config,
+                                  start_date, end_date, max_iterations,
+                                  universe_filter_text):
     """履歴からの再実行用スレッド関数。
 
-    pages/1_研究.py の _thread_execute と同じロジック。
+    pages/1_研究.py の _thread_execute_loop と同じロジック。
     日本語ファイル名のため import できないのでここに定義。
     """
     try:
         ai_client = create_ai_client()
-        researcher = AiResearcher(db=db, ai_client=ai_client, data_provider=provider)
+        researcher = AiResearcher(
+            db=db, ai_client=ai_client, data_provider=provider,
+            max_iterations=max_iterations,
+        )
 
-        def on_status(msg):
-            shared["message"] = msg
+        def on_progress(prog):
+            shared["message"] = prog.message
+            shared["current_iteration"] = prog.current_iteration
+            shared["max_iterations"] = prog.max_iterations
 
-        result = researcher.execute_from_plan(
-            plan=plan,
-            idea_id=meta["idea_id"],
-            plan_id=meta["plan_id"],
-            idea_text=meta["idea_text"],
-            idea_title=meta.get("idea_title", ""),
-            category=meta.get("category", ""),
-            universe_filter_text=meta.get("universe_filter_text", ""),
-            universe_config=meta.get("universe_config"),
-            start_date=meta.get("start_date"),
-            end_date=meta.get("end_date"),
-            on_status=on_status,
+        result = researcher.run_research_loop(
+            hypothesis=hypothesis,
+            idea_title=idea_title,
+            category=category,
+            universe_config=universe_config,
+            start_date=start_date,
+            end_date=end_date,
+            initial_config_dict=signal_config_dict,
+            max_iterations=max_iterations,
+            on_progress=on_progress,
+            universe_filter_text=universe_filter_text,
         )
         shared["_result"] = result
     except Exception as e:

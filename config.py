@@ -57,6 +57,7 @@ BACKTEST_DEFAULTS = {
 CLAUDE_CLI_MODEL = os.getenv("CLAUDE_CLI_MODEL", "claude-opus-4-6")  # 計画生成・結果解釈用
 CLAUDE_CLI_CODE_MODEL = os.getenv("CLAUDE_CLI_CODE_MODEL", "sonnet")  # コード生成用（高速）
 CLAUDE_CLI_TIMEOUT = int(os.getenv("CLAUDE_CLI_TIMEOUT", "600"))  # CLI呼び出しタイムアウト秒
+CLAUDE_CLI_MODEL = os.getenv("CLAUDE_CLI_MODEL", "sonnet")  # 使用モデル（sonnet/opus/haiku）
 
 # コード実行設定
 CODE_EXECUTION_TIMEOUT = int(os.getenv("CODE_EXECUTION_TIMEOUT", "120"))  # 秒
