@@ -1,7 +1,9 @@
-"""研究ページ — 仮説入力 → パラメータ選択 → イテレーション実行 → 結果表示
+"""研究ページ — 仮説入力 → パラメータ選択 → Phase 1 探索 + グリッドサーチ → 結果表示
 
-新設計: AIはコード生成せず、SignalConfigのパラメータをJSON出力するだけ。
-StandardBacktesterで実行し、結果が悪ければAIがパラメータ調整して再実行（最大N回）。
+3フェーズ構造:
+  Phase 1: 探索 — 5つの多様なアプローチを一気に試す
+  Phase 2: グリッド設計 — AIが最有望アプローチを分析、チューニングパラメータを選定
+  Phase 3: グリッド実行 — パラメータの全組み合わせを自動試行（最大30通り）
 
 全 AI 処理はバックグラウンドスレッドで実行。
 待機画面は @st.fragment(run_every=2) でフラグメントのみ再描画。
@@ -16,7 +18,8 @@ import streamlit as st
 
 from config import (
     DB_PATH, MARKET_DATA_DIR, ANALYSIS_CATEGORIES, JQUANTS_API_KEY,
-    AI_RESEARCH_MAX_ITERATIONS,
+    AI_RESEARCH_PHASE1_CONFIGS,
+    AI_RESEARCH_GRID_MAX_COMBINATIONS,
 )
 from db.database import Database
 from data.cache import DataCache
@@ -36,6 +39,8 @@ from core.result_display import render_result_tabs
 from core.sidebar import render_sidebar_running_indicator
 
 st.set_page_config(page_title="研究", page_icon="R", layout="wide")
+
+_PHASE_LABELS = {1: "探索", 2: "グリッド設計", 3: "グリッド実行"}
 
 
 @st.cache_resource
@@ -72,19 +77,22 @@ def _thread_generate_params(shared, hypothesis, universe_desc, start_date, end_d
 
 def _thread_execute_loop(shared, db, provider, hypothesis, idea_title, category,
                          signal_config_dict, universe_config, start_date, end_date,
-                         max_iterations, universe_filter_text):
-    """イテレーションループを実行"""
+                         universe_filter_text):
+    """3フェーズ研究ループを実行"""
     try:
         ai_client = create_ai_client()
         researcher = AiResearcher(
             db=db, ai_client=ai_client, data_provider=provider,
-            max_iterations=max_iterations,
         )
 
         def on_progress(prog):
             shared["message"] = prog.message
             shared["current_iteration"] = prog.current_iteration
             shared["max_iterations"] = prog.max_iterations
+            shared["current_phase"] = prog.current_phase
+            shared["phase_label"] = prog.phase_label
+            shared["current_config_in_phase"] = prog.current_config_in_phase
+            shared["total_configs_in_phase"] = prog.total_configs_in_phase
 
         result = researcher.run_research_loop(
             hypothesis=hypothesis,
@@ -94,7 +102,6 @@ def _thread_execute_loop(shared, db, provider, hypothesis, idea_title, category,
             start_date=start_date,
             end_date=end_date,
             initial_config_dict=signal_config_dict,
-            max_iterations=max_iterations,
             on_progress=on_progress,
             universe_filter_text=universe_filter_text,
         )
@@ -110,7 +117,7 @@ def main():
     apply_reuters_style()
     render_sidebar_running_indicator()
     st.markdown("# Research")
-    st.caption("投資仮説を入力 → AIがパラメータ選択 → 自動イテレーションで検証")
+    st.caption("投資仮説を入力 → AIがパラメータ選択 → Phase 1 探索 + グリッドサーチで検証")
 
     _check_thread_completion()
 
@@ -125,7 +132,7 @@ def main():
         _show_params_review()
     elif phase == "executing":
         apply_waiting_overlay()
-        _waiting_fragment("イテレーション実行中...")
+        _waiting_fragment("3フェーズ研究実行中...")
     elif phase == "done":
         _show_result()
 
@@ -194,11 +201,26 @@ def _waiting_fragment(title: str):
     st.markdown(f"### {title}")
     st.write(progress.get("message", "処理中..."))
 
-    # イテレーション進捗
+    # フェーズ進捗
+    current_phase = progress.get("current_phase", 0)
+    phase_label = progress.get("phase_label", "")
+    config_in_phase = progress.get("current_config_in_phase", 0)
+    total_in_phase = progress.get("total_configs_in_phase", 0)
+
+    if current_phase > 0:
+        st.markdown(f"**Phase {current_phase}/3: {phase_label}**")
+
+        # フェーズ内プログレスバー
+        if total_in_phase > 0 and config_in_phase > 0:
+            pct = min(config_in_phase / total_in_phase, 1.0)
+            st.progress(pct, text=f"パラメータセット {config_in_phase}/{total_in_phase} 実行中...")
+
+    # 全体プログレスバー
     cur = progress.get("current_iteration", 0)
     mx = progress.get("max_iterations", 0)
     if cur > 0 and mx > 0:
-        st.progress(cur / mx, text=f"イテレーション {cur}/{mx}")
+        pct = min(cur / mx, 1.0)
+        st.progress(pct, text=f"全体進捗: {cur}/{mx} パターン完了")
 
     elapsed = ""
     if start_time:
@@ -426,12 +448,13 @@ def _show_params_review():
 
     st.markdown("---")
 
-    # イテレーション設定
-    max_iter = st.slider(
-        "イテレーション回数",
-        min_value=1, max_value=5,
-        value=AI_RESEARCH_MAX_ITERATIONS,
-        help="結果が悪い場合にAIがパラメータを自動調整して再実行する回数",
+    # フェーズ説明
+    st.info(
+        f"**Phase 1 探索 + グリッドサーチで検証します**\n\n"
+        f"- Phase 1 探索: AIが{AI_RESEARCH_PHASE1_CONFIGS}つの異なるアプローチを試行\n"
+        f"- Phase 2 グリッド設計: AIが最も有望なアプローチを分析、チューニングパラメータを選定\n"
+        f"- Phase 3 グリッド実行: パラメータの全組み合わせを自動試行（最大{AI_RESEARCH_GRID_MAX_COMBINATIONS}通り）\n"
+        f"- データは初回のみ取得、2回目以降は高速"
     )
 
     col1, col2 = st.columns(2)
@@ -443,7 +466,15 @@ def _show_params_review():
             st.rerun()
 
     if execute:
-        shared = {"message": "開始中...", "current_iteration": 0, "max_iterations": max_iter}
+        shared = {
+            "message": "開始中...",
+            "current_iteration": 0,
+            "max_iterations": AI_RESEARCH_PHASE1_CONFIGS,  # Phase 2完了時に動的更新
+            "current_phase": 0,
+            "phase_label": "",
+            "current_config_in_phase": 0,
+            "total_configs_in_phase": 0,
+        }
         st.session_state["rp_progress"] = shared
         st.session_state["rp_start_time"] = datetime.now()
         st.session_state["rp_phase"] = "executing"
@@ -455,7 +486,7 @@ def _show_params_review():
                 meta["idea_text"], meta["idea_title"], meta["category"],
                 cfg_dict, meta["universe_config"],
                 meta["start_date"], meta["end_date"],
-                max_iter, meta["universe_filter_text"],
+                meta["universe_filter_text"],
             ),
             daemon=True,
         )
@@ -476,11 +507,13 @@ def _render_iteration_comparison(iterations, best_idx):
     for i, it in enumerate(iterations):
         bt = it.backtest_result
         is_best = (best_idx is not None and i == best_idx)
+        phase_label = _PHASE_LABELS.get(it.phase, "?")
 
         if "error" in bt:
             rows.append({
                 "#": f"{it.iteration}{'★' if is_best else ''}",
-                "パラメータ変更": it.changes_description or "初回",
+                "Phase": phase_label,
+                "アプローチ": it.approach_name or it.changes_description or "初回",
                 "シグナル": 0,
                 "超過リターン": "エラー",
                 "p値": "-",
@@ -492,9 +525,10 @@ def _render_iteration_comparison(iterations, best_idx):
         stats = bt.get("statistics", {})
         backtest_data = bt.get("backtest", bt)
         n_valid = backtest_data.get("n_valid_signals", 0)
-        mean_excess = stats.get("excess_mean", backtest_data.get("mean_excess_return", 0)) or 0
-        p_value = stats.get("p_value", 1.0) or 1.0
-        cohens_d = stats.get("cohens_d", 0) or 0
+        mean_excess = stats.get("excess_mean") or backtest_data.get("mean_excess_return") or 0
+        p_value = stats.get("p_value")
+        p_value = p_value if p_value is not None else 1.0
+        cohens_d = stats.get("cohens_d") or 0
 
         if mean_excess > 0:
             edge = "ロング"
@@ -505,7 +539,8 @@ def _render_iteration_comparison(iterations, best_idx):
 
         rows.append({
             "#": f"{it.iteration}{'★' if is_best else ''}",
-            "パラメータ変更": it.changes_description or "初回",
+            "Phase": phase_label,
+            "アプローチ": it.approach_name or it.changes_description or "初回",
             "シグナル": n_valid,
             "超過リターン": f"{mean_excess:+.2%}",
             "p値": f"{p_value:.4f}",
@@ -516,7 +551,7 @@ def _render_iteration_comparison(iterations, best_idx):
     if not rows:
         return
 
-    st.markdown("#### イテレーション比較")
+    st.markdown("#### 全パターン比較")
     df = pd.DataFrame(rows)
 
     def _highlight_best(row):
@@ -526,7 +561,7 @@ def _render_iteration_comparison(iterations, best_idx):
 
     styled = df.style.apply(_highlight_best, axis=1)
     st.dataframe(styled, width='stretch', hide_index=True)
-    st.caption("★ = ベストイテレーション")
+    st.caption("★ = ベスト結果")
 
 
 # ===========================================================================
@@ -557,39 +592,183 @@ def _show_result():
             st.rerun()
         return
 
-    # --- イテレーション比較サマリー ---
+    # --- 全パターン比較サマリー ---
     _render_iteration_comparison(iterations, best_idx)
 
-    # --- タブ構成: ベスト結果 + 各イテレーション + AI解釈 ---
+    # --- フェーズ別にグループ化 ---
+    phase1_its = [it for it in iterations if it.phase == 1]
+    phase3_its = [it for it in iterations if it.phase == 3]  # グリッド実行結果
+
+    # --- タブ構成: ベスト結果 | 探索(5件) | グリッド設計 | グリッド結果(N件) | AI総合評価 ---
     tab_labels = ["ベスト結果"]
-    for it in iterations:
-        label = f"イテレーション {it.iteration}"
-        if best_idx is not None and it.iteration - 1 == best_idx:
-            label += " *"
-        tab_labels.append(label)
+    if phase1_its:
+        tab_labels.append(f"Phase 1 探索 ({len(phase1_its)}件)")
+    tab_labels.append("Phase 2 グリッド設計")
+    if phase3_its:
+        tab_labels.append(f"Phase 3 グリッド結果 ({len(phase3_its)}件)")
     tab_labels.append("AI総合評価")
 
     tabs = st.tabs(tab_labels)
+    tab_idx = 0
 
     # --- ベスト結果タブ ---
-    with tabs[0]:
+    with tabs[tab_idx]:
         if best_idx is not None and best_idx < len(iterations):
             best_it = iterations[best_idx]
-            st.markdown(f"**ベストイテレーション: #{best_it.iteration}**")
+            phase_name = _PHASE_LABELS.get(best_it.phase, "?")
+            st.markdown(f"**ベスト: #{best_it.iteration} — {best_it.approach_name}** (Phase {best_it.phase}: {phase_name})")
             _render_iteration_result(best_it, key_suffix="best")
         else:
             st.warning("ベスト結果を特定できませんでした")
+    tab_idx += 1
 
-    # --- 各イテレーションタブ ---
-    for i, it in enumerate(iterations):
-        with tabs[i + 1]:
-            is_best = (best_idx is not None and i == best_idx)
-            if is_best:
-                st.info("このイテレーションがベスト結果に選ばれました")
-            _render_iteration_result(it, key_suffix=f"tab{i}")
+    # --- Phase 1 タブ ---
+    if phase1_its:
+        with tabs[tab_idx]:
+            st.markdown("### Phase 1: 探索")
+            st.caption("全く異なるアプローチを幅広く試行")
+            for i, it in enumerate(phase1_its):
+                is_best = (best_idx is not None and iterations.index(it) == best_idx)
+                with st.expander(
+                    f"{'★ ' if is_best else ''}{it.approach_name} — "
+                    f"{_get_result_summary(it)}",
+                    expanded=is_best,
+                ):
+                    if is_best:
+                        st.info("このパターンがベスト結果に選ばれました")
+                    _render_iteration_result(it, key_suffix=f"p1_{i}")
+        tab_idx += 1
+
+    # --- Phase 2 グリッド設計タブ ---
+    with tabs[tab_idx]:
+        st.markdown("### Phase 2: グリッド設計")
+        st.caption("AIがPhase 1の結果を分析し、グリッドサーチのパラメータを設計")
+        grid_spec = result.grid_spec
+        if grid_spec:
+            if grid_spec.get("analysis"):
+                st.markdown("#### AI分析")
+                st.write(grid_spec["analysis"])
+            if grid_spec.get("selected_approach"):
+                st.markdown(f"**ベースアプローチ:** {grid_spec['selected_approach']}")
+            if grid_spec.get("reasoning"):
+                st.markdown(f"**設計理由:** {grid_spec['reasoning']}")
+            st.markdown("---")
+            if grid_spec.get("base_config"):
+                st.markdown("#### ベース設定")
+                st.code(json.dumps(grid_spec["base_config"], ensure_ascii=False, indent=2), language="json")
+            if grid_spec.get("sweep_parameters"):
+                st.markdown("#### スイープパラメータ")
+                sweep = grid_spec["sweep_parameters"]
+                sweep_rows = []
+                for param, values in sweep.items():
+                    sweep_rows.append({
+                        "パラメータ": param,
+                        "候補値": str(values),
+                        "候補数": len(values),
+                    })
+                st.dataframe(pd.DataFrame(sweep_rows), width='stretch', hide_index=True)
+                # 組み合わせ数
+                total_combos = 1
+                for values in sweep.values():
+                    total_combos *= len(values)
+                st.metric("全組み合わせ数", total_combos)
+        else:
+            st.info("グリッド設計データがありません")
+    tab_idx += 1
+
+    # --- Phase 3 グリッド結果タブ ---
+    if phase3_its:
+        with tabs[tab_idx]:
+            st.markdown("### Phase 3: グリッド結果")
+            st.caption("パラメータの全組み合わせを自動試行した結果")
+
+            # グリッド結果テーブル（スイープパラメータ値を独立列として表示）
+            grid_rows = []
+            sweep_param_names = []
+            if grid_spec and grid_spec.get("sweep_parameters"):
+                sweep_param_names = list(grid_spec["sweep_parameters"].keys())
+
+            for i, it in enumerate(phase3_its):
+                bt = it.backtest_result
+                is_best = (best_idx is not None and iterations.index(it) == best_idx)
+
+                row = {"#": f"{it.iteration}{'★' if is_best else ''}"}
+
+                # スイープパラメータ値を個別列に
+                combo = it.grid_combo or {}
+                for param in sweep_param_names:
+                    row[param] = combo.get(param, "-")
+
+                if "error" in bt:
+                    row["シグナル"] = 0
+                    row["超過リターン"] = "エラー"
+                    row["p値"] = "-"
+                    row["効果量d"] = "-"
+                    row["エッジ"] = "-"
+                else:
+                    stats = bt.get("statistics", {})
+                    backtest_data = bt.get("backtest", bt)
+                    n_valid = backtest_data.get("n_valid_signals", 0)
+                    mean_excess = stats.get("excess_mean") or backtest_data.get("mean_excess_return") or 0
+                    p_value = stats.get("p_value")
+                    p_value = p_value if p_value is not None else 1.0
+                    cohens_d = stats.get("cohens_d") or 0
+
+                    row["シグナル"] = n_valid
+                    row["超過リターン"] = f"{mean_excess:+.2%}"
+                    row["p値"] = f"{p_value:.4f}"
+                    row["効果量d"] = f"{cohens_d:+.3f}"
+                    row["エッジ"] = "ロング" if mean_excess > 0 else ("ショート" if mean_excess < 0 else "-")
+
+                grid_rows.append(row)
+
+            if grid_rows:
+                st.markdown("#### 全件テーブル")
+                df_grid = pd.DataFrame(grid_rows)
+
+                def _highlight_best_grid(row):
+                    if "★" in str(row["#"]):
+                        return ["background-color: rgba(255, 128, 0, 0.15)"] * len(row)
+                    return [""] * len(row)
+
+                styled_grid = df_grid.style.apply(_highlight_best_grid, axis=1)
+                st.dataframe(styled_grid, width='stretch', hide_index=True)
+                st.caption("★ = ベスト結果")
+
+            # 上位5件のみexpander詳細
+            scored_phase3 = []
+            for i, it in enumerate(phase3_its):
+                bt = it.backtest_result
+                if "error" in bt:
+                    scored_phase3.append((-999, i, it))
+                    continue
+                stats = bt.get("statistics", {})
+                backtest_data = bt.get("backtest", bt)
+                n_valid = backtest_data.get("n_valid_signals", 0)
+                mean_excess = stats.get("excess_mean") or backtest_data.get("mean_excess_return") or 0
+                p_value = stats.get("p_value")
+                p_value = p_value if p_value is not None else 1.0
+                cohens_d = abs(stats.get("cohens_d") or 0)
+                score = cohens_d * 3 + (2 if p_value < 0.05 else 0) + (1 if n_valid >= 20 else 0) + abs(mean_excess) * 10
+                scored_phase3.append((score, i, it))
+            scored_phase3.sort(key=lambda x: x[0], reverse=True)
+
+            st.markdown("#### 上位5件の詳細")
+            for rank, (score, orig_idx, it) in enumerate(scored_phase3[:5]):
+                is_best = (best_idx is not None and iterations.index(it) == best_idx)
+                combo_desc = it.changes_description or f"Grid {orig_idx+1}"
+                with st.expander(
+                    f"{'★ ' if is_best else ''}#{rank+1} {combo_desc} — "
+                    f"{_get_result_summary(it)}",
+                    expanded=(rank == 0),
+                ):
+                    if is_best:
+                        st.info("このパターンがベスト結果に選ばれました")
+                    _render_iteration_result(it, key_suffix=f"grid_{orig_idx}")
+        tab_idx += 1
 
     # --- AI総合評価タブ ---
-    with tabs[-1]:
+    with tabs[tab_idx]:
         interp = result.interpretation
         if interp:
             label = interp.get("evaluation_label", "needs_review")
@@ -619,6 +798,22 @@ def _show_result():
         st.rerun()
 
 
+def _get_result_summary(it) -> str:
+    """イテレーション結果の1行サマリーを返す"""
+    bt = it.backtest_result
+    if "error" in bt:
+        return "エラー"
+
+    stats = bt.get("statistics", {})
+    backtest_data = bt.get("backtest", bt)
+    n_valid = backtest_data.get("n_valid_signals", 0)
+    mean_excess = stats.get("excess_mean") or backtest_data.get("mean_excess_return") or 0
+    p_value = stats.get("p_value")
+    p_value = p_value if p_value is not None else 1.0
+
+    return f"シグナル{n_valid}件, 超過リターン{mean_excess:+.2%}, p={p_value:.4f}"
+
+
 def _render_iteration_result(it, key_suffix=""):
     """1つのイテレーション結果を表示"""
     bt = it.backtest_result
@@ -630,9 +825,7 @@ def _render_iteration_result(it, key_suffix=""):
             st.write(f"**AI判断:** {it.ai_reasoning}")
         return
 
-    # パラメータ変更の説明
-    if it.changes_description:
-        st.caption(f"変更: {it.changes_description}")
+    # アプローチの説明
     if it.ai_reasoning:
         st.write(f"**AI判断:** {it.ai_reasoning}")
 

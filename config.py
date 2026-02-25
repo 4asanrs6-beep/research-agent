@@ -64,7 +64,10 @@ CODE_EXECUTION_TIMEOUT = int(os.getenv("CODE_EXECUTION_TIMEOUT", "120"))  # 秒
 
 # 標準バックテスト設定
 # AI研究イテレーション設定
-AI_RESEARCH_MAX_ITERATIONS = 3      # パラメータ調整の最大イテレーション回数
+AI_RESEARCH_PHASE1_CONFIGS = 5              # Phase 1: AI構造探索
+AI_RESEARCH_GRID_MAX_COMBINATIONS = 30      # Phase 3: グリッド最大組み合わせ数
+AI_RESEARCH_GRID_MAX_PARAMS = 3             # Phase 2: AIが指定する最大パラメータ数
+AI_RESEARCH_GRID_MAX_VALUES_PER_PARAM = 6   # Phase 2: パラメータあたり最大候補値数
 AI_RESEARCH_MIN_SIGNALS = 20        # 最小シグナル数（これ未満なら条件緩和を促す）
 AI_RESEARCH_MAX_STOCKS = 4000        # AI研究で使用する最大銘柄数（実質上限なし）
 

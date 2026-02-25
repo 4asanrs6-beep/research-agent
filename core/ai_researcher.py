@@ -1,23 +1,33 @@
-"""自動研究実行モジュール（パラメータ選択 + イテレーション方式）
+"""自動研究実行モジュール（Phase 1 探索 + グリッドサーチ方式）
 
 研究サイクル:
-  仮説入力 → AIがSignalConfigパラメータ選択 → StandardBacktesterで実行
-  → 結果が悪ければAIがパラメータ調整して再実行（最大N回）
+  仮説入力 → AIがSignalConfigパラメータ選択（ユーザー確認）
+  → Phase 1: 探索（5つの多様なアプローチを一気に試す）
+  → Phase 2: グリッド設計（AIが最有望アプローチを分析 → ベースconfig + スイープパラメータを指定）
+  → Phase 3: グリッド実行（itertools.productで全組み合わせを自動実行）
   → ベスト結果を選択 → AI解釈 → 知見保存
 
 コード生成は行わない。AIはJSON出力のみ。
+データはPhase開始前に1回だけプリロードし、各バックテストでは再利用する。
 """
 
+import itertools
 import json
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 
-from config import AI_RESEARCH_MAX_ITERATIONS, AI_RESEARCH_MIN_SIGNALS, AI_RESEARCH_MAX_STOCKS
+from config import (
+    AI_RESEARCH_PHASE1_CONFIGS,
+    AI_RESEARCH_GRID_MAX_COMBINATIONS,
+    AI_RESEARCH_MIN_SIGNALS,
+    AI_RESEARCH_MAX_STOCKS,
+)
 from db.database import Database
 from core.ai_parameter_selector import (
     AiParameterSelector,
+    GridSpecResult,
     ParameterSelectionResult,
     dict_to_signal_config,
     signal_config_to_dict,
@@ -36,9 +46,12 @@ class IterationResult:
     """1回のイテレーション結果"""
     iteration: int
     signal_config_dict: dict
-    backtest_result: dict           # StandardBacktester.run() の戻り値
+    backtest_result: dict           # StandardBacktester結果
     ai_reasoning: str
     changes_description: str
+    phase: int = 0                  # 1=探索, 2=グリッド設計, 3=グリッド実行
+    approach_name: str = ""         # アプローチ名
+    grid_combo: dict | None = None  # Phase 3用、スイープ値を記録
 
 
 @dataclass
@@ -51,8 +64,16 @@ class ResearchProgress:
     signal_config_dict: dict = field(default_factory=dict)
     # イテレーション
     current_iteration: int = 0
-    max_iterations: int = AI_RESEARCH_MAX_ITERATIONS
+    max_iterations: int = AI_RESEARCH_PHASE1_CONFIGS
     iterations: list = field(default_factory=list)  # list[IterationResult]
+    # フェーズ進捗
+    current_phase: int = 0          # 1=探索, 2=グリッド設計, 3=グリッド実行
+    phase_label: str = ""           # "探索", "グリッド設計", "グリッド実行"
+    current_config_in_phase: int = 0
+    total_configs_in_phase: int = 0
+    # グリッドサーチ関連
+    grid_spec: dict = field(default_factory=dict)   # AIのグリッド設計結果（UI表示用）
+    grid_total_combos: int = 0                       # 全組み合わせ数
     # ベスト結果
     best_iteration_index: int | None = None
     best_result: dict = field(default_factory=dict)
@@ -140,10 +161,13 @@ def _describe_config_diff(prev: dict, curr: dict) -> str:
 def _compute_composite_score(bt_result: dict, stats: dict) -> float:
     """イテレーション結果のスコアを算出（ベスト選択用）
 
-    スコア = 統計的有意(+2) + |Cohen's d|*3 + シグナル>=20(+1) + 超過リターン*10
+    スコア = 統計的有意(+2) + |Cohen's d|*3 + シグナル>=20(+1) + |超過リターン|*10
+    エッジの方向（ロング/ショート）に依存せず、効果の強さで評価する。
     """
     score = 0.0
-    if stats.get("is_significant"):
+    p_value = stats.get("p_value")
+    p_value = p_value if p_value is not None else 1.0
+    if p_value < 0.05 and bt_result.get("n_valid_signals", 0) >= 5:
         score += 2.0
     cohens_d = abs(stats.get("cohens_d", 0))
     score += cohens_d * 3.0
@@ -151,23 +175,64 @@ def _compute_composite_score(bt_result: dict, stats: dict) -> float:
     if n_valid >= AI_RESEARCH_MIN_SIGNALS:
         score += 1.0
     mean_excess = bt_result.get("mean_excess_return", 0)
-    score += mean_excess * 10.0
+    score += abs(mean_excess) * 10.0
     return score
 
 
+def _iteration_to_result_dict(it: IterationResult) -> dict:
+    """IterationResult を AI プロンプト用の辞書に変換する"""
+    return {
+        "approach_name": it.approach_name or f"Config {it.iteration}",
+        "signal_config_dict": it.signal_config_dict,
+        "backtest_result": it.backtest_result,
+    }
+
+
+def generate_grid_configs(
+    grid_spec: GridSpecResult,
+    max_combos: int = AI_RESEARCH_GRID_MAX_COMBINATIONS,
+) -> list[dict]:
+    """GridSpecResultからitertools.productで全組み合わせを生成する
+
+    Returns:
+        list[dict] — 各要素は {**base_config, **combo} のSignalConfig辞書
+    """
+    base = dict(grid_spec.base_config)
+    sweep = grid_spec.sweep_parameters
+
+    if not sweep:
+        return [base]
+
+    param_names = list(sweep.keys())
+    value_lists = [sweep[name] for name in param_names]
+
+    all_combos = list(itertools.product(*value_lists))
+    if len(all_combos) > max_combos:
+        logger.warning(
+            "グリッド組み合わせ数(%d)が上限(%d)を超過。先頭%d個に絞ります。",
+            len(all_combos), max_combos, max_combos,
+        )
+        all_combos = all_combos[:max_combos]
+
+    configs = []
+    for combo in all_combos:
+        config = {**base, **dict(zip(param_names, combo))}
+        configs.append(config)
+
+    return configs
+
+
 class AiResearcher:
-    """AI研究エージェント: パラメータ選択 + イテレーション方式"""
+    """AI研究エージェント: Phase 1 探索 + グリッドサーチ方式"""
 
     def __init__(
         self,
         db: Database,
         ai_client: Any,
         data_provider: Any,
-        max_iterations: int = AI_RESEARCH_MAX_ITERATIONS,
     ):
         self.db = db
         self.data_provider = data_provider
-        self.max_iterations = max_iterations
 
         self.param_selector = AiParameterSelector(ai_client)
         self.interpreter = AiInterpreter(ai_client)
@@ -202,16 +267,13 @@ class AiResearcher:
         on_progress: Any = None,
         universe_filter_text: str = "",
     ) -> ResearchProgress:
-        """イテレーションループを実行
+        """Phase 1 探索 + グリッドサーチ研究ループを実行
 
-        1. initial_config_dict で StandardBacktester.run()
-        2. AI が結果を評価しパラメータ調整
-        3. 改善見込みなし or 最大回数到達まで繰り返し
-        4. ベスト結果を選択し AI 解釈
-        5. DB・知見保存
+        Phase 1: 探索 — 5つの多様なアプローチを一気に試す
+        Phase 2: グリッド設計 — AIが最有望アプローチを分析 → ベースconfig + スイープパラメータを指定
+        Phase 3: グリッド実行 — itertools.productで全組み合わせを自動実行（最大30通り）
         """
-        if max_iterations is None:
-            max_iterations = self.max_iterations
+        n_phase1 = AI_RESEARCH_PHASE1_CONFIGS
 
         progress = ResearchProgress(
             idea_title=idea_title,
@@ -221,7 +283,7 @@ class AiResearcher:
             end_date=end_date,
             universe_filter_text=universe_filter_text,
             signal_config_dict=initial_config_dict,
-            max_iterations=max_iterations,
+            max_iterations=n_phase1,  # Phase 2完了時に動的更新
         )
 
         def notify(phase: str, message: str):
@@ -242,7 +304,7 @@ class AiResearcher:
             plan_data = {
                 "plan_name": f"AI研究: {idea_title}",
                 "hypothesis": hypothesis,
-                "methodology": {"approach": "パラメータ選択 + イテレーション"},
+                "methodology": {"approach": "Phase 1 探索 + グリッドサーチ（探索→グリッド設計→グリッド実行）"},
                 "analysis_period": {"start_date": start_date, "end_date": end_date},
             }
             plan_id = self.db.create_plan(
@@ -260,150 +322,152 @@ class AiResearcher:
             run_id = self.db.create_run(plan_id, idea_snapshot, plan_snapshot)
             progress.run_id = run_id
 
-            # --- 1. イテレーションループ ---
-            current_config_dict = dict(initial_config_dict)
-            prev_config_dict: dict | None = None  # 前回のconfig（差分表示用）
-            previous_iterations_summary: list[dict] = []
+            # --- データプリロード（1回だけ） ---
+            notify("executing", "データをプリロード中（初回のみ・数分かかります）...")
+            preloaded = self.backtester.preload_data(
+                universe_config=universe_config,
+                start_date=start_date,
+                end_date=end_date,
+                max_stocks=AI_RESEARCH_MAX_STOCKS,
+                on_progress=lambda msg, pct: notify("executing", f"データプリロード: {msg}"),
+            )
 
-            for i in range(max_iterations):
-                iteration_num = i + 1
-                progress.current_iteration = iteration_num
-                notify("executing", f"イテレーション {iteration_num}/{max_iterations}: バックテスト実行中...")
+            iteration_counter = 0  # 全体通し番号
 
-                # バックテスト実行
-                signal_config = dict_to_signal_config(current_config_dict)
-                bt_result = self.backtester.run(
+            # =============================================================
+            # Phase 1: 探索
+            # =============================================================
+            progress.current_phase = 1
+            progress.phase_label = "探索"
+            progress.total_configs_in_phase = n_phase1
+            notify("executing", f"Phase 1/3 探索: AIが{n_phase1}つの多様なアプローチを生成中...")
+
+            configs_phase1 = self.param_selector.generate_diverse_configs(
+                hypothesis=hypothesis,
+                universe_desc=universe_filter_text,
+                start_date=start_date,
+                end_date=end_date,
+                n=n_phase1,
+            )
+
+            for idx, cfg in enumerate(configs_phase1):
+                iteration_counter += 1
+                progress.current_iteration = iteration_counter
+                progress.current_config_in_phase = idx + 1
+                approach = cfg.hypothesis_mapping or f"アプローチ{idx+1}"
+                notify(
+                    "executing",
+                    f"Phase 1/3 探索: [{idx+1}/{len(configs_phase1)}] {approach} を実行中...",
+                )
+
+                signal_config = dict_to_signal_config(cfg.signal_config_dict)
+                bt_result = self.backtester.run_with_preloaded_data(
                     signal_config=signal_config,
-                    universe_config=universe_config,
-                    start_date=start_date,
-                    end_date=end_date,
-                    max_stocks=AI_RESEARCH_MAX_STOCKS,
-                    on_progress=lambda msg, pct: notify(
+                    preloaded=preloaded,
+                    on_progress=lambda msg, pct, _a=approach, _i=idx: notify(
                         "executing",
-                        f"イテレーション {iteration_num}/{max_iterations}: {msg}",
+                        f"Phase 1/3 探索: [{_i+1}/{len(configs_phase1)}] {_a} — {msg}",
                     ),
                 )
 
-                # エラーチェック
-                if "error" in bt_result:
-                    error_msg = bt_result["error"]
-                    logger.warning("イテレーション%d バックテストエラー: %s", iteration_num, error_msg)
-                    # エラーでも IterationResult として記録
-                    if i == 0:
-                        err_changes_desc = "初回"
-                    else:
-                        err_changes_desc = _describe_config_diff(
-                            prev_config_dict or {}, current_config_dict,
-                        )
-                    it_result = IterationResult(
-                        iteration=iteration_num,
-                        signal_config_dict=dict(current_config_dict),
-                        backtest_result=bt_result,
-                        ai_reasoning=f"バックテストエラー: {error_msg}",
-                        changes_description=err_changes_desc,
-                    )
-                    progress.iterations.append(it_result)
-
-                    # 最初のイテレーションでエラーなら条件緩和を試みる
-                    if i == 0:
-                        # シグナル0件の場合、AIに条件緩和を依頼
-                        result_summary = {
-                            "n_signals": 0, "n_valid": 0,
-                            "mean_excess": 0.0, "p_value": 1.0,
-                            "cohens_d": 0.0, "win_rate": 0.0,
-                            "is_significant": False,
-                            "error": error_msg,
-                        }
-                        previous_iterations_summary.append({
-                            "iteration": iteration_num,
-                            "n_signals": 0,
-                            "mean_excess": 0.0,
-                            "p_value": 1.0,
-                            "cohens_d": 0.0,
-                            "changes_description": "初回（エラー）",
-                        })
-                        if i < max_iterations - 1:
-                            notify("executing", f"イテレーション {iteration_num}/{max_iterations}: パラメータ調整中...")
-                            adjusted = self.param_selector.adjust_parameters(
-                                hypothesis=hypothesis,
-                                current_config_dict=current_config_dict,
-                                result_summary=result_summary,
-                                iteration=iteration_num + 1,
-                                max_iterations=max_iterations,
-                                previous_iterations=previous_iterations_summary,
-                            )
-                            if adjusted is not None:
-                                prev_config_dict = dict(current_config_dict)
-                                current_config_dict = adjusted.signal_config_dict
-                                continue
-                        break
-                    break
-
-                # 成功したイテレーション結果を記録
-                stats = bt_result.get("statistics", {})
-                if i == 0:
-                    changes_desc = "初回"
-                else:
-                    changes_desc = _describe_config_diff(
-                        prev_config_dict or {}, current_config_dict,
-                    )
-
                 it_result = IterationResult(
-                    iteration=iteration_num,
-                    signal_config_dict=dict(current_config_dict),
+                    iteration=iteration_counter,
+                    signal_config_dict=cfg.signal_config_dict,
                     backtest_result=bt_result,
-                    ai_reasoning="",
-                    changes_description=changes_desc,
+                    ai_reasoning=cfg.reasoning,
+                    changes_description=approach,
+                    phase=1,
+                    approach_name=approach,
                 )
                 progress.iterations.append(it_result)
 
-                # 結果サマリー
-                n_valid = bt_result.get("backtest", bt_result).get("n_valid_signals", 0)
-                result_summary = {
-                    "n_signals": stats.get("n_signals", n_valid),
-                    "n_valid": stats.get("n_excess", n_valid),
-                    "mean_excess": stats.get("excess_mean", 0.0),
-                    "p_value": stats.get("p_value", 1.0),
-                    "cohens_d": stats.get("cohens_d", 0.0),
-                    "win_rate": stats.get("win_rate", 0.0),
-                    "is_significant": stats.get("is_significant", False),
-                }
+            # =============================================================
+            # Phase 2: グリッド設計
+            # =============================================================
+            progress.current_phase = 2
+            progress.phase_label = "グリッド設計"
+            progress.total_configs_in_phase = 0
+            notify("executing", "Phase 2/3 グリッド設計: AIがPhase 1の全結果を分析中...")
 
-                previous_iterations_summary.append({
-                    "iteration": iteration_num,
-                    "n_signals": result_summary["n_signals"],
-                    "mean_excess": result_summary["mean_excess"],
-                    "p_value": result_summary["p_value"],
-                    "cohens_d": result_summary["cohens_d"],
-                    "changes_description": changes_desc,
-                })
+            phase1_results = [
+                _iteration_to_result_dict(it) for it in progress.iterations if it.phase == 1
+            ]
+            grid_spec = self.param_selector.specify_grid(
+                hypothesis=hypothesis,
+                all_results=phase1_results,
+                max_combos=AI_RESEARCH_GRID_MAX_COMBINATIONS,
+            )
 
-                # 最終イテレーション → ループ終了
-                if i >= max_iterations - 1:
-                    break
+            # グリッド設計結果をprogressに保存（UI表示用）
+            progress.grid_spec = {
+                "analysis": grid_spec.analysis,
+                "selected_approach": grid_spec.selected_approach,
+                "base_config": grid_spec.base_config,
+                "sweep_parameters": grid_spec.sweep_parameters,
+                "reasoning": grid_spec.reasoning,
+            }
 
-                # AI にパラメータ調整を依頼
-                notify("executing", f"イテレーション {iteration_num}/{max_iterations}: AIがパラメータ調整中...")
-                adjusted = self.param_selector.adjust_parameters(
-                    hypothesis=hypothesis,
-                    current_config_dict=current_config_dict,
-                    result_summary=result_summary,
-                    iteration=iteration_num + 1,
-                    max_iterations=max_iterations,
-                    previous_iterations=previous_iterations_summary,
+            # グリッド組み合わせ生成
+            grid_configs = generate_grid_configs(grid_spec)
+            n_grid = len(grid_configs)
+            progress.grid_total_combos = n_grid
+            progress.max_iterations = n_phase1 + n_grid  # 動的更新
+            notify(
+                "executing",
+                f"Phase 2/3 グリッド設計完了: {n_grid}通りの組み合わせを生成 "
+                f"(ベース: {grid_spec.selected_approach})",
+            )
+
+            # =============================================================
+            # Phase 3: グリッド実行
+            # =============================================================
+            progress.current_phase = 3
+            progress.phase_label = "グリッド実行"
+            progress.total_configs_in_phase = n_grid
+            notify("executing", f"Phase 3/3 グリッド実行: {n_grid}通りの組み合わせを自動試行中...")
+
+            sweep_param_names = list(grid_spec.sweep_parameters.keys())
+
+            for idx, config_dict in enumerate(grid_configs):
+                iteration_counter += 1
+                progress.current_iteration = iteration_counter
+                progress.current_config_in_phase = idx + 1
+
+                # スイープ値を記録
+                combo = {k: config_dict[k] for k in sweep_param_names if k in config_dict}
+                combo_desc = ", ".join(f"{k}={v}" for k, v in combo.items())
+                approach = f"Grid [{idx+1}/{n_grid}] {combo_desc}"
+
+                notify(
+                    "executing",
+                    f"Phase 3/3 グリッド実行: [{idx+1}/{n_grid}] {combo_desc}",
                 )
 
-                if adjusted is None:
-                    # AI判断: これ以上改善なし
-                    logger.info("AI判断により早期停止 (イテレーション%d)", iteration_num)
-                    break
+                signal_config = dict_to_signal_config(config_dict)
+                bt_result = self.backtester.run_with_preloaded_data(
+                    signal_config=signal_config,
+                    preloaded=preloaded,
+                    on_progress=lambda msg, pct, _desc=combo_desc, _i=idx: notify(
+                        "executing",
+                        f"Phase 3/3 グリッド実行: [{_i+1}/{n_grid}] {_desc} — {msg}",
+                    ),
+                )
 
-                prev_config_dict = dict(current_config_dict)
-                current_config_dict = adjusted.signal_config_dict
-                # 次のイテレーションに理由を記録
-                it_result.ai_reasoning = adjusted.reasoning
+                it_result = IterationResult(
+                    iteration=iteration_counter,
+                    signal_config_dict=config_dict,
+                    backtest_result=bt_result,
+                    ai_reasoning=grid_spec.reasoning,
+                    changes_description=combo_desc,
+                    phase=3,
+                    approach_name=approach,
+                    grid_combo=combo,
+                )
+                progress.iterations.append(it_result)
 
-            # --- 2. ベスト結果選択 ---
+            # =============================================================
+            # ベスト結果選択 + AI解釈
+            # =============================================================
             notify("interpreting", "ベスト結果を選択中...")
             best_idx = self._select_best_iteration(progress.iterations)
             progress.best_iteration_index = best_idx
@@ -412,13 +476,12 @@ class AiResearcher:
                 best_it = progress.iterations[best_idx]
                 progress.best_result = best_it.backtest_result
             elif progress.iterations:
-                # スコア計算不能でも最後の結果を使用
                 progress.best_iteration_index = len(progress.iterations) - 1
                 progress.best_result = progress.iterations[-1].backtest_result
             else:
                 raise RuntimeError("イテレーション結果がありません")
 
-            # --- 3. AI解釈（ベスト結果に対して） ---
+            # AI解釈（ベスト結果に対して）
             best_bt = progress.best_result
             if "error" not in best_bt:
                 notify("interpreting", "AIが結果を解釈中...")
@@ -444,7 +507,7 @@ class AiResearcher:
                     "knowledge_entry": {"hypothesis": hypothesis, "tags": [category]},
                 }
 
-            # --- 4. DB保存 ---
+            # --- DB保存 ---
             notify("saving", "結果を保存中...")
             best_stats_to_save = best_bt.get("statistics", {})
             best_backtest_to_save = best_bt.get("backtest", best_bt)

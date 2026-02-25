@@ -6,7 +6,7 @@ from datetime import datetime
 
 import streamlit as st
 
-from config import DB_PATH, MARKET_DATA_DIR, JQUANTS_API_KEY, AI_RESEARCH_MAX_ITERATIONS
+from config import DB_PATH, MARKET_DATA_DIR, JQUANTS_API_KEY, AI_RESEARCH_PHASE1_CONFIGS
 from db.database import Database
 from data.cache import DataCache
 from data.jquants_provider import JQuantsProvider
@@ -377,7 +377,7 @@ def _navigate_to_direct_execute(
     shared = {
         "message": "開始中...",
         "current_iteration": 0,
-        "max_iterations": AI_RESEARCH_MAX_ITERATIONS,
+        "max_iterations": AI_RESEARCH_PHASE1_CONFIGS,  # Phase 2完了時に動的更新
     }
     st.session_state["rp_progress"] = shared
     st.session_state["rp_start_time"] = datetime.now()
@@ -391,7 +391,7 @@ def _navigate_to_direct_execute(
             idea_text, meta["idea_title"], category,
             edited_config, UniverseFilterConfig(),
             start_date, end_date,
-            AI_RESEARCH_MAX_ITERATIONS, universe_filter_text,
+            universe_filter_text,
         ),
         daemon=True,
     )
@@ -422,7 +422,7 @@ def _render_rerun_section_legacy(
 # ===========================================================================
 def _thread_execute_from_history(shared, db, provider, hypothesis, idea_title,
                                   category, signal_config_dict, universe_config,
-                                  start_date, end_date, max_iterations,
+                                  start_date, end_date,
                                   universe_filter_text):
     """履歴からの再実行用スレッド関数。
 
@@ -433,7 +433,6 @@ def _thread_execute_from_history(shared, db, provider, hypothesis, idea_title,
         ai_client = create_ai_client()
         researcher = AiResearcher(
             db=db, ai_client=ai_client, data_provider=provider,
-            max_iterations=max_iterations,
         )
 
         def on_progress(prog):
@@ -449,7 +448,6 @@ def _thread_execute_from_history(shared, db, provider, hypothesis, idea_title,
             start_date=start_date,
             end_date=end_date,
             initial_config_dict=signal_config_dict,
-            max_iterations=max_iterations,
             on_progress=on_progress,
             universe_filter_text=universe_filter_text,
         )
