@@ -187,6 +187,7 @@ def render_result_tabs(
     code_tab_label: str = "コード",
     code_language: str = "python",
     pending_signals: list | None = None,
+    key_prefix: str = "",
 ):
     """結果表示（イベントスタディモード / トレードモード自動切替）
 
@@ -199,6 +200,7 @@ def render_result_tabs(
         code_tab_label: コードタブのラベル（"コード" or "パラメータ設定"）
         code_language: コード表示言語（"python" or "json"）
         pending_signals: 測定期間未達の進行中シグナルリスト
+        key_prefix: plotly_chart等の重複防止用プレフィックス
     """
     is_event_study = backtest.get("mean_return") is not None
 
@@ -207,13 +209,14 @@ def render_result_tabs(
             interpretation, stats, backtest,
             code_or_config, recent_examples,
             code_tab_label, code_language,
-            pending_signals,
+            pending_signals, key_prefix,
         )
     else:
         _render_trade_tabs(
             interpretation, stats, backtest,
             code_or_config, recent_examples,
             code_tab_label, code_language,
+            key_prefix,
         )
 
 
@@ -224,7 +227,7 @@ def _render_event_study_tabs(
     interpretation, stats, backtest,
     code_or_config, recent_examples,
     code_tab_label, code_language,
-    pending_signals=None,
+    pending_signals=None, key_prefix="",
 ):
     tabs = st.tabs(["分析結果", "リターン分布", "自動評価", code_tab_label, "直近事例"])
 
@@ -328,7 +331,8 @@ def _render_event_study_tabs(
     with tabs[1]:
         fig = _plot_return_distribution(backtest)
         if fig:
-            st.plotly_chart(fig, width='stretch')
+            chart_key = f"{key_prefix}_return_dist" if key_prefix else None
+            st.plotly_chart(fig, width='stretch', key=chart_key)
         else:
             st.info("リターン分布データがありません")
 
@@ -377,6 +381,7 @@ def _render_trade_tabs(
     interpretation, stats, backtest,
     code_or_config, recent_examples,
     code_tab_label, code_language,
+    key_prefix="",
 ):
     tabs = st.tabs(["概要", "統計結果", "バックテスト", "自動評価", code_tab_label, "直近事例"])
 
@@ -444,7 +449,8 @@ def _render_trade_tabs(
                 st.metric("Trades", backtest.get("total_trades", 0))
             fig = plot_equity(backtest)
             if fig:
-                st.plotly_chart(fig, width='stretch')
+                chart_key = f"{key_prefix}_equity" if key_prefix else None
+                st.plotly_chart(fig, width='stretch', key=chart_key)
             trade_log = backtest.get("trade_log", [])
             if trade_log:
                 is_evt = "entry_price" in trade_log[0]

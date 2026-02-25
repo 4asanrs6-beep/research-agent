@@ -490,7 +490,7 @@ def _show_result():
         if best_idx is not None and best_idx < len(iterations):
             best_it = iterations[best_idx]
             st.markdown(f"**ベストイテレーション: #{best_it.iteration}**")
-            _render_iteration_result(best_it, is_best=True)
+            _render_iteration_result(best_it, key_suffix="best")
         else:
             st.warning("ベスト結果を特定できませんでした")
 
@@ -500,7 +500,7 @@ def _show_result():
             is_best = (best_idx is not None and i == best_idx)
             if is_best:
                 st.info("このイテレーションがベスト結果に選ばれました")
-            _render_iteration_result(it, is_best=is_best)
+            _render_iteration_result(it, key_suffix=f"tab{i}")
 
     # --- AI総合評価タブ ---
     with tabs[-1]:
@@ -533,7 +533,7 @@ def _show_result():
         st.rerun()
 
 
-def _render_iteration_result(it, is_best=False):
+def _render_iteration_result(it, key_suffix=""):
     """1つのイテレーション結果を表示"""
     bt = it.backtest_result
 
@@ -567,6 +567,7 @@ def _render_iteration_result(it, is_best=False):
         code_tab_label="パラメータ設定",
         code_language="json",
         pending_signals=pending_signals,
+        key_prefix=f"iter_{it.iteration}_{key_suffix}",
     )
 
 
