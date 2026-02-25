@@ -71,6 +71,72 @@ class ResearchProgress:
     universe_filter_text: str = ""
 
 
+_PARAM_JP_LABELS = {
+    "consecutive_bullish_days": "連続陽線",
+    "consecutive_bearish_days": "連続陰線",
+    "volume_surge_ratio": "出来高倍率",
+    "volume_surge_window": "出来高MA期間",
+    "price_vs_ma25": "25日線",
+    "price_vs_ma75": "75日線",
+    "price_vs_ma200": "200日線",
+    "ma_deviation_pct": "MA乖離率",
+    "rsi_lower": "RSI下限",
+    "rsi_upper": "RSI上限",
+    "bb_buy_below_lower": "BB下限",
+    "ma_cross_short": "GC/DC短期",
+    "ma_cross_long": "GC/DC長期",
+    "ma_cross_type": "GC/DC方向",
+    "macd_fast": "MACD短期",
+    "macd_slow": "MACD長期",
+    "atr_max": "ATR上限",
+    "ichimoku_cloud": "一目雲",
+    "ichimoku_tenkan_above_kijun": "転換線>基準線",
+    "sector_relative_strength_min": "セクター相対強度",
+    "margin_ratio_min": "貸借倍率下限",
+    "margin_ratio_max": "貸借倍率上限",
+    "margin_buy_change_pct_min": "買い残変化率下限",
+    "margin_buy_change_pct_max": "買い残変化率上限",
+    "margin_sell_change_pct_min": "売り残変化率下限",
+    "margin_sell_change_pct_max": "売り残変化率上限",
+    "margin_ratio_change_pct_min": "倍率変化率下限",
+    "margin_ratio_change_pct_max": "倍率変化率上限",
+    "short_selling_ratio_max": "空売り比率上限",
+    "margin_buy_turnover_days_min": "買い残回転日数下限",
+    "margin_buy_turnover_days_max": "買い残回転日数上限",
+    "margin_sell_turnover_days_min": "売り残回転日数下限",
+    "margin_sell_turnover_days_max": "売り残回転日数上限",
+    "margin_buy_vol_ratio_min": "買い残対出来高比率下限",
+    "margin_buy_vol_ratio_max": "買い残対出来高比率上限",
+    "margin_sell_vol_ratio_min": "売り残対出来高比率下限",
+    "margin_sell_vol_ratio_max": "売り残対出来高比率上限",
+    "margin_buy_vol_ratio_change_pct_min": "買い残対出来高比率変化率下限",
+    "margin_buy_vol_ratio_change_pct_max": "買い残対出来高比率変化率上限",
+    "margin_sell_vol_ratio_change_pct_min": "売り残対出来高比率変化率下限",
+    "margin_sell_vol_ratio_change_pct_max": "売り残対出来高比率変化率上限",
+    "holding_period_days": "測定期間",
+    "signal_logic": "ロジック",
+}
+
+
+def _describe_config_diff(prev: dict, curr: dict) -> str:
+    """2つのSignalConfig辞書の差分を日本語で記述する"""
+    all_keys = sorted(set(list(prev.keys()) + list(curr.keys())))
+    parts = []
+    for k in all_keys:
+        label = _PARAM_JP_LABELS.get(k, k)
+        old_val = prev.get(k)
+        new_val = curr.get(k)
+        if old_val == new_val:
+            continue
+        if old_val is None and new_val is not None:
+            parts.append(f"{label}: 追加({new_val})")
+        elif old_val is not None and new_val is None:
+            parts.append(f"{label}: 削除")
+        else:
+            parts.append(f"{label}: {old_val}→{new_val}")
+    return ", ".join(parts) if parts else "変更なし"
+
+
 def _compute_composite_score(bt_result: dict, stats: dict) -> float:
     """イテレーション結果のスコアを算出（ベスト選択用）
 
@@ -196,6 +262,7 @@ class AiResearcher:
 
             # --- 1. イテレーションループ ---
             current_config_dict = dict(initial_config_dict)
+            prev_config_dict: dict | None = None  # 前回のconfig（差分表示用）
             previous_iterations_summary: list[dict] = []
 
             for i in range(max_iterations):
@@ -222,12 +289,18 @@ class AiResearcher:
                     error_msg = bt_result["error"]
                     logger.warning("イテレーション%d バックテストエラー: %s", iteration_num, error_msg)
                     # エラーでも IterationResult として記録
+                    if i == 0:
+                        err_changes_desc = "初回"
+                    else:
+                        err_changes_desc = _describe_config_diff(
+                            prev_config_dict or {}, current_config_dict,
+                        )
                     it_result = IterationResult(
                         iteration=iteration_num,
                         signal_config_dict=dict(current_config_dict),
                         backtest_result=bt_result,
                         ai_reasoning=f"バックテストエラー: {error_msg}",
-                        changes_description="初回" if i == 0 else "調整後",
+                        changes_description=err_changes_desc,
                     )
                     progress.iterations.append(it_result)
 
@@ -260,6 +333,7 @@ class AiResearcher:
                                 previous_iterations=previous_iterations_summary,
                             )
                             if adjusted is not None:
+                                prev_config_dict = dict(current_config_dict)
                                 current_config_dict = adjusted.signal_config_dict
                                 continue
                         break
@@ -267,7 +341,12 @@ class AiResearcher:
 
                 # 成功したイテレーション結果を記録
                 stats = bt_result.get("statistics", {})
-                changes_desc = "初回" if i == 0 else "AIによるパラメータ調整"
+                if i == 0:
+                    changes_desc = "初回"
+                else:
+                    changes_desc = _describe_config_diff(
+                        prev_config_dict or {}, current_config_dict,
+                    )
 
                 it_result = IterationResult(
                     iteration=iteration_num,
@@ -319,6 +398,7 @@ class AiResearcher:
                     logger.info("AI判断により早期停止 (イテレーション%d)", iteration_num)
                     break
 
+                prev_config_dict = dict(current_config_dict)
                 current_config_dict = adjusted.signal_config_dict
                 # 次のイテレーションに理由を記録
                 it_result.ai_reasoning = adjusted.reasoning

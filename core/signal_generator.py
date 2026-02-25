@@ -54,6 +54,28 @@ class SignalConfig:
     margin_ratio_min: float | None = None
     margin_ratio_max: float | None = None
     short_selling_ratio_max: float | None = None
+    # 変化率フィルター（前週比 %）
+    margin_buy_change_pct_min: float | None = None
+    margin_buy_change_pct_max: float | None = None
+    margin_sell_change_pct_min: float | None = None
+    margin_sell_change_pct_max: float | None = None
+    margin_ratio_change_pct_min: float | None = None
+    margin_ratio_change_pct_max: float | None = None
+    # 回転日数（信用残 ÷ 20日平均出来高）
+    margin_buy_turnover_days_min: float | None = None
+    margin_buy_turnover_days_max: float | None = None
+    margin_sell_turnover_days_min: float | None = None
+    margin_sell_turnover_days_max: float | None = None
+    # 対出来高比率（信用残 ÷ 当日出来高）
+    margin_buy_vol_ratio_min: float | None = None
+    margin_buy_vol_ratio_max: float | None = None
+    margin_sell_vol_ratio_min: float | None = None
+    margin_sell_vol_ratio_max: float | None = None
+    # 対出来高比率の前週比変化率（%）
+    margin_buy_vol_ratio_change_pct_min: float | None = None
+    margin_buy_vol_ratio_change_pct_max: float | None = None
+    margin_sell_vol_ratio_change_pct_min: float | None = None
+    margin_sell_vol_ratio_change_pct_max: float | None = None
 
     # --- ポジション管理 ---
     holding_period_days: int = 20
@@ -110,6 +132,42 @@ class SignalConfig:
             parts.append(f"貸借倍率({mt_label})<{self.margin_ratio_max}")
         if self.short_selling_ratio_max is not None:
             parts.append(f"空売り比率<{self.short_selling_ratio_max}")
+        if self.margin_buy_change_pct_min is not None:
+            parts.append(f"買い残変化率>={self.margin_buy_change_pct_min}%")
+        if self.margin_buy_change_pct_max is not None:
+            parts.append(f"買い残変化率<={self.margin_buy_change_pct_max}%")
+        if self.margin_sell_change_pct_min is not None:
+            parts.append(f"売り残変化率>={self.margin_sell_change_pct_min}%")
+        if self.margin_sell_change_pct_max is not None:
+            parts.append(f"売り残変化率<={self.margin_sell_change_pct_max}%")
+        if self.margin_ratio_change_pct_min is not None:
+            parts.append(f"貸借倍率変化率>={self.margin_ratio_change_pct_min}%")
+        if self.margin_ratio_change_pct_max is not None:
+            parts.append(f"貸借倍率変化率<={self.margin_ratio_change_pct_max}%")
+        if self.margin_buy_turnover_days_min is not None:
+            parts.append(f"買い残回転日数>={self.margin_buy_turnover_days_min}")
+        if self.margin_buy_turnover_days_max is not None:
+            parts.append(f"買い残回転日数<={self.margin_buy_turnover_days_max}")
+        if self.margin_sell_turnover_days_min is not None:
+            parts.append(f"売り残回転日数>={self.margin_sell_turnover_days_min}")
+        if self.margin_sell_turnover_days_max is not None:
+            parts.append(f"売り残回転日数<={self.margin_sell_turnover_days_max}")
+        if self.margin_buy_vol_ratio_min is not None:
+            parts.append(f"買い残対出来高比率>={self.margin_buy_vol_ratio_min}")
+        if self.margin_buy_vol_ratio_max is not None:
+            parts.append(f"買い残対出来高比率<={self.margin_buy_vol_ratio_max}")
+        if self.margin_sell_vol_ratio_min is not None:
+            parts.append(f"売り残対出来高比率>={self.margin_sell_vol_ratio_min}")
+        if self.margin_sell_vol_ratio_max is not None:
+            parts.append(f"売り残対出来高比率<={self.margin_sell_vol_ratio_max}")
+        if self.margin_buy_vol_ratio_change_pct_min is not None:
+            parts.append(f"買い残対出来高比率変化率>={self.margin_buy_vol_ratio_change_pct_min}%")
+        if self.margin_buy_vol_ratio_change_pct_max is not None:
+            parts.append(f"買い残対出来高比率変化率<={self.margin_buy_vol_ratio_change_pct_max}%")
+        if self.margin_sell_vol_ratio_change_pct_min is not None:
+            parts.append(f"売り残対出来高比率変化率>={self.margin_sell_vol_ratio_change_pct_min}%")
+        if self.margin_sell_vol_ratio_change_pct_max is not None:
+            parts.append(f"売り残対出来高比率変化率<={self.margin_sell_vol_ratio_change_pct_max}%")
         return parts
 
     def has_any_signal(self) -> bool:
@@ -122,6 +180,24 @@ class SignalConfig:
             self.margin_ratio_min is not None
             or self.margin_ratio_max is not None
             or self.short_selling_ratio_max is not None
+            or self.margin_buy_change_pct_min is not None
+            or self.margin_buy_change_pct_max is not None
+            or self.margin_sell_change_pct_min is not None
+            or self.margin_sell_change_pct_max is not None
+            or self.margin_ratio_change_pct_min is not None
+            or self.margin_ratio_change_pct_max is not None
+            or self.margin_buy_turnover_days_min is not None
+            or self.margin_buy_turnover_days_max is not None
+            or self.margin_sell_turnover_days_min is not None
+            or self.margin_sell_turnover_days_max is not None
+            or self.margin_buy_vol_ratio_min is not None
+            or self.margin_buy_vol_ratio_max is not None
+            or self.margin_sell_vol_ratio_min is not None
+            or self.margin_sell_vol_ratio_max is not None
+            or self.margin_buy_vol_ratio_change_pct_min is not None
+            or self.margin_buy_vol_ratio_change_pct_max is not None
+            or self.margin_sell_vol_ratio_change_pct_min is not None
+            or self.margin_sell_vol_ratio_change_pct_max is not None
         )
 
 
@@ -342,15 +418,82 @@ class SignalGenerator:
             )
             mdf["margin_ratio"] = np.nan
 
-        mdf = mdf[["date", "code", "margin_ratio"]].dropna(subset=["date", "code"])
+        # 買い残・売り残を保持して前週比変化率を算出
+        if buy_col and buy_col in mdf.columns:
+            mdf["margin_buy_balance"] = mdf[buy_col]
+        if sell_col and sell_col in mdf.columns:
+            mdf["margin_sell_balance"] = mdf[sell_col]
+
+        mdf = mdf.sort_values(["code", "date"])
+        if "margin_buy_balance" in mdf.columns:
+            mdf["margin_buy_change_pct"] = mdf.groupby("code")["margin_buy_balance"].pct_change(fill_method=None) * 100
+        if "margin_sell_balance" in mdf.columns:
+            mdf["margin_sell_change_pct"] = mdf.groupby("code")["margin_sell_balance"].pct_change(fill_method=None) * 100
+        if mdf["margin_ratio"].notna().any():
+            mdf["margin_ratio_change_pct"] = mdf.groupby("code")["margin_ratio"].pct_change(fill_method=None) * 100
+
+        # 対出来高比率の変化率を mdf 上で算出（週次データ同士の比較）
+        vol_col = "adj_volume" if "adj_volume" in prices_df.columns else "volume"
+        if "margin_buy_balance" in mdf.columns and vol_col in prices_df.columns:
+            # mdf の date に対応する出来高を取得して比率算出
+            vol_lookup = prices_df[["date", "code", vol_col]].drop_duplicates(subset=["date", "code"])
+            mdf = mdf.merge(vol_lookup, on=["date", "code"], how="left")
+            daily_vol_mdf = mdf[vol_col].replace(0, np.nan)
+            mdf["margin_buy_vol_ratio_weekly"] = mdf["margin_buy_balance"] / daily_vol_mdf
+            mdf["margin_buy_vol_ratio_change_pct"] = (
+                mdf.groupby("code")["margin_buy_vol_ratio_weekly"].pct_change(fill_method=None) * 100
+            )
+        if "margin_sell_balance" in mdf.columns and vol_col in mdf.columns:
+            daily_vol_mdf2 = mdf[vol_col].replace(0, np.nan)
+            mdf["margin_sell_vol_ratio_weekly"] = mdf["margin_sell_balance"] / daily_vol_mdf2
+            mdf["margin_sell_vol_ratio_change_pct"] = (
+                mdf.groupby("code")["margin_sell_vol_ratio_weekly"].pct_change(fill_method=None) * 100
+            )
+
+        # マージ対象カラム
+        merge_cols = ["date", "code", "margin_ratio"]
+        for col in ("margin_buy_change_pct", "margin_sell_change_pct", "margin_ratio_change_pct",
+                     "margin_buy_balance", "margin_sell_balance",
+                     "margin_buy_vol_ratio_change_pct", "margin_sell_vol_ratio_change_pct"):
+            if col in mdf.columns:
+                merge_cols.append(col)
+        # vol_col が merge で入ってきた場合は除外
+        merge_cols = [c for c in merge_cols if c != vol_col]
+        mdf = mdf[merge_cols].dropna(subset=["date", "code"])
 
         # 日次に展開 (ffill)
         prices_df = prices_df.sort_values(["code", "date"])
         prices_df = prices_df.merge(mdf, on=["date", "code"], how="left")
-        prices_df["margin_ratio"] = prices_df.groupby("code")["margin_ratio"].ffill()
+        ffill_cols = ["margin_ratio", "margin_buy_change_pct",
+                      "margin_sell_change_pct", "margin_ratio_change_pct",
+                      "margin_buy_balance", "margin_sell_balance",
+                      "margin_buy_vol_ratio_change_pct", "margin_sell_vol_ratio_change_pct"]
+        for col in ffill_cols:
+            if col in prices_df.columns:
+                prices_df[col] = prices_df.groupby("code")[col].ffill()
 
         n_filled = prices_df["margin_ratio"].notna().sum()
         logger.info("貸借倍率 ffill後: 有効=%d / %d行", n_filled, len(prices_df))
+
+        # 回転日数 = 信用残 ÷ 20日平均出来高（日次データで算出）
+        vol_ma20 = prices_df.groupby("code")[vol_col].transform(
+            lambda s: s.rolling(20, min_periods=5).mean()
+        )
+        if "margin_buy_balance" in prices_df.columns:
+            prices_df["margin_buy_turnover_days"] = (
+                prices_df["margin_buy_balance"] / vol_ma20.replace(0, np.nan)
+            )
+        if "margin_sell_balance" in prices_df.columns:
+            prices_df["margin_sell_turnover_days"] = (
+                prices_df["margin_sell_balance"] / vol_ma20.replace(0, np.nan)
+            )
+
+        # 対出来高比率 = 信用残 ÷ 当日出来高（日次データで算出）
+        daily_vol = prices_df[vol_col].replace(0, np.nan)
+        if "margin_buy_balance" in prices_df.columns:
+            prices_df["margin_buy_vol_ratio"] = prices_df["margin_buy_balance"] / daily_vol
+        if "margin_sell_balance" in prices_df.columns:
+            prices_df["margin_sell_vol_ratio"] = prices_df["margin_sell_balance"] / daily_vol
 
         return prices_df
 
@@ -556,6 +699,78 @@ class SignalGenerator:
         if config.short_selling_ratio_max is not None and "short_selling_ratio" in df.columns:
             m = df["short_selling_ratio"] <= config.short_selling_ratio_max
             masks.append((f"空売り比率<={config.short_selling_ratio_max}", m))
+
+        # 信用買い残変化率
+        if config.margin_buy_change_pct_min is not None and "margin_buy_change_pct" in df.columns:
+            m = df["margin_buy_change_pct"] >= config.margin_buy_change_pct_min
+            masks.append((f"買い残変化率>={config.margin_buy_change_pct_min}%", m))
+        if config.margin_buy_change_pct_max is not None and "margin_buy_change_pct" in df.columns:
+            m = df["margin_buy_change_pct"] <= config.margin_buy_change_pct_max
+            masks.append((f"買い残変化率<={config.margin_buy_change_pct_max}%", m))
+
+        # 信用売り残変化率
+        if config.margin_sell_change_pct_min is not None and "margin_sell_change_pct" in df.columns:
+            m = df["margin_sell_change_pct"] >= config.margin_sell_change_pct_min
+            masks.append((f"売り残変化率>={config.margin_sell_change_pct_min}%", m))
+        if config.margin_sell_change_pct_max is not None and "margin_sell_change_pct" in df.columns:
+            m = df["margin_sell_change_pct"] <= config.margin_sell_change_pct_max
+            masks.append((f"売り残変化率<={config.margin_sell_change_pct_max}%", m))
+
+        # 貸借倍率変化率
+        if config.margin_ratio_change_pct_min is not None and "margin_ratio_change_pct" in df.columns:
+            m = df["margin_ratio_change_pct"] >= config.margin_ratio_change_pct_min
+            masks.append((f"貸借倍率変化率>={config.margin_ratio_change_pct_min}%", m))
+        if config.margin_ratio_change_pct_max is not None and "margin_ratio_change_pct" in df.columns:
+            m = df["margin_ratio_change_pct"] <= config.margin_ratio_change_pct_max
+            masks.append((f"貸借倍率変化率<={config.margin_ratio_change_pct_max}%", m))
+
+        # 買い残回転日数
+        if config.margin_buy_turnover_days_min is not None and "margin_buy_turnover_days" in df.columns:
+            m = df["margin_buy_turnover_days"] >= config.margin_buy_turnover_days_min
+            masks.append((f"買い残回転日数>={config.margin_buy_turnover_days_min}", m))
+        if config.margin_buy_turnover_days_max is not None and "margin_buy_turnover_days" in df.columns:
+            m = df["margin_buy_turnover_days"] <= config.margin_buy_turnover_days_max
+            masks.append((f"買い残回転日数<={config.margin_buy_turnover_days_max}", m))
+
+        # 売り残回転日数
+        if config.margin_sell_turnover_days_min is not None and "margin_sell_turnover_days" in df.columns:
+            m = df["margin_sell_turnover_days"] >= config.margin_sell_turnover_days_min
+            masks.append((f"売り残回転日数>={config.margin_sell_turnover_days_min}", m))
+        if config.margin_sell_turnover_days_max is not None and "margin_sell_turnover_days" in df.columns:
+            m = df["margin_sell_turnover_days"] <= config.margin_sell_turnover_days_max
+            masks.append((f"売り残回転日数<={config.margin_sell_turnover_days_max}", m))
+
+        # 買い残対出来高比率
+        if config.margin_buy_vol_ratio_min is not None and "margin_buy_vol_ratio" in df.columns:
+            m = df["margin_buy_vol_ratio"] >= config.margin_buy_vol_ratio_min
+            masks.append((f"買い残対出来高比率>={config.margin_buy_vol_ratio_min}", m))
+        if config.margin_buy_vol_ratio_max is not None and "margin_buy_vol_ratio" in df.columns:
+            m = df["margin_buy_vol_ratio"] <= config.margin_buy_vol_ratio_max
+            masks.append((f"買い残対出来高比率<={config.margin_buy_vol_ratio_max}", m))
+
+        # 売り残対出来高比率
+        if config.margin_sell_vol_ratio_min is not None and "margin_sell_vol_ratio" in df.columns:
+            m = df["margin_sell_vol_ratio"] >= config.margin_sell_vol_ratio_min
+            masks.append((f"売り残対出来高比率>={config.margin_sell_vol_ratio_min}", m))
+        if config.margin_sell_vol_ratio_max is not None and "margin_sell_vol_ratio" in df.columns:
+            m = df["margin_sell_vol_ratio"] <= config.margin_sell_vol_ratio_max
+            masks.append((f"売り残対出来高比率<={config.margin_sell_vol_ratio_max}", m))
+
+        # 買い残対出来高比率変化率
+        if config.margin_buy_vol_ratio_change_pct_min is not None and "margin_buy_vol_ratio_change_pct" in df.columns:
+            m = df["margin_buy_vol_ratio_change_pct"] >= config.margin_buy_vol_ratio_change_pct_min
+            masks.append((f"買い残対出来高比率変化率>={config.margin_buy_vol_ratio_change_pct_min}%", m))
+        if config.margin_buy_vol_ratio_change_pct_max is not None and "margin_buy_vol_ratio_change_pct" in df.columns:
+            m = df["margin_buy_vol_ratio_change_pct"] <= config.margin_buy_vol_ratio_change_pct_max
+            masks.append((f"買い残対出来高比率変化率<={config.margin_buy_vol_ratio_change_pct_max}%", m))
+
+        # 売り残対出来高比率変化率
+        if config.margin_sell_vol_ratio_change_pct_min is not None and "margin_sell_vol_ratio_change_pct" in df.columns:
+            m = df["margin_sell_vol_ratio_change_pct"] >= config.margin_sell_vol_ratio_change_pct_min
+            masks.append((f"売り残対出来高比率変化率>={config.margin_sell_vol_ratio_change_pct_min}%", m))
+        if config.margin_sell_vol_ratio_change_pct_max is not None and "margin_sell_vol_ratio_change_pct" in df.columns:
+            m = df["margin_sell_vol_ratio_change_pct"] <= config.margin_sell_vol_ratio_change_pct_max
+            masks.append((f"売り残対出来高比率変化率<={config.margin_sell_vol_ratio_change_pct_max}%", m))
 
         # --- 条件結合 ---
         if not masks:

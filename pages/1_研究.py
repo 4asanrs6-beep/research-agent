@@ -390,6 +390,24 @@ def _show_params_review():
         "margin_ratio_min": "貸借倍率下限",
         "margin_ratio_max": "貸借倍率上限",
         "short_selling_ratio_max": "空売り比率上限",
+        "margin_buy_change_pct_min": "買い残変化率 下限(%)",
+        "margin_buy_change_pct_max": "買い残変化率 上限(%)",
+        "margin_sell_change_pct_min": "売り残変化率 下限(%)",
+        "margin_sell_change_pct_max": "売り残変化率 上限(%)",
+        "margin_ratio_change_pct_min": "貸借倍率変化率 下限(%)",
+        "margin_ratio_change_pct_max": "貸借倍率変化率 上限(%)",
+        "margin_buy_turnover_days_min": "買い残回転日数 下限",
+        "margin_buy_turnover_days_max": "買い残回転日数 上限",
+        "margin_sell_turnover_days_min": "売り残回転日数 下限",
+        "margin_sell_turnover_days_max": "売り残回転日数 上限",
+        "margin_buy_vol_ratio_min": "買い残対出来高比率 下限",
+        "margin_buy_vol_ratio_max": "買い残対出来高比率 上限",
+        "margin_sell_vol_ratio_min": "売り残対出来高比率 下限",
+        "margin_sell_vol_ratio_max": "売り残対出来高比率 上限",
+        "margin_buy_vol_ratio_change_pct_min": "買い残対出来高比率変化率 下限(%)",
+        "margin_buy_vol_ratio_change_pct_max": "買い残対出来高比率変化率 上限(%)",
+        "margin_sell_vol_ratio_change_pct_min": "売り残対出来高比率変化率 下限(%)",
+        "margin_sell_vol_ratio_change_pct_max": "売り残対出来高比率変化率 上限(%)",
         "holding_period_days": "測定期間(営業日)",
         "signal_logic": "シグナル結合ロジック",
     }
@@ -447,6 +465,71 @@ def _show_params_review():
 
 
 # ===========================================================================
+# イテレーション比較サマリー
+# ===========================================================================
+def _render_iteration_comparison(iterations, best_idx):
+    """イテレーション比較テーブルを表示する"""
+    if not iterations or len(iterations) < 1:
+        return
+
+    rows = []
+    for i, it in enumerate(iterations):
+        bt = it.backtest_result
+        is_best = (best_idx is not None and i == best_idx)
+
+        if "error" in bt:
+            rows.append({
+                "#": f"{it.iteration}{'★' if is_best else ''}",
+                "パラメータ変更": it.changes_description or "初回",
+                "シグナル": 0,
+                "超過リターン": "エラー",
+                "p値": "-",
+                "効果量d": "-",
+                "エッジ": "-",
+            })
+            continue
+
+        stats = bt.get("statistics", {})
+        backtest_data = bt.get("backtest", bt)
+        n_valid = backtest_data.get("n_valid_signals", 0)
+        mean_excess = stats.get("excess_mean", backtest_data.get("mean_excess_return", 0)) or 0
+        p_value = stats.get("p_value", 1.0) or 1.0
+        cohens_d = stats.get("cohens_d", 0) or 0
+
+        if mean_excess > 0:
+            edge = "ロング"
+        elif mean_excess < 0:
+            edge = "ショート"
+        else:
+            edge = "-"
+
+        rows.append({
+            "#": f"{it.iteration}{'★' if is_best else ''}",
+            "パラメータ変更": it.changes_description or "初回",
+            "シグナル": n_valid,
+            "超過リターン": f"{mean_excess:+.2%}",
+            "p値": f"{p_value:.4f}",
+            "効果量d": f"{cohens_d:+.3f}",
+            "エッジ": edge,
+        })
+
+    if not rows:
+        return
+
+    st.markdown("#### イテレーション比較")
+    df = pd.DataFrame(rows)
+
+    def _highlight_best(row):
+        if "★" in str(row["#"]):
+            return ["background-color: rgba(255, 128, 0, 0.15)"] * len(row)
+        return [""] * len(row)
+
+    styled = df.style.apply(_highlight_best, axis=1)
+    st.dataframe(styled, width='stretch', hide_index=True)
+    st.caption("★ = ベストイテレーション")
+
+
+# ===========================================================================
 # ステージ 3: 結果表示
 # ===========================================================================
 def _show_result():
@@ -473,6 +556,9 @@ def _show_result():
             _clear_state()
             st.rerun()
         return
+
+    # --- イテレーション比較サマリー ---
+    _render_iteration_comparison(iterations, best_idx)
 
     # --- タブ構成: ベスト結果 + 各イテレーション + AI解釈 ---
     tab_labels = ["ベスト結果"]

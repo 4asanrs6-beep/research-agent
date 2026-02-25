@@ -66,11 +66,11 @@ CODE_EXECUTION_TIMEOUT = int(os.getenv("CODE_EXECUTION_TIMEOUT", "120"))  # 秒
 # AI研究イテレーション設定
 AI_RESEARCH_MAX_ITERATIONS = 3      # パラメータ調整の最大イテレーション回数
 AI_RESEARCH_MIN_SIGNALS = 20        # 最小シグナル数（これ未満なら条件緩和を促す）
-AI_RESEARCH_MAX_STOCKS = 50         # AI研究で使用する最大銘柄数
+AI_RESEARCH_MAX_STOCKS = 4000        # AI研究で使用する最大銘柄数（実質上限なし）
 
 STANDARD_BACKTEST_DEFAULTS = {
     # ユニバース
-    "max_stocks": 50,
+    "max_stocks": 4000,
     # テクニカルシグナル
     "volume_surge_window": 20,
     "ma_deviation_window": 25,

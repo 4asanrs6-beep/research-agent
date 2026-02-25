@@ -89,11 +89,29 @@ SignalConfigの全パラメータ一覧（None/False/デフォルト値のもの
 - sector_relative_strength_min: float|None  パーセンタイル下限(0-100)
 - sector_relative_lookback: int  ルックバック期間（デフォルト20）
 
-## 信用取引
+## 信用取引（データは週次発表。水準フィルターと前週比変化率フィルターの両方が使用可能）
 - margin_type: "combined"|"standard"|"negotiable"  信用取引データ種別（デフォルト"combined"）
-- margin_ratio_min: float|None  貸借倍率下限
-- margin_ratio_max: float|None  貸借倍率上限
+- margin_ratio_min: float|None  貸借倍率下限（水準）
+- margin_ratio_max: float|None  貸借倍率上限（水準）
+- margin_buy_change_pct_min: float|None  信用買い残の前週比変化率 下限（%。例: 10.0 → 前週比+10%以上増加）
+- margin_buy_change_pct_max: float|None  信用買い残の前週比変化率 上限（%。例: -5.0 → 前週比5%以上減少）
+- margin_sell_change_pct_min: float|None  信用売り残の前週比変化率 下限（%）
+- margin_sell_change_pct_max: float|None  信用売り残の前週比変化率 上限（%）
+- margin_ratio_change_pct_min: float|None  貸借倍率の前週比変化率 下限（%）
+- margin_ratio_change_pct_max: float|None  貸借倍率の前週比変化率 上限（%）
 - short_selling_ratio_max: float|None  空売り比率上限
+- margin_buy_turnover_days_min: float|None  買い残回転日数 下限（買い残÷20日平均出来高）
+- margin_buy_turnover_days_max: float|None  買い残回転日数 上限
+- margin_sell_turnover_days_min: float|None  売り残回転日数 下限
+- margin_sell_turnover_days_max: float|None  売り残回転日数 上限
+- margin_buy_vol_ratio_min: float|None  買い残対出来高比率 下限（買い残÷当日出来高）
+- margin_buy_vol_ratio_max: float|None  買い残対出来高比率 上限
+- margin_sell_vol_ratio_min: float|None  売り残対出来高比率 下限
+- margin_sell_vol_ratio_max: float|None  売り残対出来高比率 上限
+- margin_buy_vol_ratio_change_pct_min: float|None  買い残対出来高比率 前週比変化率 下限(%)
+- margin_buy_vol_ratio_change_pct_max: float|None  買い残対出来高比率 前週比変化率 上限(%)
+- margin_sell_vol_ratio_change_pct_min: float|None  売り残対出来高比率 前週比変化率 下限(%)
+- margin_sell_vol_ratio_change_pct_max: float|None  売り残対出来高比率 前週比変化率 上限(%)
 
 ## ポジション管理
 - holding_period_days: int  測定期間（デフォルト20営業日）
@@ -175,6 +193,15 @@ ADJUST_PROMPT = """\
 - シグナル数が500超: 条件を追加・強化して絞り込む
 - 有意でない（p > 0.05）: パラメータ微調整（holding_period_days変更、閾値微調整）
 - 既に十分良い結果 or これ以上の改善見込みなし: action="stop" を返す
+
+## 重要: 多様な条件を探索すること
+- 閾値の微調整だけではなく、**条件の追加・削除・入れ替え**を積極的に行ってください
+- 前回と同じ指標の閾値を少し変えるだけの調整は避け、**別のテクニカル指標の組み合わせ**を試してください
+- 例: RSI条件がうまくいかない → RSIを削除してMACD・ボリンジャーバンド・一目均衡表などに切り替える
+- 例: holding_period_daysを5/10/20/60と大きく変えて時間軸の効果を検証する
+- 例: signal_logicをAND→ORに変更して条件の緩和度を大幅に変える
+- 各イテレーションで「前回とは明確に異なるアプローチ」を試すことが重要です
+- changes_descriptionには、前回から何を変えたか・なぜ変えたかを具体的に書いてください
 
 ## 出力形式
 改善する場合:
