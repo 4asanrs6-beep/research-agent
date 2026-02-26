@@ -617,6 +617,14 @@ def _show_result():
             best_it = iterations[best_idx]
             phase_name = _PHASE_LABELS.get(best_it.phase, "?")
             st.markdown(f"**ベスト: #{best_it.iteration} — {best_it.approach_name}** (Phase {best_it.phase}: {phase_name})")
+
+            # AI深層分析（パラメータ設計ロジック・有効要因の言語化）
+            if result.best_analysis:
+                st.markdown("---")
+                st.markdown("### AI分析: なぜこのパラメータが効いたか")
+                st.markdown(result.best_analysis)
+                st.markdown("---")
+
             _render_iteration_result(best_it, key_suffix="best")
         else:
             st.warning("ベスト結果を特定できませんでした")
@@ -791,6 +799,13 @@ def _show_result():
                         st.write(f"- {item}")
         else:
             st.info("AI評価データがありません")
+
+        # 次のパラメータ提案
+        if result.next_param_suggestions:
+            st.markdown("---")
+            st.markdown("### 追加パラメータ提案")
+            st.caption("現在のパラメータ体系では測れていないが、この仮説にはあると良さそうな条件・指標")
+            st.markdown(result.next_param_suggestions)
 
     st.markdown("---")
     if st.button("新しい研究を開始", type="primary"):

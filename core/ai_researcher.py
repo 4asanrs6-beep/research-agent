@@ -79,6 +79,8 @@ class ResearchProgress:
     best_result: dict = field(default_factory=dict)
     # AI解釈
     interpretation: dict = field(default_factory=dict)
+    best_analysis: str = ""                              # ベスト結果の深い分析（Markdown）
+    next_param_suggestions: str = ""                     # 次のパラメータ提案（Markdown）
     # DB参照
     run_id: int | None = None
     knowledge_id: int | None = None
@@ -495,6 +497,27 @@ class AiResearcher:
                     backtest_result=best_backtest,
                 )
                 progress.interpretation = interpretation
+
+                # ベスト結果の深い分析（パラメータ設計ロジック・有効要因の言語化）
+                notify("interpreting", "AIがベスト結果を詳細分析中...")
+                best_it = progress.iterations[best_idx]
+                progress.best_analysis = self.interpreter.analyze_best_result(
+                    hypothesis=hypothesis,
+                    iterations=progress.iterations,
+                    best_iteration=best_it,
+                    grid_spec=progress.grid_spec or None,
+                )
+
+                # 次のパラメータ提案（現在の体系では測れない条件の提案）
+                notify("interpreting", "AIが追加パラメータを提案中...")
+                from core.ai_parameter_selector import _SIGNAL_CONFIG_SCHEMA
+                progress.next_param_suggestions = self.interpreter.suggest_next_parameters(
+                    hypothesis=hypothesis,
+                    iterations=progress.iterations,
+                    best_iteration=best_it,
+                    best_analysis=progress.best_analysis,
+                    available_params_schema=_SIGNAL_CONFIG_SCHEMA,
+                )
             else:
                 progress.interpretation = {
                     "evaluation_label": "needs_review",
