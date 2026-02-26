@@ -541,6 +541,8 @@ class AiResearcher:
                 backtest_result=best_backtest_to_save,
                 evaluation=progress.interpretation,
                 evaluation_label=progress.interpretation.get("evaluation_label", "needs_review"),
+                best_analysis=progress.best_analysis or None,
+                next_param_suggestions=progress.next_param_suggestions or None,
                 status="completed",
                 finished_at=datetime.now().isoformat(),
             )

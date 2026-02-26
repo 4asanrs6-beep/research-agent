@@ -70,6 +70,8 @@ class Database:
                     backtest_result TEXT,
                     evaluation TEXT,
                     evaluation_label TEXT,
+                    best_analysis TEXT,
+                    next_param_suggestions TEXT,
                     status TEXT NOT NULL DEFAULT 'running',
                     started_at TEXT NOT NULL DEFAULT (datetime('now')),
                     finished_at TEXT,
@@ -95,6 +97,13 @@ class Database:
                 CREATE INDEX IF NOT EXISTS idx_knowledge_run_id ON knowledge(run_id);
                 CREATE INDEX IF NOT EXISTS idx_knowledge_validity ON knowledge(validity);
             """)
+            # --- マイグレーション: 既存DBに新カラムを追加 ---
+            existing = {
+                row[1] for row in conn.execute("PRAGMA table_info(runs)").fetchall()
+            }
+            for col in ("best_analysis", "next_param_suggestions"):
+                if col not in existing:
+                    conn.execute(f"ALTER TABLE runs ADD COLUMN {col} TEXT")
 
     # === Ideas CRUD ===
 
@@ -246,7 +255,9 @@ class Database:
     def update_run(self, run_id: int, **kwargs) -> None:
         allowed = {
             "data_period", "universe_snapshot", "statistics_result",
-            "backtest_result", "evaluation", "evaluation_label", "status", "finished_at",
+            "backtest_result", "evaluation", "evaluation_label",
+            "best_analysis", "next_param_suggestions",
+            "status", "finished_at",
         }
         fields = {k: v for k, v in kwargs.items() if k in allowed}
         if not fields:

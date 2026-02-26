@@ -182,6 +182,13 @@ def _show_detail(db: Database, run_id: int):
     recent_examples = stats.get("recent_examples")
 
     if status != "failed":
+        # AI深層分析（なぜこのパラメータが効いたか）
+        best_analysis = run.get("best_analysis") or ""
+        if best_analysis:
+            st.markdown("### AI分析: なぜこのパラメータが効いたか")
+            st.markdown(best_analysis)
+            st.markdown("---")
+
         if is_standard_bt or is_ai_param:
             config_snapshot = plan_snap.get("parameters", {})
             render_result_tabs(
@@ -191,6 +198,14 @@ def _show_detail(db: Database, run_id: int):
         else:
             generated_code = evaluation.get("generated_code", "")
             render_result_tabs(evaluation, stats, backtest, generated_code, recent_examples)
+
+        # 追加パラメータ提案
+        next_suggestions = run.get("next_param_suggestions") or ""
+        if next_suggestions:
+            st.markdown("---")
+            st.markdown("### 追加パラメータ提案")
+            st.caption("現在のパラメータ体系では測れていないが、この仮説にはあると良さそうな条件・指標")
+            st.markdown(next_suggestions)
 
     # --- 再実行セクション ---
     if is_ai_param and signal_config_dict:

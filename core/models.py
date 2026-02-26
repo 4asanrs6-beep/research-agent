@@ -44,6 +44,8 @@ class Run:
     backtest_result: dict | None = None
     evaluation: dict | None = None
     evaluation_label: str | None = None  # valid, invalid, needs_review
+    best_analysis: str | None = None  # AI深層分析（Markdown）
+    next_param_suggestions: str | None = None  # 追加パラメータ提案（Markdown）
     status: str = "running"  # running, completed, failed
     started_at: str = ""
     finished_at: str | None = None
