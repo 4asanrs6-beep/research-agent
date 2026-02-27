@@ -275,6 +275,58 @@ Phase 1で試した{n_prev}つのアプローチの結果を分析し、最も�
 ```
 """
 
+REVISE_PROMPT = """\
+あなたは日本株市場の定量分析研究者です。
+ユーザーのフィードバックに基づいて、パラメータ計画を修正してください。
+
+## 投資仮説
+{hypothesis}
+
+## ユニバース
+{universe_desc}
+
+## 分析期間
+{start_date} 〜 {end_date}
+
+## 現在のパラメータ
+```json
+{current_config}
+```
+
+## 現在のパラメータ選択理由
+{current_reasoning}
+
+## ユーザーのフィードバック
+{user_feedback}
+
+## これまでの修正履歴
+{revision_history}
+
+## 利用可能なパラメータ
+{schema}
+
+## 指示
+- ユーザーのフィードバックを最大限反映してパラメータを修正してください。
+- フィードバックで明示的に言及されていないパラメータは、妥当な理由がない限り現在の値を維持してください。
+- 条件を厳しくしすぎないでください。シグナルが0件になるとテストできません。
+- 修正理由を明確に説明してください。
+
+## 出力形式
+以下のJSON形式のみを出力してください。
+
+```json
+{{
+    "signal_config": {{
+        "パラメータ名": 値,
+        ...
+    }},
+    "reasoning": "修正内容と理由の説明（2-3文）",
+    "hypothesis_mapping": "仮説のどの部分がどのパラメータに対応するかの説明",
+    "unmappable_aspects": ["テスト不可能な側面1", "テスト不可能な側面2"]
+}}
+```
+"""
+
 ADJUST_PROMPT = """\
 あなたは日本株市場の定量分析研究者です。
 前回のバックテスト結果を踏まえて、パラメータを調整してください。
@@ -567,6 +619,80 @@ class AiParameterSelector:
             )
 
         return "\n".join(lines)
+
+    # ------------------------------------------------------------------
+    # パラメータ修正（ユーザーフィードバック対応）
+    # ------------------------------------------------------------------
+    def revise_parameters(
+        self,
+        hypothesis: str,
+        current_config_dict: dict,
+        current_reasoning: str,
+        user_feedback: str,
+        revision_history: list[dict],
+        universe_desc: str = "",
+        start_date: str = "",
+        end_date: str = "",
+    ) -> ParameterSelectionResult:
+        """ユーザーのフィードバックに基づいてパラメータを修正する
+
+        Args:
+            hypothesis: 投資仮説テキスト
+            current_config_dict: 現在のSignalConfigパラメータ辞書
+            current_reasoning: 現在のパラメータ選択理由
+            user_feedback: ユーザーからのフィードバックテキスト
+            revision_history: これまでの修正履歴 [{feedback, config_dict, reasoning}, ...]
+            universe_desc: ユニバース説明
+            start_date: 分析開始日
+            end_date: 分析終了日
+
+        Returns:
+            ParameterSelectionResult
+        """
+        # 修正履歴を整形
+        if revision_history:
+            history_lines = []
+            for i, entry in enumerate(revision_history):
+                history_lines.append(
+                    f"### 修正 {i+1}\n"
+                    f"- フィードバック: {entry['feedback']}\n"
+                    f"- 修正後パラメータ: {json.dumps(entry['config_dict'], ensure_ascii=False)}\n"
+                    f"- 修正理由: {entry['reasoning']}"
+                )
+            history_text = "\n\n".join(history_lines)
+        else:
+            history_text = "（初回修正）"
+
+        prompt = REVISE_PROMPT.format(
+            hypothesis=hypothesis,
+            universe_desc=universe_desc or "全銘柄",
+            start_date=start_date or "指定なし",
+            end_date=end_date or "指定なし",
+            current_config=json.dumps(current_config_dict, ensure_ascii=False, indent=2),
+            current_reasoning=current_reasoning,
+            user_feedback=user_feedback,
+            revision_history=history_text,
+            schema=_SIGNAL_CONFIG_SCHEMA,
+        )
+
+        response = self.ai_client.send_message(prompt)
+        parsed = self._parse_json_response(response)
+
+        signal_config_dict = parsed.get("signal_config", {})
+
+        # バリデーション: 少なくとも1つのシグナル条件が必要
+        test_cfg = dict_to_signal_config(signal_config_dict)
+        if not test_cfg.has_any_signal():
+            logger.warning("AI修正後のパラメータに有効なシグナル条件がありません。デフォルトを追加します。")
+            signal_config_dict["consecutive_bullish_days"] = 3
+
+        return ParameterSelectionResult(
+            signal_config_dict=signal_config_dict,
+            universe_adjustments=parsed.get("universe_adjustments"),
+            reasoning=parsed.get("reasoning", ""),
+            hypothesis_mapping=parsed.get("hypothesis_mapping", ""),
+            unmappable_aspects=parsed.get("unmappable_aspects", []),
+        )
 
     def adjust_parameters(
         self,

@@ -11,6 +11,7 @@ from core.ai_code_generator import AiCodeGenerator
 from core.ai_executor import AiExecutor
 from core.ai_interpreter import AiInterpreter
 from core.ai_researcher import AiResearcher
+from core.star_stock_analyzer import StarStockAnalyzer, StarStockConfig, StarStockResult
 
 __all__ = [
     # データモデル
@@ -21,4 +22,6 @@ __all__ = [
     # AI研究エージェント
     "BaseAiClient", "ClaudeCodeClient", "DummyAiClient", "create_ai_client",
     "AiPlanner", "AiCodeGenerator", "AiExecutor", "AiInterpreter", "AiResearcher",
+    # スター株分析
+    "StarStockAnalyzer", "StarStockConfig", "StarStockResult",
 ]

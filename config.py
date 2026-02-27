@@ -71,6 +71,37 @@ AI_RESEARCH_GRID_MAX_VALUES_PER_PARAM = 6   # Phase 2: パラメータあたり�
 AI_RESEARCH_MIN_SIGNALS = 20        # 最小シグナル数（これ未満なら条件緩和を促す）
 AI_RESEARCH_MAX_STOCKS = 4000        # AI研究で使用する最大銘柄数（実質上限なし）
 
+STAR_STOCK_DEFAULTS = {
+    "min_total_return": 0.50,
+    "min_excess_return": 0.30,
+    "min_volume_increase_ratio": 1.5,
+    "max_auto_detect": 50,
+    # 仕手株フィルター
+    "min_market_cap_billion": 50.0,
+    "max_drawdown_from_peak": 0.40,
+    "max_single_day_return": 0.20,
+    "min_up_days_ratio": 0.45,
+    "require_positive_end": True,
+    # 高度分析パラメータ
+    "rolling_beta_window": 60,
+    "volume_surge_threshold": 2.0,
+    "accumulation_price_threshold": 0.005,
+    "accumulation_volume_threshold": 1.5,
+    "obv_trend_window": 60,
+    "sector_correlation_window": 60,
+    "factor_window": 60,
+    "vpin_bucket_size": 20,
+    "lead_lag_max_lag": 10,
+    "n_clusters": 4,
+    # 反復的特徴量発見パラメータ
+    "discovery_max_iterations": 5,
+    "discovery_target_precision": 0.20,
+    "discovery_min_recall": 0.30,
+    "discovery_neg_sample_size": 200,
+    "onset_min_forward_return": 0.10,
+    "onset_max_candidates": 5,
+}
+
 STANDARD_BACKTEST_DEFAULTS = {
     # ユニバース
     "max_stocks": 4000,

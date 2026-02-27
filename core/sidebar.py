@@ -11,11 +11,13 @@ def render_sidebar_running_indicator():
     """
     rp_thread = st.session_state.get("rp_thread")
     bt_thread = st.session_state.get("bt_thread")
+    ss_thread = st.session_state.get("ss_thread")
 
     rp_alive = rp_thread is not None and rp_thread.is_alive()
     bt_alive = bt_thread is not None and bt_thread.is_alive()
+    ss_alive = ss_thread is not None and ss_thread.is_alive()
 
-    if not rp_alive and not bt_alive:
+    if not rp_alive and not bt_alive and not ss_alive:
         return
 
     with st.sidebar:
@@ -40,3 +42,14 @@ def render_sidebar_running_indicator():
                 unsafe_allow_html=True,
             )
             st.page_link("pages/2_標準バックテスト.py", label="バックテストページへ移動", icon=":material/query_stats:")
+
+        if ss_alive:
+            prog = st.session_state.get("ss_progress", {})
+            msg = prog.get("message", "処理中...")
+            st.markdown(
+                '<div class="sidebar-running">'
+                '<span class="pulse"></span> スター株分析実行中...<br>'
+                f'<small>{msg}</small></div>',
+                unsafe_allow_html=True,
+            )
+            st.page_link("pages/4_スター株分析.py", label="スター株分析ページへ移動", icon=":material/star:")

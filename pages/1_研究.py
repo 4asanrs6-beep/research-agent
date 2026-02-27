@@ -75,6 +75,29 @@ def _thread_generate_params(shared, hypothesis, universe_desc, start_date, end_d
         shared["error"] = str(e)
 
 
+def _thread_revise_params(shared, hypothesis, current_config, current_reasoning,
+                          user_feedback, revision_history, universe_desc, start_date, end_date):
+    """AIにパラメータ修正を依頼する"""
+    try:
+        ai_client = create_ai_client()
+        from core.ai_parameter_selector import AiParameterSelector
+        selector = AiParameterSelector(ai_client)
+        shared["message"] = "AIがフィードバックを反映してパラメータを修正中..."
+        result = selector.revise_parameters(
+            hypothesis=hypothesis,
+            current_config_dict=current_config,
+            current_reasoning=current_reasoning,
+            user_feedback=user_feedback,
+            revision_history=revision_history,
+            universe_desc=universe_desc,
+            start_date=start_date,
+            end_date=end_date,
+        )
+        shared["_result"] = result
+    except Exception as e:
+        shared["error"] = str(e)
+
+
 def _thread_execute_loop(shared, db, provider, hypothesis, idea_title, category,
                          signal_config_dict, universe_config, start_date, end_date,
                          universe_filter_text):
@@ -130,6 +153,9 @@ def main():
         _waiting_fragment("パラメータを生成中...")
     elif phase == "params_ready":
         _show_params_review()
+    elif phase == "revising_params":
+        apply_waiting_overlay()
+        _waiting_fragment("パラメータを修正中...")
     elif phase == "executing":
         apply_waiting_overlay()
         _waiting_fragment("3フェーズ研究実行中...")
@@ -153,8 +179,8 @@ def _check_thread_completion():
 
     # --- エラー ---
     if "error" in progress:
-        if phase == "generating_params":
-            st.session_state["rp_phase"] = "idle"
+        if phase in ("generating_params", "revising_params"):
+            st.session_state["rp_phase"] = "idle" if phase == "generating_params" else "params_ready"
         elif phase == "executing":
             meta = st.session_state.get("rp_meta", {})
             st.session_state["rp_result"] = ResearchProgress(
@@ -177,6 +203,9 @@ def _check_thread_completion():
         return
 
     if phase == "generating_params":
+        st.session_state["rp_param_result"] = result
+        st.session_state["rp_phase"] = "params_ready"
+    elif phase == "revising_params":
         st.session_state["rp_param_result"] = result
         st.session_state["rp_phase"] = "params_ready"
     elif phase == "executing":
@@ -359,6 +388,16 @@ def _show_params_review():
 
     st.markdown("## AIが選択したパラメータ")
 
+    # 修正履歴の表示
+    history = st.session_state.get("rp_revision_history", [])
+    if history:
+        st.markdown("#### 修正履歴")
+        for i, entry in enumerate(history):
+            feedback_preview = entry["feedback"][:50]
+            with st.expander(f"修正 {i+1}: {feedback_preview}...", expanded=False):
+                st.markdown(f"**フィードバック:** {entry['feedback']}")
+                st.markdown(f"**AI修正理由:** {entry['reasoning']}")
+
     # 入力条件
     with st.expander("入力条件", expanded=False):
         st.markdown(f"**タイトル:** {meta['idea_title']}")
@@ -457,13 +496,53 @@ def _show_params_review():
         f"- データは初回のみ取得、2回目以降は高速"
     )
 
-    col1, col2 = st.columns(2)
+    # フィードバック入力欄
+    st.markdown("#### パラメータ修正リクエスト")
+    feedback_text = st.text_area(
+        "修正リクエスト",
+        placeholder="例: RSI条件も追加してほしい / 出来高の閾値をもっと緩くして / 保有期間を短くして",
+        key="rp_feedback_input",
+    )
+
+    col1, col2, col3 = st.columns(3)
     with col1:
-        execute = st.button("この設定で実行", type="primary", width='stretch')
+        send_feedback = st.button("フィードバック送信", width='stretch', disabled=not feedback_text)
     with col2:
+        execute = st.button("この設定で実行", type="primary", width='stretch')
+    with col3:
         if st.button("やり直す", width='stretch'):
             _clear_state()
             st.rerun()
+
+    if send_feedback and feedback_text:
+        # 現在のパラメータ情報を修正履歴に追記
+        revision_history = st.session_state.get("rp_revision_history", [])
+        revision_history.append({
+            "feedback": feedback_text,
+            "config_dict": cfg_dict,
+            "reasoning": param_result.reasoning,
+        })
+        st.session_state["rp_revision_history"] = revision_history
+
+        # revising_params フェーズへ遷移
+        shared = {"message": "開始中..."}
+        st.session_state["rp_progress"] = shared
+        st.session_state["rp_start_time"] = datetime.now()
+        st.session_state["rp_phase"] = "revising_params"
+
+        t = threading.Thread(
+            target=_thread_revise_params,
+            args=(
+                shared, meta["idea_text"], cfg_dict, param_result.reasoning,
+                feedback_text, revision_history,
+                meta.get("universe_filter_text", ""),
+                meta.get("start_date", ""), meta.get("end_date", ""),
+            ),
+            daemon=True,
+        )
+        st.session_state["rp_thread"] = t
+        t.start()
+        st.rerun()
 
     if execute:
         shared = {
