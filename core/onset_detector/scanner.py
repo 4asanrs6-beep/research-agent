@@ -19,32 +19,76 @@ CACHE_VALIDITY_SECONDS = 30 * 86400  # 30日
 
 
 # ------------------------------------------------------------------
-# 時価総額取得（yfinance — 逐次実行でレートリミット回避）
+# 時価総額取得（Yahoo Finance バッチ quote API + crumb認証）
 # ------------------------------------------------------------------
-def _fetch_single_market_cap(code_str: str) -> tuple[str, float]:
-    """yfinanceから1銘柄の時価総額（円）を取得"""
-    import io
-    import contextlib
-    try:
-        import yfinance as yf
-        ticker_code = f"{code_str[:4]}.T"
-        with contextlib.redirect_stderr(io.StringIO()):
-            t = yf.Ticker(ticker_code)
-            cap = t.fast_info.get("marketCap", 0)
-        return code_str, float(cap) if cap else 0.0
-    except Exception:
-        return code_str, 0.0
+_BATCH_SIZE = 150  # 1リクエストあたりのティッカー数
+
+
+def _create_yahoo_session():
+    """Yahoo Financeの認証済みセッション（cookie + crumb）を作成"""
+    import requests as _requests
+    session = _requests.Session()
+    session.headers["User-Agent"] = (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+    )
+    # cookie取得
+    session.get("https://fc.yahoo.com", timeout=10)
+    # crumb取得
+    crumb_resp = session.get(
+        "https://query2.finance.yahoo.com/v1/test/getcrumb", timeout=10
+    )
+    crumb = crumb_resp.text.strip()
+    return session, crumb
+
+
+def _fetch_batch_market_caps(
+    session,
+    crumb: str,
+    ticker_symbols: list[str],
+    max_retries: int = 3,
+) -> dict[str, float]:
+    """Yahoo Finance quote APIで複数銘柄の時価総額を一括取得"""
+    symbols_str = ",".join(ticker_symbols)
+    url = (
+        f"https://query2.finance.yahoo.com/v7/finance/quote"
+        f"?symbols={symbols_str}&crumb={crumb}"
+    )
+
+    for attempt in range(max_retries):
+        try:
+            resp = session.get(url, timeout=30)
+            if resp.status_code == 429:
+                wait = 5.0 * (attempt + 1)
+                logger.warning(f"Yahoo Finance 429, waiting {wait}s...")
+                _time.sleep(wait)
+                continue
+            resp.raise_for_status()
+            data = resp.json()
+            results = {}
+            for item in data.get("quoteResponse", {}).get("result", []):
+                symbol = item.get("symbol", "")
+                cap = item.get("marketCap", 0)
+                if symbol and cap:
+                    results[symbol] = float(cap)
+            return results
+        except Exception as e:
+            logger.warning(f"Yahoo Finance batch error (attempt {attempt+1}): {e}")
+            _time.sleep(2.0)
+
+    return {}
 
 
 def fetch_market_caps(
     codes: list[str],
     progress_callback=None,
-    max_workers: int = 3,
+    max_workers: int = 10,
 ) -> dict[str, float]:
     """全銘柄の現在時価総額を取得（30日キャッシュ付き）
 
-    レートリミット対策: 逐次実行（1銘柄ずつ）。
-    初回は時間がかかるが、キャッシュにより2回目以降は即時。
+    Yahoo Finance バッチ quote API で 150銘柄ずつ一括取得。
+    3775銘柄 / 150 = 26リクエスト → 約30秒で完了。
+    キャッシュ有効期間30日で2回目以降は即時。
 
     Returns
     -------
@@ -76,42 +120,61 @@ def fetch_market_caps(
         return result
 
     logger.info(
-        f"時価総額取得: {len(codes_to_fetch)}銘柄をyfinanceから取得 "
+        f"時価総額取得: {len(codes_to_fetch)}銘柄をYahoo Financeから取得 "
         f"(キャッシュ: {len(result)}銘柄)"
     )
 
-    # yfinanceのログ抑制
-    for _logger_name in ("yfinance", "peewee"):
-        logging.getLogger(_logger_name).setLevel(logging.CRITICAL)
-
     n_total = len(codes_to_fetch)
-    consecutive_fails = 0
 
-    # 逐次実行（レートリミット完全回避）
-    for i, code in enumerate(codes_to_fetch):
-        code, cap = _fetch_single_market_cap(code)
-        result[code] = cap
-        if cap > 0:
-            cache[code] = {"cap": cap, "t": now}
-            consecutive_fails = 0
-        else:
-            consecutive_fails += 1
-            # 連続失敗が多い場合は少し待つ
-            if consecutive_fails >= 5:
-                _time.sleep(2.0)
-                consecutive_fails = 0
+    # 認証セッション作成
+    try:
+        session, crumb = _create_yahoo_session()
+    except Exception as e:
+        logger.error(f"Yahoo Finance認証失敗: {e}")
+        # 全銘柄0.0で返す
+        for code in codes_to_fetch:
+            result[code] = 0.0
+        return result
 
-        if progress_callback and (i + 1) % 20 == 0:
-            progress_callback(i + 1, n_total, "時価総額取得中")
+    # コード→ティッカーシンボル変換（5桁コードの先頭4桁 + ".T"）
+    code_to_ticker = {}
+    for code in codes_to_fetch:
+        ticker = f"{code[:4]}.T"
+        code_to_ticker[code] = ticker
 
-        # 50件ごとにキャッシュ中間保存
-        if (i + 1) % 50 == 0:
-            try:
-                MARKET_CAP_CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
-                with open(MARKET_CAP_CACHE_PATH, "w") as f:
-                    json.dump(cache, f)
-            except Exception:
-                pass
+    # 逆引き用
+    ticker_to_codes = {}
+    for code, ticker in code_to_ticker.items():
+        ticker_to_codes.setdefault(ticker, []).append(code)
+
+    # バッチ処理（150銘柄ずつ）
+    unique_tickers = list(set(code_to_ticker.values()))
+    done_count = 0
+
+    for batch_start in range(0, len(unique_tickers), _BATCH_SIZE):
+        batch = unique_tickers[batch_start:batch_start + _BATCH_SIZE]
+        batch_result = _fetch_batch_market_caps(session, crumb, batch)
+
+        for ticker, cap in batch_result.items():
+            for code in ticker_to_codes.get(ticker, []):
+                result[code] = cap
+                if cap > 0:
+                    cache[code] = {"cap": cap, "t": now}
+
+        done_count += len(batch)
+        if progress_callback:
+            progress_callback(
+                min(done_count, n_total), n_total, "時価総額取得中"
+            )
+
+        # バッチ間に短い遅延（429対策）
+        if batch_start + _BATCH_SIZE < len(unique_tickers):
+            _time.sleep(0.5)
+
+    # 取得できなかったコードは0.0
+    for code in codes_to_fetch:
+        if code not in result:
+            result[code] = 0.0
 
     if progress_callback:
         progress_callback(n_total, n_total, "時価総額取得完了")

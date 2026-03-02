@@ -439,6 +439,80 @@ def _confidence_badge(level: str, label: str) -> str:
 
 
 # ---------------------------------------------------------------------------
+# コンボ合致銘柄 実例表示 + 統計
+# ---------------------------------------------------------------------------
+def _display_match_stats_and_examples(combo: dict):
+    """コンボの60日後リターン統計と実例テーブルを表示する。
+
+    combo に match_stats / match_examples キーがある場合のみ描画。
+    """
+    stats = combo.get("match_stats")
+    examples = combo.get("match_examples")
+    if not stats or stats.get("n_samples", 0) == 0:
+        return
+
+    st.markdown("---")
+    st.markdown(
+        '<span style="font-size:11px;font-weight:700;letter-spacing:0.06em;'
+        'color:#555;">60日後フォワードリターン統計</span>',
+        unsafe_allow_html=True,
+    )
+
+    # KPIカード行
+    k1, k2, k3, k4 = st.columns(4)
+    k1.metric("平均リターン", f"{stats['mean_return']:+.1%}")
+    k2.metric("中央値", f"{stats['median_return']:+.1%}")
+    k3.metric("勝率（>0%）", f"{stats['win_rate']:.0%}")
+    k4.metric("Sharpe（年率）", f"{stats['sharpe']:.2f}")
+
+    # スター株 vs 非スター株の内訳
+    star_n = stats.get("star_count", 0)
+    nonstar_n = stats.get("nonstar_count", 0)
+    parts = []
+    if star_n > 0:
+        parts.append(
+            f"⭐ スター株（{star_n}件）: "
+            f"平均 {stats['star_mean_return']:+.1%}　"
+            f"勝率 {stats['star_win_rate']:.0%}"
+        )
+    if nonstar_n > 0:
+        parts.append(
+            f"非スター株（{nonstar_n}件）: "
+            f"平均 {stats['nonstar_mean_return']:+.1%}　"
+            f"勝率 {stats['nonstar_win_rate']:.0%}"
+        )
+    if parts:
+        st.caption("　|　".join(parts))
+
+    # 超過リターン
+    st.caption(f"平均超過リターン（vs TOPIX）: {stats.get('mean_excess', 0):+.1%}　｜　サンプル数: {stats['n_samples']}件")
+
+    # 実例テーブル
+    if examples:
+        rows = []
+        for ex in examples:
+            rows.append({
+                "コード": ex["code"],
+                "合致日": ex["match_date"],
+                "スター": "⭐" if ex["is_star"] else "",
+                "60日リターン": f"{ex['forward_return']:+.1%}",
+                "超過リターン": f"{ex['excess_return']:+.1%}",
+                "TOPIX": f"{ex['topix_return']:+.1%}",
+                "実日数": f"{ex['actual_days']}日",
+            })
+        st.markdown(
+            '<span style="font-size:10px;color:#888;">リターン上位5 + 下位5の実例</span>',
+            unsafe_allow_html=True,
+        )
+        st.dataframe(
+            pd.DataFrame(rows),
+            use_container_width=True,
+            hide_index=True,
+            height=min(len(rows) * 38 + 40, 420),
+        )
+
+
+# ---------------------------------------------------------------------------
 # 結果テキスト生成（コピペ用）
 # ---------------------------------------------------------------------------
 def _build_result_text(result: dict) -> str:
@@ -560,6 +634,29 @@ def _build_result_text(result: dict) -> str:
                     f"訓練精度={c['precision']:.0%}（参考）  "
                     f"カバー率={c['recall']:.0%}  合致={total_hits}件中{tp}件スター株"
                 )
+            # 60日後リターン統計
+            ms = c.get("match_stats")
+            if ms and ms.get("n_samples", 0) > 0:
+                lines.append(
+                    f"     → 60日後: 平均{ms['mean_return']:+.1%}  "
+                    f"中央値{ms['median_return']:+.1%}  "
+                    f"勝率{ms['win_rate']:.0%}  "
+                    f"Sharpe{ms['sharpe']:.2f}  "
+                    f"超過{ms.get('mean_excess', 0):+.1%}  "
+                    f"(N={ms['n_samples']})"
+                )
+                if ms.get("star_count", 0) > 0:
+                    lines.append(
+                        f"       ⭐スター株({ms['star_count']}件): "
+                        f"平均{ms['star_mean_return']:+.1%}  "
+                        f"勝率{ms['star_win_rate']:.0%}"
+                    )
+                if ms.get("nonstar_count", 0) > 0:
+                    lines.append(
+                        f"       非スター({ms['nonstar_count']}件): "
+                        f"平均{ms['nonstar_mean_return']:+.1%}  "
+                        f"勝率{ms['nonstar_win_rate']:.0%}"
+                    )
         lines.append("")
 
     # 全スター株 + 初動
@@ -672,6 +769,8 @@ def _display_probability_summary(result: dict):
                     st.markdown("**条件（全て同時に満たす）:**")
                     for line in cond_lines:
                         st.markdown(line)
+                    # 合致銘柄の60日後リターン統計 + 実例
+                    _display_match_stats_and_examples(c)
 
 
             if overfit_combos:
@@ -1566,6 +1665,8 @@ def _display_common_features(common_features: dict):
                     st.caption(
                         f"多様性スコア: {diversity:.3f}（1.0 = 完全に独立、0.0 = 完全相関）"
                     )
+                # 合致銘柄の60日後リターン統計 + 実例
+                _display_match_stats_and_examples(c)
 
         if overfit_bc:
             with st.expander(f"OVERFITTING  |  母集団で0件合致（実用外）  {len(overfit_bc)}件", expanded=False):

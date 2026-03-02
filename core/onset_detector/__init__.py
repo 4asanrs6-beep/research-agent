@@ -217,6 +217,7 @@ def run_phase1_discovery(
             warnings.append(f"信用取引データ取得失敗: {e}（信用特徴量は0.0にフォールバック）")
 
     # 時価総額フィルタ（yfinance実値、ユーザー指定スター株は保護）
+    market_caps = None
     if config.scan_min_market_cap > 0:
         _progress(1, total_steps, "時価総額フィルタ適用中...")
         from .scanner import fetch_market_caps
@@ -309,6 +310,7 @@ def run_phase1_discovery(
         topix=topix,
         listed_stocks=listed_stocks,
         progress_callback=_discovery_progress,
+        market_caps=market_caps if config.scan_min_market_cap > 0 else None,
     )
 
     # --- Step 8: 完了 ---

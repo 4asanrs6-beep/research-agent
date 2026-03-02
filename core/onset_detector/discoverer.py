@@ -1738,8 +1738,9 @@ class OnsetDiscoverer:
         for c in best_combos[:5]:
             combo_defs.append(list(zip(c["features"], c["thresholds"])))
 
-        # 各コンボで条件を満たしたことのある銘柄セット
+        # 各コンボで条件を満たしたことのある銘柄セット + 合致詳細
         combo_hit_sets = [set() for _ in combo_defs]
+        combo_hit_details: list[list[dict]] = [[] for _ in combo_defs]
 
         STRIDE = 20   # 約20営業日おきにサンプリング
         LOOKBACK = 60  # 特徴量計算用ルックバック日数
@@ -1772,6 +1773,26 @@ class OnsetDiscoverer:
                         continue
                     if all(feat.get(fn, 0.0) >= th for fn, th in ck):
                         combo_hit_sets[ci].add(code)
+                        # 合致詳細を保存（銘柄あたり最初の合致のみ）
+                        match_date = str(grp.iloc[t]["date"])[:10]
+                        feat_snapshot = {fn: round(feat.get(fn, 0.0), 4) for fn, _ in ck}
+                        combo_hit_details[ci].append({
+                            "code": code,
+                            "match_date": match_date,
+                            "is_star": code in star_codes,
+                            "feature_values": feat_snapshot,
+                        })
+
+        # 合致銘柄の60日後リターン計算
+        if progress_callback:
+            progress_callback("合致銘柄の60日後リターン計算中...")
+        match_results = []
+        for ci, details in enumerate(combo_hit_details):
+            m_stats, m_examples = self._compute_match_forward_returns(
+                details, all_prices, close_col, topix_ret_series, star_codes,
+                max_stocks=50,
+            )
+            match_results.append((m_stats, m_examples))
 
         # 精度計算
         results = []
@@ -1779,19 +1800,217 @@ class OnsetDiscoverer:
             n_hits = len(hits)
             n_star_hits = len(hits & star_codes)
             universe_prec = n_star_hits / n_hits if n_hits > 0 else 0
-            results.append({
+            r = {
                 "universe_n_total": n_total,
                 "universe_n_hits": n_hits,
                 "universe_n_stars": n_star_hits,
                 "universe_precision": round(universe_prec, 4),
                 "universe_hit_rate": round(n_hits / n_total, 4) if n_total > 0 else 0,
-            })
+            }
+            if ci < len(match_results):
+                r["match_stats"] = match_results[ci][0]
+                r["match_examples"] = match_results[ci][1]
+            results.append(r)
 
         logger.info(
             f"母集団精度計算完了: {n_total}銘柄スキャン, "
-            f"Top1コンボ: {results[0] if results else 'N/A'}"
+            f"Top1コンボ: {results[0].get('universe_precision', 'N/A') if results else 'N/A'}"
         )
         return results
+
+    # ------------------------------------------------------------------
+    # 合致銘柄の60日後フォワードリターン計算
+    # ------------------------------------------------------------------
+    def _compute_match_forward_returns(
+        self,
+        match_details: list[dict],
+        all_prices: pd.DataFrame,
+        close_col: str,
+        topix_ret_series,
+        star_codes: set,
+        max_stocks: int = 50,
+    ) -> tuple[dict, list[dict]]:
+        """合致銘柄の60日後リターンと統計を計算する。
+
+        Parameters
+        ----------
+        match_details : list[dict]
+            各要素: {code, match_date, is_star, feature_values}
+        all_prices : DataFrame
+            全銘柄の株価データ
+        close_col : str
+            終値カラム名
+        topix_ret_series : Series or similar
+            TOPIX日次リターン系列（index=date）
+        star_codes : set
+            スター株コードの集合
+        max_stocks : int
+            最大サンプル数（超過時はスター株を保護しつつサンプリング）
+
+        Returns
+        -------
+        (stats_dict, examples_list)
+            stats_dict: 集計統計（平均リターン、中央値、勝率、シャープ等）
+            examples_list: リターン上位5+下位5の実例リスト
+        """
+        import random
+
+        empty_stats = {
+            "n_samples": 0,
+            "mean_return": 0.0,
+            "median_return": 0.0,
+            "win_rate": 0.0,
+            "sharpe": 0.0,
+            "mean_excess": 0.0,
+            "star_mean_return": 0.0,
+            "star_win_rate": 0.0,
+            "star_count": 0,
+            "nonstar_mean_return": 0.0,
+            "nonstar_win_rate": 0.0,
+            "nonstar_count": 0,
+        }
+
+        if not match_details:
+            return empty_stats, []
+
+        # --- サンプリング: スター株は全保持、非スター株をランダム抽出 ---
+        stars = [d for d in match_details if d["is_star"]]
+        non_stars = [d for d in match_details if not d["is_star"]]
+
+        if len(match_details) > max_stocks:
+            remaining = max(max_stocks - len(stars), 5)
+            if len(non_stars) > remaining:
+                non_stars = random.sample(non_stars, remaining)
+            sampled = stars + non_stars
+        else:
+            sampled = match_details
+
+        # --- TOPIX系列をdate indexで引けるように準備 ---
+        topix_cum = None
+        if topix_ret_series is not None:
+            try:
+                topix_idx = pd.Series(topix_ret_series.values, index=pd.to_datetime(topix_ret_series.index))
+                topix_cum = (1 + topix_idx).cumprod()
+            except Exception:
+                topix_cum = None
+
+        # --- 各銘柄の60日後リターンを計算 ---
+        FORWARD_DAYS = 60
+        results_list = []
+
+        for item in sampled:
+            code = item["code"]
+            match_date_str = item["match_date"]
+
+            grp = all_prices[all_prices["code"] == code].sort_values("date").reset_index(drop=True)
+            if grp.empty:
+                continue
+
+            # match_dateの位置を特定
+            grp_dates = pd.to_datetime(grp["date"])
+            match_dt = pd.to_datetime(match_date_str)
+
+            # match_date以降の最も近い行を探す
+            mask = grp_dates >= match_dt
+            if mask.sum() == 0:
+                continue
+            start_idx = mask.idxmax()
+
+            if start_idx + FORWARD_DAYS >= len(grp):
+                # 60日後のデータが不足 → 利用可能な最終日まで
+                end_idx = len(grp) - 1
+                if end_idx <= start_idx:
+                    continue
+            else:
+                end_idx = start_idx + FORWARD_DAYS
+
+            price_start = float(grp.iloc[start_idx][close_col])
+            price_end = float(grp.iloc[end_idx][close_col])
+
+            if price_start <= 0:
+                continue
+
+            fwd_return = price_end / price_start - 1
+            actual_days = end_idx - start_idx
+
+            # TOPIX同期間リターン（超過リターン計算用）
+            excess_return = fwd_return  # デフォルト = 生リターン
+            topix_return = 0.0
+            if topix_cum is not None:
+                try:
+                    start_date = grp_dates.iloc[start_idx]
+                    end_date = grp_dates.iloc[end_idx]
+                    # 最も近いTOPIX日付を探す
+                    t_start_mask = topix_cum.index >= start_date
+                    t_end_mask = topix_cum.index >= end_date
+                    if t_start_mask.any() and t_end_mask.any():
+                        t_start_val = topix_cum[t_start_mask].iloc[0]
+                        t_end_val = topix_cum[t_end_mask].iloc[0]
+                        if t_start_val > 0:
+                            topix_return = t_end_val / t_start_val - 1
+                            excess_return = fwd_return - topix_return
+                except Exception:
+                    pass
+
+            results_list.append({
+                "code": code,
+                "match_date": match_date_str,
+                "is_star": item["is_star"],
+                "forward_return": round(fwd_return, 4),
+                "excess_return": round(excess_return, 4),
+                "topix_return": round(topix_return, 4),
+                "actual_days": actual_days,
+                "feature_values": item.get("feature_values", {}),
+            })
+
+        if not results_list:
+            return empty_stats, []
+
+        # --- 集計統計 ---
+        returns = np.array([r["forward_return"] for r in results_list])
+        excess_rets = np.array([r["excess_return"] for r in results_list])
+        n = len(returns)
+
+        mean_ret = float(np.mean(returns))
+        median_ret = float(np.median(returns))
+        win_rate = float(np.sum(returns > 0) / n) if n > 0 else 0.0
+        mean_excess = float(np.mean(excess_rets))
+
+        # シャープレシオ（60日リターンを年率換算: ×sqrt(252/60)）
+        if n >= 2 and np.std(returns) > 0:
+            sharpe = float(np.mean(excess_rets) / np.std(returns) * np.sqrt(252 / 60))
+        else:
+            sharpe = 0.0
+
+        # スター株 vs 非スター株の内訳
+        star_rets = [r["forward_return"] for r in results_list if r["is_star"]]
+        nonstar_rets = [r["forward_return"] for r in results_list if not r["is_star"]]
+
+        stats = {
+            "n_samples": n,
+            "mean_return": round(mean_ret, 4),
+            "median_return": round(median_ret, 4),
+            "win_rate": round(win_rate, 4),
+            "sharpe": round(sharpe, 2),
+            "mean_excess": round(mean_excess, 4),
+            "star_mean_return": round(float(np.mean(star_rets)), 4) if star_rets else 0.0,
+            "star_win_rate": round(float(np.sum(np.array(star_rets) > 0) / len(star_rets)), 4) if star_rets else 0.0,
+            "star_count": len(star_rets),
+            "nonstar_mean_return": round(float(np.mean(nonstar_rets)), 4) if nonstar_rets else 0.0,
+            "nonstar_win_rate": round(float(np.sum(np.array(nonstar_rets) > 0) / len(nonstar_rets)), 4) if nonstar_rets else 0.0,
+            "nonstar_count": len(nonstar_rets),
+        }
+
+        # --- 実例: リターン上位5 + 下位5 ---
+        sorted_by_ret = sorted(results_list, key=lambda x: x["forward_return"], reverse=True)
+        top5 = sorted_by_ret[:5]
+        bottom5 = sorted_by_ret[-5:] if len(sorted_by_ret) > 5 else []
+        # 重複除去（5件以下の場合）
+        top_codes_dates = {(r["code"], r["match_date"]) for r in top5}
+        bottom5 = [r for r in bottom5 if (r["code"], r["match_date"]) not in top_codes_dates]
+        examples = top5 + bottom5
+
+        return stats, examples
 
     def _compute_universe_precision_alt(
         self,
