@@ -13,34 +13,60 @@ from .config import OnsetDetectorConfig
 
 logger = logging.getLogger(__name__)
 
-# 46特徴量キー（A〜I カテゴリ）
+# 82特徴量キー（A〜I カテゴリ、マルチウィンドウ展開）
 WIDE_FEATURE_KEYS = [
-    # A: 出来高ダイナミクス (7)
+    # A: 出来高ダイナミクス (7 既存 + 7 追加 = 14)
     "vol_ratio_5d_20d", "vol_ratio_5d_60d", "vol_surge_count_10d",
     "up_volume_ratio_10d", "quiet_accum_rate_20d", "vol_acceleration", "vpin_5d",
-    # B: 価格/リターン (6)
+    "vol_ratio_5d_40d", "vol_ratio_10d_20d", "vol_ratio_10d_40d",
+    "vol_surge_count_5d", "vol_surge_count_20d",
+    "up_volume_ratio_5d", "up_volume_ratio_20d",
+    "vpin_10d",
+    # B: 価格/リターン (6 既存 + 8 追加 = 14)
     "ret_5d", "ret_20d", "up_days_ratio_10d", "max_gap_up_5d",
     "higher_lows_slope_10d", "range_position_20d",
-    # C: ボラティリティ・レジーム (4)
+    "ret_3d", "ret_10d", "ret_40d",
+    "up_days_ratio_5d", "up_days_ratio_20d",
+    "max_gap_up_10d",
+    "higher_lows_slope_5d", "higher_lows_slope_20d",
+    "range_position_10d", "range_position_40d",
+    # C: ボラティリティ・レジーム (4 既存 + 4 追加 = 8)
     "atr_ratio_5d_20d", "bb_width_pctile_60d", "intraday_range_ratio_5d",
     "realized_vol_5d_vs_20d",
-    # D: トレンド/OBV (4)
-    "obv_slope_10d", "obv_divergence", "ma5_ma20_gap", "price_vs_ma20_pct",
+    "atr_ratio_5d_40d", "atr_ratio_10d_20d",
+    "bb_width_pctile_120d",
+    "intraday_range_ratio_10d",
+    "realized_vol_5d_vs_40d", "realized_vol_10d_vs_20d",
+    # D: トレンド/OBV (5 既存 + 7 追加 = 12)
+    "obv_slope_10d", "obv_divergence", "ma5_ma25_gap", "price_vs_ma25_pct",
     "consecutive_up_days",
-    # E: クロスセクショナル (4)
+    "obv_slope_5d", "obv_slope_20d",
+    "obv_divergence_40d",
+    "ma25_ma75_gap", "ma5_ma75_gap",
+    "price_vs_ma5_pct", "price_vs_ma75_pct", "price_vs_ma200_pct",
+    # E: クロスセクショナル (4 既存 + 3 追加 = 7)
     "sector_rel_ret_10d", "topix_beta_20d", "residual_vol_ratio",
     "vol_vs_market_vol",
-    # F: 信用取引 (8)
+    "sector_rel_ret_5d", "sector_rel_ret_20d",
+    "topix_beta_40d",
+    # F: 信用取引 (8) — 変更なし
     "margin_ratio", "margin_buy_change_pct", "margin_ratio_change_pct",
     "margin_buy_turnover_days", "margin_buy_vol_ratio", "margin_net_position",
     "margin_divergence", "has_margin_data",
-    # G: テクニカル追加 (6)
+    # G: テクニカル追加 (6 既存 + 2 追加 = 8)
     "macd_histogram", "stochastic_k", "williams_r",
     "cci_20d", "ma_deviation_25d", "ma_deviation_75d",
-    # H: 流動性 (3)
+    "cci_10d",
+    "ma_deviation_5d", "ma_deviation_200d",
+    # H: 流動性 (3 既存 + 3 追加 = 6)
     "amihud_illiquidity_20d", "turnover_change_10d_20d", "spread_proxy_5d",
-    # I: 価格パターン (3)
+    "amihud_illiquidity_10d",
+    "turnover_change_5d_20d", "turnover_change_5d_10d",
+    "spread_proxy_10d",
+    # I: 価格パターン (3 既存 + 2 追加 = 5)
     "gap_frequency_20d", "higher_highs_ratio_10d", "proximity_52w_high",
+    "gap_frequency_10d",
+    "higher_highs_ratio_5d", "higher_highs_ratio_20d",
 ]
 
 WIDE_FEATURE_LABELS_JP = {
@@ -52,6 +78,14 @@ WIDE_FEATURE_LABELS_JP = {
     "quiet_accum_rate_20d": "静的蓄積率(20日)",
     "vol_acceleration": "出来高加速度",
     "vpin_5d": "注文偏り度(5日)",
+    "vol_ratio_5d_40d": "出来高比(5/40日)",
+    "vol_ratio_10d_20d": "出来高比(10/20日)",
+    "vol_ratio_10d_40d": "出来高比(10/40日)",
+    "vol_surge_count_5d": "出来高急増回数(5日)",
+    "vol_surge_count_20d": "出来高急増回数(20日)",
+    "up_volume_ratio_5d": "上昇日出来高比(5日)",
+    "up_volume_ratio_20d": "上昇日出来高比(20日)",
+    "vpin_10d": "注文偏り度(10日)",
     # B: 価格/リターン
     "ret_5d": "リターン(5日)",
     "ret_20d": "リターン(20日)",
@@ -59,22 +93,49 @@ WIDE_FEATURE_LABELS_JP = {
     "max_gap_up_5d": "最大ギャップアップ(5日)",
     "higher_lows_slope_10d": "安値切上り傾き(10日)",
     "range_position_20d": "レンジ位置(20日)",
+    "ret_3d": "リターン(3日)",
+    "ret_10d": "リターン(10日)",
+    "ret_40d": "リターン(40日)",
+    "up_days_ratio_5d": "上昇日比率(5日)",
+    "up_days_ratio_20d": "上昇日比率(20日)",
+    "max_gap_up_10d": "最大ギャップアップ(10日)",
+    "higher_lows_slope_5d": "安値切上り傾き(5日)",
+    "higher_lows_slope_20d": "安値切上り傾き(20日)",
+    "range_position_10d": "レンジ位置(10日)",
+    "range_position_40d": "レンジ位置(40日)",
     # C: ボラティリティ・レジーム
-    "atr_ratio_5d_20d": "日中値幅比(5/20日)",
+    "atr_ratio_5d_20d": "ATR比(5/20日)",
     "bb_width_pctile_60d": "価格帯収縮度(60日)",
     "intraday_range_ratio_5d": "日中値幅比(5/20日)",
     "realized_vol_5d_vs_20d": "短期ボラ比(5/20日)",
+    "atr_ratio_5d_40d": "ATR比(5/40日)",
+    "atr_ratio_10d_20d": "ATR比(10/20日)",
+    "bb_width_pctile_120d": "価格帯収縮度(120日)",
+    "intraday_range_ratio_10d": "日中値幅比(10/20日)",
+    "realized_vol_5d_vs_40d": "短期ボラ比(5/40日)",
+    "realized_vol_10d_vs_20d": "短期ボラ比(10/20日)",
     # D: トレンド/OBV
     "obv_slope_10d": "出来高累計傾き(10日)",
-    "obv_divergence": "出来高価格連動度",
-    "ma5_ma20_gap": "MA(5-20)乖離率",
-    "price_vs_ma20_pct": "対MA20乖離率",
+    "obv_divergence": "出来高価格連動度(20日)",
+    "ma5_ma25_gap": "MA(5-25)乖離率",
+    "price_vs_ma25_pct": "対MA25乖離率",
     "consecutive_up_days": "連続上昇日数",
+    "obv_slope_5d": "出来高累計傾き(5日)",
+    "obv_slope_20d": "出来高累計傾き(20日)",
+    "obv_divergence_40d": "出来高価格連動度(40日)",
+    "ma25_ma75_gap": "MA(25-75)乖離率",
+    "ma5_ma75_gap": "MA(5-75)乖離率",
+    "price_vs_ma5_pct": "対MA5乖離率",
+    "price_vs_ma75_pct": "対MA75乖離率",
+    "price_vs_ma200_pct": "対MA200乖離率",
     # E: クロスセクショナル
     "sector_rel_ret_10d": "セクター相対リターン(10日)",
     "topix_beta_20d": "市場感応度(20日)",
     "residual_vol_ratio": "固有ボラ比(10/60日)",
     "vol_vs_market_vol": "対市場出来高比",
+    "sector_rel_ret_5d": "セクター相対リターン(5日)",
+    "sector_rel_ret_20d": "セクター相対リターン(20日)",
+    "topix_beta_40d": "市場感応度(40日)",
     # F: 信用取引
     "margin_ratio": "貸借倍率",
     "margin_buy_change_pct": "信用買い残変化率",
@@ -91,18 +152,29 @@ WIDE_FEATURE_LABELS_JP = {
     "cci_20d": "価格乖離指数(20日)",
     "ma_deviation_25d": "MA25乖離率",
     "ma_deviation_75d": "MA75乖離率",
+    "cci_10d": "価格乖離指数(10日)",
+    "ma_deviation_5d": "MA5乖離率",
+    "ma_deviation_200d": "MA200乖離率",
     # H: 流動性
     "amihud_illiquidity_20d": "流動性の低さ(20日)",
     "turnover_change_10d_20d": "売買代金変化(10/20日)",
     "spread_proxy_5d": "スプレッド代理(5日)",
+    "amihud_illiquidity_10d": "流動性の低さ(10日)",
+    "turnover_change_5d_20d": "売買代金変化(5/20日)",
+    "turnover_change_5d_10d": "売買代金変化(5/10日)",
+    "spread_proxy_10d": "スプレッド代理(10日)",
     # I: 価格パターン
     "gap_frequency_20d": "ギャップ頻度(20日)",
     "higher_highs_ratio_10d": "高値更新比率(10日)",
     "proximity_52w_high": "52週高値近接度",
+    "gap_frequency_10d": "ギャップ頻度(10日)",
+    "higher_highs_ratio_5d": "高値更新比率(5日)",
+    "higher_highs_ratio_20d": "高値更新比率(20日)",
 }
 
 # 各特徴量の平易な日本語説明
 WIDE_FEATURE_DESCRIPTIONS_JP = {
+    # A: 出来高ダイナミクス
     "vol_ratio_5d_20d": "直近5日の出来高が1ヶ月平均の何倍か（大きいほど出来高急増）",
     "vol_ratio_5d_60d": "直近5日の出来高が3ヶ月平均の何倍か（大きいほど出来高急増）",
     "vol_surge_count_10d": "直近10日で出来高が平均の2倍を超えた日数",
@@ -110,25 +182,65 @@ WIDE_FEATURE_DESCRIPTIONS_JP = {
     "quiet_accum_rate_20d": "株価が横ばいなのに出来高が多い日の比率（機関投資家の静かな買い集め）",
     "vol_acceleration": "直近5日の出来高が前の5日より増えた倍率",
     "vpin_5d": "直近5日の買い注文と売り注文の偏り度合い（高いほど一方向に集中）",
+    "vol_ratio_5d_40d": "直近5日の出来高が2ヶ月平均の何倍か（大きいほど出来高急増）",
+    "vol_ratio_10d_20d": "直近10日の出来高が1ヶ月平均の何倍か（大きいほど出来高急増）",
+    "vol_ratio_10d_40d": "直近10日の出来高が2ヶ月平均の何倍か（大きいほど出来高急増）",
+    "vol_surge_count_5d": "直近5日で出来高が平均の2倍を超えた日数",
+    "vol_surge_count_20d": "直近20日で出来高が平均の2倍を超えた日数",
+    "up_volume_ratio_5d": "直近5日の取引のうち株価が上がった日の出来高割合（買い優勢度）",
+    "up_volume_ratio_20d": "直近20日の取引のうち株価が上がった日の出来高割合（買い優勢度）",
+    "vpin_10d": "直近10日の買い注文と売り注文の偏り度合い（高いほど一方向に集中）",
+    # B: 価格/リターン
     "ret_5d": "直近5営業日（1週間）の株価騰落率",
     "ret_20d": "直近20営業日（約1ヶ月）の株価騰落率",
     "up_days_ratio_10d": "直近10日のうち株価が上昇した日の割合",
     "max_gap_up_5d": "直近5日で最も大きかった寄り付き窓開け上昇幅",
     "higher_lows_slope_10d": "直近10日の安値の切り上がり速度（正=下値が堅固に上昇）",
     "range_position_20d": "直近20日の高値-安値の範囲内での現在値の位置（1=高値圏、0=安値圏）",
+    "ret_3d": "直近3営業日の株価騰落率",
+    "ret_10d": "直近10営業日（2週間）の株価騰落率",
+    "ret_40d": "直近40営業日（約2ヶ月）の株価騰落率",
+    "up_days_ratio_5d": "直近5日のうち株価が上昇した日の割合",
+    "up_days_ratio_20d": "直近20日のうち株価が上昇した日の割合",
+    "max_gap_up_10d": "直近10日で最も大きかった寄り付き窓開け上昇幅",
+    "higher_lows_slope_5d": "直近5日の安値の切り上がり速度（正=下値が堅固に上昇）",
+    "higher_lows_slope_20d": "直近20日の安値の切り上がり速度（正=下値が堅固に上昇）",
+    "range_position_10d": "直近10日の高値-安値の範囲内での現在値の位置（1=高値圏、0=安値圏）",
+    "range_position_40d": "直近40日の高値-安値の範囲内での現在値の位置（1=高値圏、0=安値圏）",
+    # C: ボラティリティ・レジーム
     "atr_ratio_5d_20d": "直近5日の1日の値動き幅が20日平均より大きいか（ボラ拡大度）",
     "bb_width_pctile_60d": "価格帯（ボリンジャーバンド幅）の過去60日中での細さのランク（低=収縮中）",
     "intraday_range_ratio_5d": "直近5日の日中の値幅が20日平均より大きいか",
     "realized_vol_5d_vs_20d": "直近5日の日々の値動きの激しさが20日平均より大きいか",
+    "atr_ratio_5d_40d": "直近5日の1日の値動き幅が40日平均より大きいか（ボラ拡大度）",
+    "atr_ratio_10d_20d": "直近10日の1日の値動き幅が20日平均より大きいか（ボラ拡大度）",
+    "bb_width_pctile_120d": "価格帯（ボリンジャーバンド幅）の過去120日中での細さのランク（低=収縮中）",
+    "intraday_range_ratio_10d": "直近10日の日中の値幅が20日平均より大きいか",
+    "realized_vol_5d_vs_40d": "直近5日の日々の値動きの激しさが40日平均より大きいか",
+    "realized_vol_10d_vs_20d": "直近10日の日々の値動きの激しさが20日平均より大きいか",
+    # D: トレンド/OBV
     "obv_slope_10d": "出来高の累積値（上昇日プラス・下落日マイナス）の10日トレンド方向",
-    "obv_divergence": "株価と出来高累計値の連動度（高い=出来高が株価上昇を裏付け）",
-    "ma5_ma20_gap": "5日移動平均が20日移動平均より何%上にあるか",
-    "price_vs_ma20_pct": "現在株価が20日移動平均より何%上にあるか",
+    "obv_divergence": "株価と出来高累計値の20日連動度（高い=出来高が株価上昇を裏付け）",
+    "ma5_ma25_gap": "5日移動平均が25日移動平均より何%上にあるか",
+    "price_vs_ma25_pct": "現在株価が25日移動平均より何%上にあるか",
     "consecutive_up_days": "直近の連続上昇日数",
+    "obv_slope_5d": "出来高の累積値（上昇日プラス・下落日マイナス）の5日トレンド方向",
+    "obv_slope_20d": "出来高の累積値（上昇日プラス・下落日マイナス）の20日トレンド方向",
+    "obv_divergence_40d": "株価と出来高累計値の40日連動度（高い=出来高が株価上昇を裏付け）",
+    "ma25_ma75_gap": "25日移動平均が75日移動平均より何%上にあるか",
+    "ma5_ma75_gap": "5日移動平均が75日移動平均より何%上にあるか",
+    "price_vs_ma5_pct": "現在株価が5日移動平均より何%上にあるか",
+    "price_vs_ma75_pct": "現在株価が75日移動平均より何%上にあるか（中期トレンドとの乖離）",
+    "price_vs_ma200_pct": "現在株価が200日移動平均より何%上にあるか（長期トレンドとの乖離）",
+    # E: クロスセクショナル
     "sector_rel_ret_10d": "同業他社の平均に対してその銘柄だけ何%余分に上昇したか（10日）",
     "topix_beta_20d": "市場全体（TOPIX）が動いたときのその銘柄の感応度（高い=市場と同方向に大きく動く）",
     "residual_vol_ratio": "市場の動きを除いた銘柄固有の値動きの激しさ（直近vs長期）",
     "vol_vs_market_vol": "市場全体と比べた出来高の多さ",
+    "sector_rel_ret_5d": "同業他社の平均に対してその銘柄だけ何%余分に上昇したか（5日）",
+    "sector_rel_ret_20d": "同業他社の平均に対してその銘柄だけ何%余分に上昇したか（20日）",
+    "topix_beta_40d": "市場全体（TOPIX）が動いたときのその銘柄の40日感応度（高い=市場と同方向に大きく動く）",
+    # F: 信用取引
     "margin_ratio": "信用買い残÷信用売り残の倍率（高い=買い方が優勢）",
     "margin_buy_change_pct": "信用買い残の直近変化率（正=新規信用買いが増加）",
     "margin_ratio_change_pct": "貸借倍率の変化率（正=買い方優勢が強まる）",
@@ -137,18 +249,31 @@ WIDE_FEATURE_DESCRIPTIONS_JP = {
     "margin_net_position": "信用買い残から信用売り残を引いた差（大きい=買い方優勢）",
     "margin_divergence": "信用買い残と株価の乖離度合い",
     "has_margin_data": "信用取引データが存在するか",
+    # G: テクニカル追加
     "macd_histogram": "短期と長期の移動平均の差の変化（正=上昇モメンタムが加速）",
     "stochastic_k": "過去一定期間の高安値の範囲内での現在値の位置（高い=高値圏）",
     "williams_r": "高値に対する現在値の近さ（0に近い=高値圏）",
-    "cci_20d": "価格の移動平均からの乖離を標準化した指数（高い=上昇トレンドが強い）",
+    "cci_20d": "価格の移動平均からの乖離を標準化した指数（20日、高い=上昇トレンドが強い）",
     "ma_deviation_25d": "現在株価が25日移動平均より何%上にあるか",
     "ma_deviation_75d": "現在株価が75日移動平均より何%上にあるか（長期トレンドとの乖離）",
-    "amihud_illiquidity_20d": "値動き÷出来高の比率（高い=少ない出来高で大きく動く＝流動性が低い）",
+    "cci_10d": "価格の移動平均からの乖離を標準化した指数（10日、高い=上昇トレンドが強い）",
+    "ma_deviation_5d": "現在株価が5日移動平均より何%上にあるか（短期トレンドとの乖離）",
+    "ma_deviation_200d": "現在株価が200日移動平均より何%上にあるか（超長期トレンドとの乖離）",
+    # H: 流動性
+    "amihud_illiquidity_20d": "値動き÷出来高の比率（20日、高い=少ない出来高で大きく動く＝流動性が低い）",
     "turnover_change_10d_20d": "直近10日の売買代金が20日平均の何倍か",
-    "spread_proxy_5d": "1日の高値と安値の差（高い=価格が跳びやすい＝流動性が低い）",
+    "spread_proxy_5d": "直近5日の高値と安値の差（高い=価格が跳びやすい＝流動性が低い）",
+    "amihud_illiquidity_10d": "値動き÷出来高の比率（10日、高い=少ない出来高で大きく動く＝流動性が低い）",
+    "turnover_change_5d_20d": "直近5日の売買代金が20日平均の何倍か",
+    "turnover_change_5d_10d": "直近5日の売買代金が10日平均の何倍か",
+    "spread_proxy_10d": "直近10日の高値と安値の差（高い=価格が跳びやすい＝流動性が低い）",
+    # I: 価格パターン
     "gap_frequency_20d": "直近20日のうち寄り付きで窓開けした日の比率",
     "higher_highs_ratio_10d": "直近10日のうち前日高値を超えた日の割合",
     "proximity_52w_high": "52週高値に対する現在値の近さ（1=52週高値圏）",
+    "gap_frequency_10d": "直近10日のうち寄り付きで窓開けした日の比率",
+    "higher_highs_ratio_5d": "直近5日のうち前日高値を超えた日の割合",
+    "higher_highs_ratio_20d": "直近20日のうち前日高値を超えた日の割合",
 }
 
 # 初動シグナルの日本語名
@@ -186,6 +311,7 @@ class OnsetDiscoverer:
         topix: pd.DataFrame,
         listed_stocks: pd.DataFrame,
         progress_callback=None,
+        market_caps: dict[str, float] | None = None,
     ) -> dict:
         """Phase 1パイプライン実行
 
@@ -224,11 +350,22 @@ class OnsetDiscoverer:
         star_codes = [str(s["code"]) for s in star_stocks]
         logger.info(f"Phase 1開始: スター株 {len(star_codes)}件")
 
+        # --- Step 2.5: 入力スター株の初動特定（先行実行） ---
+        # Step 3 で「初動時点の特徴量」を使うために、初動日を先に特定する。
+        # 上昇後の最新データで特徴量を計算すると、ret_40d 等が結果を反映して
+        # 閾値が非現実的になり母集団で条件合致ゼロとなるため。
+        _progress("入力スター株の初動日特定中...")
+        star_onset_dates = self._detect_onset_dates(
+            star_stocks, all_prices, close_col, progress_callback=_progress,
+            topix=topix_sorted,
+        )
+
         # --- Step 3: 共通特徴量発見 ---
         _progress("共通特徴量発見中...")
         common_features = self._find_discriminative_features(
             star_stocks, all_prices, topix_ret_series, listed_stocks, close_col,
             progress_callback=_progress,
+            star_onset_dates=star_onset_dates,
         )
 
         # --- Step 4: 追加スター株発見 ---
@@ -236,6 +373,7 @@ class OnsetDiscoverer:
         additional_stars = self._discover_additional_stars(
             common_features, star_codes, all_prices, topix, topix_ret_series,
             listed_stocks, close_col,
+            market_caps=market_caps,
         )
 
         all_stars = list(star_stocks) + additional_stars
@@ -265,10 +403,31 @@ class OnsetDiscoverer:
                 common_features["base_rate_universe"] = round(n_stars / n_total, 4)
                 common_features["n_universe"] = n_total
 
+        # --- Step 4.6: 代替手法の母集団精度計算 ---
+        alt_methods = common_features.get("alt_methods", {})
+        n_universe_total = common_features.get("n_universe", 0)
+        if alt_methods and n_universe_total > 0:
+            _progress("代替手法の母集団精度計算中...")
+            alt_universe = self._compute_universe_precision_alt(
+                all_prices=all_prices,
+                star_codes=all_star_codes_set,
+                alt_methods=alt_methods,
+                signals=common_features.get("signals", []),
+                close_col=close_col,
+                topix_ret_series=topix_ret_series,
+                progress_callback=_progress,
+            )
+            # 結果を alt_methods に追記
+            for method_key, u_result in alt_universe.items():
+                if method_key in alt_methods and "best" in alt_methods[method_key]:
+                    alt_methods[method_key]["universe"] = u_result
+            common_features["alt_methods"] = alt_methods
+
         # --- Step 5: 初動特定 ---
         _progress("初動日特定中...")
         onset_dates = self._detect_onset_dates(
             all_stars, all_prices, close_col, progress_callback=_progress,
+            topix=topix_sorted,
         )
 
         # --- Step 6: AI解釈 ---
@@ -298,6 +457,7 @@ class OnsetDiscoverer:
         listed_stocks: pd.DataFrame,
         close_col: str,
         progress_callback=None,
+        star_onset_dates: dict | None = None,
     ) -> dict:
         """Youden's J最適化 + コンボ探索で判別特徴量を発見"""
         cfg = self.config
@@ -309,13 +469,32 @@ class OnsetDiscoverer:
         pos_features = []  # 正例: スター株
         neg_features = []  # 負例: 非スター株
 
-        # 正例: 各スター株の直近データから特徴量
+        # 正例: 各スター株の**初動時点**の特徴量
+        # 最新データ（上昇後）で計算すると ret_40d 等が結果を反映し
+        # 閾値が非現実的→母集団で条件合致ゼロとなるため、
+        # 10シグナル方式で特定した初動日までのデータで特徴量を計算する。
         for star in star_stocks:
             code = str(star["code"])
             grp = all_prices[all_prices["code"] == code].sort_values("date")
             if len(grp) < 20:
                 continue
-            feat = self._compute_wide_features(grp, close_col, topix_ret_series)
+
+            # 初動日が特定されていれば、その日までのデータで特徴量計算
+            onset_info = (star_onset_dates or {}).get(code, {})
+            onset_date_str = onset_info.get("onset_date", "")
+
+            if onset_date_str and "date" in grp.columns:
+                onset_dt = pd.Timestamp(onset_date_str)
+                grp_dates = pd.to_datetime(grp["date"])
+                mask = grp_dates <= onset_dt
+                if mask.sum() >= 20:
+                    grp_pre = grp.loc[mask]
+                else:
+                    grp_pre = grp
+            else:
+                grp_pre = grp
+
+            feat = self._compute_wide_features(grp_pre, close_col, topix_ret_series)
             if feat is not None:
                 pos_features.append(feat)
 
@@ -420,43 +599,120 @@ class OnsetDiscoverer:
         # Youden's Jでソート
         signals.sort(key=lambda s: s["j_stat"], reverse=True)
 
-        # --- コンボ探索 ---
+        # --- コンボ探索（相関ベース冗長排除） ---
         if progress_callback:
-            progress_callback("コンボ探索中...")
+            progress_callback("コンボ探索中（相関分析 + 独立特徴量選別）...")
 
         top_n = min(15, len(signals))
         top_signals = signals[:top_n]
         thresholds = {s["feature"]: s["threshold"] for s in top_signals}
 
+        # ============================================================
+        # 相関行列による冗長特徴量の排除
+        # ============================================================
+        CORR_THRESHOLD = 0.7  # |corr| >= 0.7 は「同じ情報」とみなす
+
+        feat_indices_all = []
+        for s in top_signals:
+            feat_indices_all.append(WIDE_FEATURE_KEYS.index(s["feature"]))
+        X_top = X[:, feat_indices_all]
+
+        # ペアワイズ相関（Spearman: 非線形関係も捕捉）
+        n_feat = len(top_signals)
+        corr_matrix = np.zeros((n_feat, n_feat))
+        for i in range(n_feat):
+            for j in range(i, n_feat):
+                if i == j:
+                    corr_matrix[i, j] = 1.0
+                    continue
+                a, b = X_top[:, i], X_top[:, j]
+                if np.ptp(a) == 0 or np.ptp(b) == 0:
+                    corr_matrix[i, j] = 0.0
+                    corr_matrix[j, i] = 0.0
+                    continue
+                try:
+                    c, _ = stats.spearmanr(a, b)
+                    c = float(c) if np.isfinite(c) else 0.0
+                except Exception:
+                    c = 0.0
+                corr_matrix[i, j] = c
+                corr_matrix[j, i] = c
+
+        # グリーディ選別: J stat順に取り、既選択と |corr| >= 0.7 の特徴量はスキップ
+        selected_indices = []  # top_signals内のインデックス
+        for i in range(n_feat):
+            is_redundant = False
+            for j in selected_indices:
+                if abs(corr_matrix[i, j]) >= CORR_THRESHOLD:
+                    is_redundant = True
+                    break
+            if not is_redundant:
+                selected_indices.append(i)
+
+        independent_signals = [top_signals[i] for i in selected_indices]
+        dropped = [top_signals[i]["feature"] for i in range(n_feat) if i not in selected_indices]
+
+        logger.info(
+            f"相関フィルタ: {n_feat}特徴量 → {len(independent_signals)}独立特徴量 "
+            f"(排除: {dropped})"
+        )
+
+        # 相関情報を保存（UI表示用）
+        corr_info = {
+            "matrix": corr_matrix.tolist(),
+            "feature_names": [s["feature"] for s in top_signals],
+            "feature_names_jp": [s.get("feature_jp", s["feature"]) for s in top_signals],
+            "selected_indices": selected_indices,
+            "dropped_features": dropped,
+            "threshold": CORR_THRESHOLD,
+        }
+
+        # ============================================================
+        # ペアの独立性スコア付きコンボ探索
+        # ============================================================
         combo_results = []
 
-        # 最低合致銘柄数: 正例の30%以上、最低3件（小サンプル問題を軽減）
+        # 最低合致銘柄数: 正例の30%以上、最低3件
         min_total_hits = max(3, int(n_pos * 0.3))
 
-        def _make_combo_entry(features_names, thresholds_list, tp, fp, total_pred):
+        def _make_combo_entry(features_names, thresholds_list, tp, fp, total_pred,
+                              diversity_score=0.0):
             prec = tp / total_pred if total_pred > 0 else 0
             recall = tp / n_pos if n_pos > 0 else 0
             lift = prec / base_rate if base_rate > 0 else 0
-            # 信頼度フラグ: tp >= 5 かつ fp が一定以下なら高信頼
             reliability = "高" if tp >= 5 else ("中" if tp >= 3 else "低")
             return {
                 "features": list(features_names),
                 "features_jp": [WIDE_FEATURE_LABELS_JP.get(f, f) for f in features_names],
                 "thresholds": list(thresholds_list),
                 "directions": [">="] * len(features_names),
-                "n_features": len(features_names),   # 特徴量の数
-                "n_combo": total_pred,                # 合致した銘柄の総数
-                "total_hits": total_pred,             # 同上（後方互換）
+                "n_features": len(features_names),
+                "n_combo": total_pred,
+                "total_hits": total_pred,
                 "precision": round(prec, 4),
                 "recall": round(recall, 4),
                 "lift": round(lift, 2),
                 "tp": tp,
                 "fp": fp,
                 "reliability": reliability,
+                "diversity_score": round(diversity_score, 3),
             }
 
-        # 2特徴量コンボ
-        for (s1, s2) in combinations(top_signals, 2):
+        def _combo_diversity(feat_names):
+            """コンボ内の特徴量ペア間の平均独立性（1 - |corr|）"""
+            idxs = []
+            for fn in feat_names:
+                for si, s in enumerate(top_signals):
+                    if s["feature"] == fn:
+                        idxs.append(si)
+                        break
+            if len(idxs) < 2:
+                return 0.0
+            pairs = list(combinations(idxs, 2))
+            return sum(1.0 - abs(corr_matrix[i, j]) for i, j in pairs) / len(pairs)
+
+        # --- 独立特徴量のみでコンボ生成（メイン: 高品質） ---
+        for (s1, s2) in combinations(independent_signals, 2):
             f1_name, f2_name = s1["feature"], s2["feature"]
             i1 = WIDE_FEATURE_KEYS.index(f1_name)
             i2 = WIDE_FEATURE_KEYS.index(f2_name)
@@ -466,42 +722,19 @@ class OnsetDiscoverer:
             total_pred = int(pred.sum())
             if total_pred < min_total_hits:
                 continue
+            div = _combo_diversity([f1_name, f2_name])
             combo_results.append(
                 _make_combo_entry([f1_name, f2_name], [s1["threshold"], s2["threshold"]],
-                                  tp, fp, total_pred)
+                                  tp, fp, total_pred, div)
             )
 
-        # 3・4特徴量コンボ（上位10から）— 多特徴量は合致数が少なくなるため閾値を緩める
-        min_hits_multi = max(3, int(n_pos * 0.15))  # 3+特徴量用：最低15%カバー
-        top_10 = top_signals[:min(10, len(top_signals))]
-
-        for (s1, s2, s3) in combinations(top_10, 3):
-            f1_name, f2_name, f3_name = s1["feature"], s2["feature"], s3["feature"]
-            i1 = WIDE_FEATURE_KEYS.index(f1_name)
-            i2 = WIDE_FEATURE_KEYS.index(f2_name)
-            i3 = WIDE_FEATURE_KEYS.index(f3_name)
-            pred = (
-                (X[:, i1] >= s1["threshold"]) &
-                (X[:, i2] >= s2["threshold"]) &
-                (X[:, i3] >= s3["threshold"])
-            )
-            tp = int((pred & (labels == 1)).sum())
-            fp = int((pred & (labels == 0)).sum())
-            total_pred = int(pred.sum())
-            if total_pred < min_hits_multi:
-                continue
-            combo_results.append(
-                _make_combo_entry([f1_name, f2_name, f3_name],
-                                  [s1["threshold"], s2["threshold"], s3["threshold"]],
-                                  tp, fp, total_pred)
-            )
-
-        # 4特徴量コンボ（上位8から）
-        top_8 = top_signals[:min(8, len(top_signals))]
-        for (s1, s2, s3, s4) in combinations(top_8, 4):
-            f_names = [s["feature"] for s in (s1, s2, s3, s4)]
+        # 3特徴量コンボ（独立特徴量から）
+        min_hits_multi = max(3, int(n_pos * 0.15))
+        ind_top = independent_signals[:min(10, len(independent_signals))]
+        for combo in combinations(ind_top, 3):
+            f_names = [s["feature"] for s in combo]
             indices = [WIDE_FEATURE_KEYS.index(f) for f in f_names]
-            ths = [s["threshold"] for s in (s1, s2, s3, s4)]
+            ths = [s["threshold"] for s in combo]
             pred = np.ones(len(X), dtype=bool)
             for idx, th in zip(indices, ths):
                 pred &= (X[:, idx] >= th)
@@ -510,12 +743,66 @@ class OnsetDiscoverer:
             total_pred = int(pred.sum())
             if total_pred < min_hits_multi:
                 continue
+            div = _combo_diversity(f_names)
             combo_results.append(
-                _make_combo_entry(f_names, ths, tp, fp, total_pred)
+                _make_combo_entry(f_names, ths, tp, fp, total_pred, div)
             )
 
-        # Precision降順 → recall降順でソート
-        combo_results.sort(key=lambda c: (c["precision"], c["recall"]), reverse=True)
+        # 4特徴量コンボ（独立特徴量から）
+        ind_top8 = independent_signals[:min(8, len(independent_signals))]
+        for combo in combinations(ind_top8, 4):
+            f_names = [s["feature"] for s in combo]
+            indices = [WIDE_FEATURE_KEYS.index(f) for f in f_names]
+            ths = [s["threshold"] for s in combo]
+            pred = np.ones(len(X), dtype=bool)
+            for idx, th in zip(indices, ths):
+                pred &= (X[:, idx] >= th)
+            tp = int((pred & (labels == 1)).sum())
+            fp = int((pred & (labels == 0)).sum())
+            total_pred = int(pred.sum())
+            if total_pred < min_hits_multi:
+                continue
+            div = _combo_diversity(f_names)
+            combo_results.append(
+                _make_combo_entry(f_names, ths, tp, fp, total_pred, div)
+            )
+
+        # --- フォールバック: 独立特徴量だけでは不足の場合、全特徴量でも探索 ---
+        if len(combo_results) < 5:
+            logger.info("独立特徴量のみでコンボ不足 → 全特徴量でフォールバック探索")
+            for (s1, s2) in combinations(top_signals, 2):
+                f1_name, f2_name = s1["feature"], s2["feature"]
+                # 既に結果にあるペアはスキップ
+                existing = {tuple(sorted(c["features"])) for c in combo_results}
+                if tuple(sorted([f1_name, f2_name])) in existing:
+                    continue
+                i1 = WIDE_FEATURE_KEYS.index(f1_name)
+                i2 = WIDE_FEATURE_KEYS.index(f2_name)
+                pred = (X[:, i1] >= s1["threshold"]) & (X[:, i2] >= s2["threshold"])
+                tp = int((pred & (labels == 1)).sum())
+                fp = int((pred & (labels == 0)).sum())
+                total_pred = int(pred.sum())
+                if total_pred < min_total_hits:
+                    continue
+                div = _combo_diversity([f1_name, f2_name])
+                combo_results.append(
+                    _make_combo_entry([f1_name, f2_name],
+                                      [s1["threshold"], s2["threshold"]],
+                                      tp, fp, total_pred, div)
+                )
+
+        # ランキング: precision × diversity_score でソート（独立性が高いほど上位）
+        for c in combo_results:
+            div = c.get("diversity_score", 0)
+            # 総合スコア = precision × (1 + 0.5 × diversity)
+            # → 精度が同じなら多様性が高いコンボが上位に
+            c["combined_score"] = round(
+                c["precision"] * (1.0 + 0.5 * div), 4
+            )
+        combo_results.sort(
+            key=lambda c: (c["combined_score"], c["recall"]),
+            reverse=True,
+        )
 
         # ベストコンボ選定（精度・再現率フィルタ）
         best_combos = [
@@ -529,15 +816,292 @@ class OnsetDiscoverer:
             f"コンボ={len(combo_results)}, ベスト={len(best_combos)}"
         )
 
+        # --- 代替手法の比較探索 ---
+        if progress_callback:
+            progress_callback("代替手法の比較分析中...")
+        alt_methods = self._explore_alternative_methods(
+            X, labels, top_signals, n_pos, n_neg, base_rate,
+        )
+
         return {
             "signals": signals,
             "combo_signals": combo_results[:30],
             "best_combos": best_combos[:10],
+            "alt_methods": alt_methods,
+            "corr_info": corr_info,
             "n_star": n_pos,
             "n_non_star": n_neg,
             "base_rate": round(base_rate, 4),
             "feature_keys": WIDE_FEATURE_KEYS,
         }
+
+    # ------------------------------------------------------------------
+    # 代替手法の比較探索
+    # ------------------------------------------------------------------
+    def _explore_alternative_methods(
+        self,
+        X: np.ndarray,
+        labels: np.ndarray,
+        top_signals: list,
+        n_pos: int,
+        n_neg: int,
+        base_rate: float,
+    ) -> dict:
+        """3つの代替手法でスター株確率を算出し、AND条件と比較。
+
+        Returns dict with keys:
+            weighted_scoring: 加重スコアリング結果
+            decision_tree: 浅い決定木結果
+            percentile_rank: パーセンタイルランク結果
+        """
+        results = {}
+
+        # ================================================================
+        # 手法1: 加重スコアリング
+        # ================================================================
+        try:
+            # 各特徴量に J stat ベースの重みを付与し、合計スコアで判定
+            ws_features = top_signals[:min(10, len(top_signals))]
+            if ws_features:
+                weights = []
+                feat_indices = []
+                feat_thresholds = []
+                for s in ws_features:
+                    idx = WIDE_FEATURE_KEYS.index(s["feature"])
+                    feat_indices.append(idx)
+                    feat_thresholds.append(s["threshold"])
+                    weights.append(s["j_stat"])
+
+                weights = np.array(weights)
+                weights = weights / weights.sum()  # 正規化
+
+                # 各サンプルのスコア計算: 閾値超過 × 重み の合計
+                scores = np.zeros(len(X))
+                for fi, idx in enumerate(feat_indices):
+                    exceeds = (X[:, idx] >= feat_thresholds[fi]).astype(float)
+                    scores += exceeds * weights[fi]
+
+                # 複数の閾値でprecision/recallを計算
+                ws_results = []
+                for score_th in np.arange(0.15, 0.85, 0.05):
+                    pred = scores >= score_th
+                    n_pred = int(pred.sum())
+                    if n_pred < 3:
+                        continue
+                    tp = int((pred & (labels == 1)).sum())
+                    fp = n_pred - tp
+                    prec = tp / n_pred if n_pred > 0 else 0
+                    recall = tp / n_pos if n_pos > 0 else 0
+                    lift = prec / base_rate if base_rate > 0 else 0
+                    ws_results.append({
+                        "score_threshold": round(float(score_th), 2),
+                        "n_hits": n_pred,
+                        "tp": tp, "fp": fp,
+                        "precision": round(prec, 4),
+                        "recall": round(recall, 4),
+                        "lift": round(lift, 2),
+                    })
+
+                # F1スコアでベストを選定
+                for r in ws_results:
+                    p, rc = r["precision"], r["recall"]
+                    r["f1"] = round(2 * p * rc / (p + rc), 4) if (p + rc) > 0 else 0
+
+                ws_results.sort(key=lambda x: x["f1"], reverse=True)
+
+                results["weighted_scoring"] = {
+                    "method": "加重スコアリング",
+                    "description": (
+                        "各特徴量のJ統計量に比例した重みを付与。"
+                        "閾値超過×重みの合計スコアで判定。"
+                        "AND条件より柔軟で、一部の条件未達でもスコアが高ければ候補になる。"
+                    ),
+                    "features": [
+                        {
+                            "name": s["feature"],
+                            "name_jp": s.get("feature_jp", s["feature"]),
+                            "weight": round(float(w), 3),
+                            "threshold": s["threshold"],
+                        }
+                        for s, w in zip(ws_features, weights)
+                    ],
+                    "best": ws_results[0] if ws_results else None,
+                    "all_results": ws_results[:10],
+                }
+                logger.info(
+                    f"加重スコアリング: ベスト precision={ws_results[0]['precision']:.1%}"
+                    f" (lift={ws_results[0]['lift']:.1f}x, recall={ws_results[0]['recall']:.0%})"
+                    if ws_results else "加重スコアリング: 結果なし"
+                )
+        except Exception as e:
+            logger.warning(f"加重スコアリング失敗: {e}")
+            results["weighted_scoring"] = {"method": "加重スコアリング", "error": str(e)}
+
+        # ================================================================
+        # 手法2: 浅い決定木
+        # ================================================================
+        try:
+            from sklearn.tree import DecisionTreeClassifier
+
+            # 上位特徴量のみ使用（過学習防止）
+            dt_signals = top_signals[:min(8, len(top_signals))]
+            if dt_signals and n_pos >= 5:
+                dt_indices = [WIDE_FEATURE_KEYS.index(s["feature"]) for s in dt_signals]
+                X_sub = X[:, dt_indices]
+                feat_names_sub = [s.get("feature_jp", s["feature"]) for s in dt_signals]
+
+                # 複数のmax_depthで試行
+                dt_results = []
+                for depth in (2, 3):
+                    clf = DecisionTreeClassifier(
+                        max_depth=depth,
+                        min_samples_leaf=max(3, int(n_pos * 0.1)),
+                        min_samples_split=max(6, int(n_pos * 0.2)),
+                        class_weight="balanced",
+                        random_state=42,
+                    )
+                    clf.fit(X_sub, labels)
+                    pred = clf.predict(X_sub).astype(bool)
+                    n_pred = int(pred.sum())
+                    if n_pred < 3:
+                        continue
+                    tp = int((pred & (labels == 1)).sum())
+                    fp = n_pred - tp
+                    prec = tp / n_pred if n_pred > 0 else 0
+                    recall = tp / n_pos if n_pos > 0 else 0
+                    lift = prec / base_rate if base_rate > 0 else 0
+                    f1 = 2 * prec * recall / (prec + recall) if (prec + recall) > 0 else 0
+
+                    # 決定木のルールを抽出
+                    tree = clf.tree_
+                    rules = []
+                    def _extract_rules(node, path):
+                        if tree.feature[node] == -2:  # leaf
+                            if tree.value[node][0][1] > tree.value[node][0][0]:
+                                rules.append(list(path))
+                            return
+                        f_name = feat_names_sub[tree.feature[node]]
+                        th = round(float(tree.threshold[node]), 4)
+                        _extract_rules(
+                            tree.children_left[node],
+                            path + [(f_name, "<=", th)],
+                        )
+                        _extract_rules(
+                            tree.children_right[node],
+                            path + [(f_name, ">", th)],
+                        )
+                    _extract_rules(0, [])
+
+                    dt_results.append({
+                        "max_depth": depth,
+                        "n_hits": n_pred,
+                        "tp": tp, "fp": fp,
+                        "precision": round(prec, 4),
+                        "recall": round(recall, 4),
+                        "lift": round(lift, 2),
+                        "f1": round(f1, 4),
+                        "rules": rules,
+                        "n_rules": len(rules),
+                    })
+
+                dt_results.sort(key=lambda x: x["f1"], reverse=True)
+                results["decision_tree"] = {
+                    "method": "浅い決定木",
+                    "description": (
+                        "2-3段の決定木で分岐条件を自動学習。"
+                        "閾値の共同最適化が可能で、OR条件も自然に表現できる。"
+                        "ただしサンプル少数時は過学習リスクあり。"
+                    ),
+                    "features_used": feat_names_sub,
+                    "best": dt_results[0] if dt_results else None,
+                    "all_results": dt_results,
+                }
+                logger.info(
+                    f"決定木: ベスト precision={dt_results[0]['precision']:.1%}"
+                    f" (depth={dt_results[0]['max_depth']}, lift={dt_results[0]['lift']:.1f}x)"
+                    if dt_results else "決定木: 結果なし"
+                )
+        except ImportError:
+            logger.warning("sklearn未インストール — 決定木スキップ")
+            results["decision_tree"] = {"method": "浅い決定木", "error": "sklearn未インストール"}
+        except Exception as e:
+            logger.warning(f"決定木失敗: {e}")
+            results["decision_tree"] = {"method": "浅い決定木", "error": str(e)}
+
+        # ================================================================
+        # 手法3: パーセンタイルランク
+        # ================================================================
+        try:
+            pr_signals = top_signals[:min(10, len(top_signals))]
+            if pr_signals:
+                pr_indices = [WIDE_FEATURE_KEYS.index(s["feature"]) for s in pr_signals]
+
+                # 各特徴量のパーセンタイルランクを計算（0-100）
+                X_percentile = np.zeros((len(X), len(pr_indices)))
+                for pi, idx in enumerate(pr_indices):
+                    col = X[:, idx]
+                    # ランク化: 0-100のパーセンタイル
+                    ranked = stats.rankdata(col, method="average")
+                    X_percentile[:, pi] = ranked / len(ranked) * 100
+
+                # 「上位 K パーセンタイルに入る特徴量が M 個以上」で判定
+                pr_results = []
+                for pct_th in (3, 5, 10, 15, 20):
+                    # 各サンプルについて上位pct_th%に入る特徴量の数を計算
+                    in_top = (X_percentile >= (100 - pct_th)).astype(int)
+                    n_in_top = in_top.sum(axis=1)
+
+                    for min_count in range(2, min(6, len(pr_signals) + 1)):
+                        pred = n_in_top >= min_count
+                        n_pred = int(pred.sum())
+                        if n_pred < 3:
+                            continue
+                        tp = int((pred & (labels == 1)).sum())
+                        fp = n_pred - tp
+                        prec = tp / n_pred if n_pred > 0 else 0
+                        recall = tp / n_pos if n_pos > 0 else 0
+                        lift = prec / base_rate if base_rate > 0 else 0
+                        f1 = 2 * prec * recall / (prec + recall) if (prec + recall) > 0 else 0
+                        pr_results.append({
+                            "percentile_threshold": pct_th,
+                            "min_features_in_top": min_count,
+                            "label": f"上位{pct_th}%が{min_count}個以上",
+                            "n_hits": n_pred,
+                            "tp": tp, "fp": fp,
+                            "precision": round(prec, 4),
+                            "recall": round(recall, 4),
+                            "lift": round(lift, 2),
+                            "f1": round(f1, 4),
+                        })
+
+                pr_results.sort(key=lambda x: x["f1"], reverse=True)
+                results["percentile_rank"] = {
+                    "method": "パーセンタイルランク",
+                    "description": (
+                        "特徴量の絶対値ではなく全銘柄中の順位（上位何%）で判定。"
+                        "市場環境の変化に強い。"
+                        "例: 上位5%に入る特徴量が3個以上 → 候補。"
+                    ),
+                    "features": [
+                        {
+                            "name": s["feature"],
+                            "name_jp": s.get("feature_jp", s["feature"]),
+                        }
+                        for s in pr_signals
+                    ],
+                    "best": pr_results[0] if pr_results else None,
+                    "all_results": pr_results[:15],
+                }
+                logger.info(
+                    f"パーセンタイル: ベスト precision={pr_results[0]['precision']:.1%}"
+                    f" ({pr_results[0]['label']}, lift={pr_results[0]['lift']:.1f}x)"
+                    if pr_results else "パーセンタイル: 結果なし"
+                )
+        except Exception as e:
+            logger.warning(f"パーセンタイルランク失敗: {e}")
+            results["percentile_rank"] = {"method": "パーセンタイルランク", "error": str(e)}
+
+        return results
 
     # ------------------------------------------------------------------
     # Step 4: 追加スター株発見
@@ -551,9 +1115,11 @@ class OnsetDiscoverer:
         topix_ret_series: pd.Series,
         listed_stocks: pd.DataFrame,
         close_col: str,
+        market_caps: dict[str, float] | None = None,
     ) -> list[dict]:
         """ベストコンボで全銘柄をスキャンし追加スター株を発見"""
         cfg = self.config
+        min_cap_yen = cfg.scan_min_market_cap * 1e8 if cfg.scan_min_market_cap > 0 else 0
         best_combos = common_features.get("best_combos", [])
         if not best_combos:
             logger.info("ベストコンボなし → 追加スター株発見スキップ")
@@ -586,6 +1152,11 @@ class OnsetDiscoverer:
         thresholds = best_combo["thresholds"]
 
         for code in non_star_codes:
+            # 時価総額フィルター（cap=0は取得失敗→追加スター株では除外）
+            if market_caps and min_cap_yen > 0:
+                cap = market_caps.get(code, 0)
+                if cap < min_cap_yen:
+                    continue
             grp = all_prices[all_prices["code"] == code].sort_values("date")
             if len(grp) < 20:
                 continue
@@ -643,12 +1214,13 @@ class OnsetDiscoverer:
         all_prices: pd.DataFrame,
         close_col: str,
         progress_callback=None,
+        topix: pd.DataFrame | None = None,
     ) -> dict:
         """全スター株の初動日を10シグナル方式で特定
 
         Returns
         -------
-        dict: code -> {"onset_date", "signals", "score", "fwd_return_60d"}
+        dict: code -> {"onset_date", "signals", "score", "fwd_return_60d", ...}
         """
         results = {}
         for i, star in enumerate(all_stars):
@@ -661,7 +1233,7 @@ class OnsetDiscoverer:
                 }
                 continue
 
-            result = self._detect_single_onset(grp, close_col)
+            result = self._detect_single_onset(grp, close_col, topix=topix)
             results[code] = result
 
             if progress_callback and (i + 1) % 5 == 0:
@@ -673,11 +1245,15 @@ class OnsetDiscoverer:
         )
         return results
 
-    def _detect_single_onset(self, grp: pd.DataFrame, close_col: str) -> dict:
+    def _detect_single_onset(
+        self, grp: pd.DataFrame, close_col: str,
+        topix: pd.DataFrame | None = None,
+    ) -> dict:
         """1銘柄の初動日を検出"""
         empty = {
             "onset_date": "", "signals": [], "score": 0,
-            "fwd_return_60d": 0.0, "max_return": 0.0, "max_drawdown": 0.0,
+            "fwd_return_60d": None, "max_return": None, "max_drawdown": None,
+            "excess_return": None, "sharpe_ratio": None,
         }
         if len(grp) < 60:
             return empty
@@ -719,8 +1295,10 @@ class OnsetDiscoverer:
                     # 初動後〜分析期間終端までの最大リターン・最大ドローダウン計算
                     # （60日ではなく、データが続く限り全期間を対象にする）
                     window = close_vals[cand_idx:]
-                    max_price = float(np.max(window))
+                    max_price = float(np.nanmax(window))
                     max_ret = max_price / price_at_onset - 1
+                    if not np.isfinite(max_ret):
+                        max_ret = 0.0
                     peak = price_at_onset
                     max_dd = 0.0
                     for p in window:
@@ -729,6 +1307,57 @@ class OnsetDiscoverer:
                         dd = (p - peak) / peak
                         if dd < max_dd:
                             max_dd = dd
+
+                    # --- ベンチマーク超過リターン・シャープレシオ ---
+                    excess_ret = None
+                    sharpe = None
+                    if topix is not None and len(topix) > 0:
+                        try:
+                            topix_close_col = (
+                                "close" if "close" in topix.columns
+                                else topix.columns[-1]
+                            )
+                            topix_s = topix.copy()
+                            topix_s["date"] = pd.to_datetime(topix_s["date"])
+                            topix_s = topix_s.sort_values("date").set_index("date")
+                            topix_c = topix_s[topix_close_col].astype(float)
+
+                            onset_ts = pd.Timestamp(cand_date)
+                            stock_dates = pd.to_datetime(grp["date"].values)
+                            end_ts = stock_dates.max()
+
+                            # TOPIX の onset→end 区間
+                            topix_window = topix_c.loc[
+                                (topix_c.index >= onset_ts)
+                                & (topix_c.index <= end_ts)
+                            ]
+                            if len(topix_window) >= 2 and topix_window.iloc[0] > 0:
+                                topix_total_ret = (
+                                    topix_window.max() / topix_window.iloc[0] - 1
+                                )
+                                excess_ret = round(max_ret - topix_total_ret, 4)
+
+                            # シャープレシオ: 日次超過リターンから年率換算
+                            stock_window = pd.Series(
+                                close_vals[cand_idx:],
+                                index=stock_dates[cand_idx:],
+                            )
+                            stock_daily = stock_window.pct_change().dropna()
+                            topix_daily = topix_c.pct_change().dropna()
+                            common_idx = stock_daily.index.intersection(topix_daily.index)
+                            if len(common_idx) >= 5:
+                                excess_daily = (
+                                    stock_daily.loc[common_idx]
+                                    - topix_daily.loc[common_idx]
+                                )
+                                mean_ex = excess_daily.mean()
+                                std_ex = excess_daily.std()
+                                if std_ex > 0:
+                                    sharpe = round(
+                                        mean_ex / std_ex * np.sqrt(252), 2
+                                    )
+                        except Exception:
+                            pass  # TOPIX計算失敗時はNoneのまま
 
                     # 各シグナルの定量値を計算
                     sig_qty = {}
@@ -786,6 +1415,8 @@ class OnsetDiscoverer:
                         "fwd_return_60d": round(fwd_return, 4),
                         "max_return": round(max_ret, 4),     # 初動後〜期間末までのピーク
                         "max_drawdown": round(max_dd, 4),    # 同期間の最大DD
+                        "excess_return": excess_ret,          # TOPIX対比超過リターン
+                        "sharpe_ratio": sharpe,               # 年率シャープレシオ
                         # 旧フィールド名との後方互換（既存JSONロード時用）
                         "max_return_60d": round(max_ret, 4),
                         "max_drawdown_60d": round(max_dd, 4),
@@ -904,16 +1535,20 @@ class OnsetDiscoverer:
         top_signals = [s for s in signals if s.get("verdict") in ("strong", "weak_useful")][:10]
 
         # 初動リターン統計を計算（max_return（新）> max_return_60d（旧）を優先）
-        max_returns = [
-            od.get("max_return") or od.get("max_return_60d") or od.get("fwd_return_60d")
-            for od in onset_dates.values()
-            if od.get("onset_date") and (
-                od.get("max_return") is not None or
-                od.get("max_return_60d") is not None or
-                od.get("fwd_return_60d") is not None
-            )
-        ]
-        max_returns = [r for r in max_returns if r is not None]
+        def _pick_return(od):
+            for key in ("max_return", "max_return_60d", "fwd_return_60d"):
+                v = od.get(key)
+                if v is not None:
+                    return v
+            return None
+
+        max_returns = []
+        for od in onset_dates.values():
+            if not od.get("onset_date"):
+                continue
+            r = _pick_return(od)
+            if r is not None and np.isfinite(r):
+                max_returns.append(r)
         fwd_ret_stats = {}
         if max_returns:
             import statistics
@@ -1158,6 +1793,157 @@ class OnsetDiscoverer:
         )
         return results
 
+    def _compute_universe_precision_alt(
+        self,
+        all_prices: pd.DataFrame,
+        star_codes: set,
+        alt_methods: dict,
+        signals: list,
+        close_col: str,
+        topix_ret_series,
+        progress_callback=None,
+    ) -> dict:
+        """代替手法の母集団精度を計算。
+
+        全銘柄×複数時点で特徴量を計算し、各手法の条件を適用して精度を測定。
+        """
+        all_codes = list(str(c) for c in all_prices["code"].unique())
+        n_total = len(all_codes)
+        if n_total == 0:
+            return {}
+
+        top_signals = [s for s in signals if s.get("verdict") in ("strong", "weak_useful")][:10]
+        if not top_signals:
+            top_signals = signals[:10]
+
+        # 手法1準備: 加重スコアリング
+        ws_info = alt_methods.get("weighted_scoring", {})
+        ws_best = ws_info.get("best")
+        ws_features = ws_info.get("features", [])
+        ws_weights = np.array([f["weight"] for f in ws_features]) if ws_features else np.array([])
+        ws_thresholds = [f["threshold"] for f in ws_features]
+        ws_feat_names = [f["name"] for f in ws_features]
+        ws_score_th = ws_best["score_threshold"] if ws_best else 0
+        ws_hit_codes = set()
+
+        # 手法3準備: パーセンタイルランク — コード→特徴量値を収集
+        pr_info = alt_methods.get("percentile_rank", {})
+        pr_best = pr_info.get("best")
+        pr_features = pr_info.get("features", [])
+        pr_feat_names = [f["name"] for f in pr_features]
+        pr_pct_th = pr_best["percentile_threshold"] if pr_best else 10
+        pr_min_count = pr_best["min_features_in_top"] if pr_best else 3
+        # パーセンタイルは全データ収集後に計算するため、コード→特徴量値を蓄積
+        code_pr_feats = {}  # code -> [feat_values...]
+
+        STRIDE = 20
+        LOOKBACK = 60
+
+        for ci_count, code in enumerate(all_codes):
+            if progress_callback and ci_count % 500 == 0:
+                progress_callback(
+                    f"代替手法 母集団計算中... ({ci_count}/{n_total}銘柄)"
+                )
+
+            grp = all_prices[all_prices["code"] == code].sort_values("date").reset_index(drop=True)
+            n = len(grp)
+            if n < 25:
+                continue
+
+            best_ws_score = 0.0
+            best_pr_vals = None  # 最大の特徴量値セットを保持
+
+            for t in range(20, n, STRIDE):
+                window = grp.iloc[max(0, t - LOOKBACK): t + 1].reset_index(drop=True)
+                feat = self._compute_wide_features(window, close_col, topix_ret_series)
+                if feat is None:
+                    continue
+
+                # 加重スコアリング判定
+                if ws_features and code not in ws_hit_codes:
+                    score = 0.0
+                    for fi, fn in enumerate(ws_feat_names):
+                        if feat.get(fn, 0.0) >= ws_thresholds[fi]:
+                            score += ws_weights[fi]
+                    if score > best_ws_score:
+                        best_ws_score = score
+
+                # パーセンタイル: 各特徴量の最大値を保持
+                if pr_features:
+                    vals = [feat.get(fn, 0.0) for fn in pr_feat_names]
+                    if best_pr_vals is None:
+                        best_pr_vals = vals
+                    else:
+                        best_pr_vals = [max(old, new) for old, new in zip(best_pr_vals, vals)]
+
+            # 加重スコアリング: 最大スコアが閾値以上か
+            if ws_features and best_ws_score >= ws_score_th:
+                ws_hit_codes.add(code)
+
+            # パーセンタイル: 最大値を保存
+            if pr_features and best_pr_vals is not None:
+                code_pr_feats[code] = best_pr_vals
+
+        results = {}
+
+        # 加重スコアリング母集団精度
+        if ws_features and ws_best:
+            n_hits = len(ws_hit_codes)
+            n_star_hits = len(ws_hit_codes & star_codes)
+            u_prec = n_star_hits / n_hits if n_hits > 0 else 0
+            results["weighted_scoring"] = {
+                "universe_n_total": n_total,
+                "universe_n_hits": n_hits,
+                "universe_n_stars": n_star_hits,
+                "universe_precision": round(u_prec, 4),
+            }
+            logger.info(
+                f"加重スコアリング母集団: {n_hits}件合致, "
+                f"{n_star_hits}件スター株, 精度={u_prec:.1%}"
+            )
+
+        # パーセンタイルランク母集団精度
+        if pr_features and pr_best and code_pr_feats:
+            # 全銘柄の最大特徴量値からパーセンタイルを計算
+            all_vals = np.array(list(code_pr_feats.values()))  # (n_codes, n_features)
+            all_code_list = list(code_pr_feats.keys())
+            # 各特徴量のランクを計算
+            n_samples = len(all_vals)
+            in_top = np.zeros(n_samples, dtype=int)
+            for fi in range(all_vals.shape[1]):
+                ranked = stats.rankdata(all_vals[:, fi], method="average")
+                percentile = ranked / n_samples * 100
+                in_top += (percentile >= (100 - pr_pct_th)).astype(int)
+
+            pr_hit_codes = set()
+            for i, code in enumerate(all_code_list):
+                if in_top[i] >= pr_min_count:
+                    pr_hit_codes.add(code)
+
+            n_hits = len(pr_hit_codes)
+            n_star_hits = len(pr_hit_codes & star_codes)
+            u_prec = n_star_hits / n_hits if n_hits > 0 else 0
+            results["percentile_rank"] = {
+                "universe_n_total": n_total,
+                "universe_n_hits": n_hits,
+                "universe_n_stars": n_star_hits,
+                "universe_precision": round(u_prec, 4),
+            }
+            logger.info(
+                f"パーセンタイル母集団: {n_hits}件合致, "
+                f"{n_star_hits}件スター株, 精度={u_prec:.1%}"
+            )
+
+        # 決定木は訓練データ内のみの精度（母集団精度は計算困難なので訓練結果を表示）
+        dt_info = alt_methods.get("decision_tree", {})
+        if dt_info.get("best"):
+            results["decision_tree"] = {
+                "note": "決定木は訓練データ内精度のみ（母集団検証はAND条件に変換後に実施可能）",
+                "train_precision": dt_info["best"]["precision"],
+            }
+
+        return results
+
     # ------------------------------------------------------------------
     # 26特徴量計算（star_stock_analyzer.py準拠）
     # ------------------------------------------------------------------
@@ -1195,10 +1981,15 @@ class OnsetDiscoverer:
             return out
 
         vol_ma5 = _ma(volume, 5)
+        vol_ma10 = _ma(volume, 10)
         vol_ma20 = _ma(volume, 20)
+        vol_ma40 = _ma(volume, 40) if n >= 40 else _ma(volume, max(n, 1))
         vol_ma60 = _ma(volume, 60) if n >= 60 else _ma(volume, max(n, 1))
         close_ma5 = _ma(close, 5)
         close_ma20 = _ma(close, 20)
+        close_ma25 = _ma(close, 25) if n >= 25 else _ma(close, max(n, 1))
+        close_ma75 = _ma(close, 75) if n >= 75 else _ma(close, max(n, 1))
+        close_ma200 = _ma(close, 200) if n >= 200 else _ma(close, max(n, 1))
 
         feat = {}
 
@@ -1256,6 +2047,42 @@ class OnsetDiscoverer:
         else:
             feat["vpin_5d"] = 0.0
 
+        # A追加: マルチウィンドウバリアント
+        feat["vol_ratio_5d_40d"] = float(vol_ma5[-1] / vol_ma40[-1]) if vol_ma40[-1] > 0 else 1.0
+        feat["vol_ratio_10d_20d"] = float(vol_ma10[-1] / vol_ma20[-1]) if vol_ma20[-1] > 0 else 1.0
+        feat["vol_ratio_10d_40d"] = float(vol_ma10[-1] / vol_ma40[-1]) if vol_ma40[-1] > 0 else 1.0
+
+        window_5 = min(5, n)
+        feat["vol_surge_count_5d"] = int(np.sum(volume[-window_5:] > vol_ma20[-window_5:] * 2.0))
+        window_20 = min(20, n)
+        feat["vol_surge_count_20d"] = int(np.sum(volume[-window_20:] > vol_ma20[-window_20:] * 2.0))
+
+        # up_volume_ratio 5d / 20d
+        for _w, _key in [(5, "up_volume_ratio_5d"), (20, "up_volume_ratio_20d")]:
+            if len(ret) >= _w:
+                _vol_w = volume[-_w:]
+                _ret_w = ret[-(min(_w, len(ret))):]
+                _rl = min(len(_vol_w) - 1, len(_ret_w))
+                if _rl > 0:
+                    _up_m = _ret_w[-_rl:] > 0
+                    _up_v = _vol_w[-_rl:][_up_m].sum()
+                    _total_v = _vol_w[-_rl:].sum()
+                    feat[_key] = float(_up_v / _total_v) if _total_v > 0 else 0.5
+                else:
+                    feat[_key] = 0.5
+            else:
+                feat[_key] = 0.5
+
+        # vpin_10d
+        if len(ret) >= 20:
+            w10v = min(10, len(bv))
+            bv_sum10 = bv[-w10v:].sum()
+            sv_sum10 = sv_[-w10v:].sum()
+            tv_sum10 = tv[-w10v:].sum()
+            feat["vpin_10d"] = float(abs(bv_sum10 - sv_sum10) / tv_sum10) if tv_sum10 > 0 else 0.0
+        else:
+            feat["vpin_10d"] = 0.0
+
         # B: 価格/リターン
         feat["ret_5d"] = float(close[-1] / close[-6] - 1) if n >= 6 and close[-6] > 0 else 0.0
         feat["ret_20d"] = float(close[-1] / close[-21] - 1) if n >= 21 and close[-21] > 0 else (
@@ -1290,6 +2117,47 @@ class OnsetDiscoverer:
         high_max = np.max(high[-w20p:])
         rng = high_max - low_min
         feat["range_position_20d"] = float((close[-1] - low_min) / rng) if rng > 0 else 0.5
+
+        # B追加: マルチウィンドウバリアント
+        feat["ret_3d"] = float(close[-1] / close[-4] - 1) if n >= 4 and close[-4] > 0 else 0.0
+        feat["ret_10d"] = float(close[-1] / close[-11] - 1) if n >= 11 and close[-11] > 0 else 0.0
+        feat["ret_40d"] = float(close[-1] / close[-41] - 1) if n >= 41 and close[-41] > 0 else (
+            float(close[-1] / close[0] - 1) if close[0] > 0 else 0.0
+        )
+
+        w5r = min(5, len(ret))
+        feat["up_days_ratio_5d"] = float((ret[-w5r:] > 0).mean()) if w5r > 0 else 0.5
+        w20r = min(20, len(ret))
+        feat["up_days_ratio_20d"] = float((ret[-w20r:] > 0).mean()) if w20r > 0 else 0.5
+
+        if n >= 2:
+            w10g = min(10, n - 1)
+            gaps10 = open_[-w10g:] / close[-w10g - 1:-1] - 1
+            gaps10 = np.where(np.isfinite(gaps10), gaps10, 0.0)
+            feat["max_gap_up_10d"] = float(np.max(gaps10)) if len(gaps10) > 0 else 0.0
+        else:
+            feat["max_gap_up_10d"] = 0.0
+
+        for _wl, _key_l in [(5, "higher_lows_slope_5d"), (20, "higher_lows_slope_20d")]:
+            _wl_act = min(_wl, n)
+            if _wl_act >= 5:
+                _lows_w = low[-_wl_act:]
+                _x = np.arange(len(_lows_w), dtype=float)
+                try:
+                    _slope = stats.linregress(_x, _lows_w).slope
+                    _mean_c = np.mean(close[-_wl_act:])
+                    feat[_key_l] = float(_slope / _mean_c) if _mean_c > 0 else 0.0
+                except Exception:
+                    feat[_key_l] = 0.0
+            else:
+                feat[_key_l] = 0.0
+
+        for _wr, _key_r in [(10, "range_position_10d"), (40, "range_position_40d")]:
+            _wr_act = min(_wr, n)
+            _lo = np.min(low[-_wr_act:])
+            _hi = np.max(high[-_wr_act:])
+            _rng = _hi - _lo
+            feat[_key_r] = float((close[-1] - _lo) / _rng) if _rng > 0 else 0.5
 
         # C: ボラティリティ・レジーム
         tr_vals = np.maximum(
@@ -1337,6 +2205,63 @@ class OnsetDiscoverer:
         else:
             feat["realized_vol_5d_vs_20d"] = 1.0
 
+        # C追加: マルチウィンドウバリアント
+        if len(tr_vals) >= 40:
+            atr5 = np.mean(tr_vals[-5:])
+            atr40 = np.mean(tr_vals[-40:])
+            feat["atr_ratio_5d_40d"] = float(atr5 / atr40) if atr40 > 0 else 1.0
+        else:
+            feat["atr_ratio_5d_40d"] = 1.0
+
+        if len(tr_vals) >= 20:
+            atr10 = np.mean(tr_vals[-10:])
+            atr20_ = np.mean(tr_vals[-20:])
+            feat["atr_ratio_10d_20d"] = float(atr10 / atr20_) if atr20_ > 0 else 1.0
+        else:
+            feat["atr_ratio_10d_20d"] = 1.0
+
+        if n >= 20:
+            bb_std_ = pd.Series(close).rolling(20, min_periods=10).std().values
+            bb_ma_ = _ma(close, 20)
+            with np.errstate(divide="ignore", invalid="ignore"):
+                bb_width_ = np.where(bb_ma_ > 0, 2 * bb_std_ / bb_ma_, 0.0)
+            bb_width_ = np.where(np.isfinite(bb_width_), bb_width_, 0.0)
+            valid_bw_ = bb_width_[~np.isnan(bb_width_)]
+            if len(valid_bw_) >= 10:
+                current_bw_ = valid_bw_[-1]
+                lookback_120 = min(120, len(valid_bw_))
+                feat["bb_width_pctile_120d"] = float(
+                    np.searchsorted(np.sort(valid_bw_[-lookback_120:]), current_bw_) / lookback_120
+                )
+            else:
+                feat["bb_width_pctile_120d"] = 0.5
+        else:
+            feat["bb_width_pctile_120d"] = 0.5
+
+        if n >= 20:
+            intra_ = (high - low) / np.where(close > 0, close, 1.0)
+            intra_ = np.where(np.isfinite(intra_), intra_, 0.0)
+            mean_intra_20_ = np.mean(intra_[-20:])
+            feat["intraday_range_ratio_10d"] = float(
+                np.mean(intra_[-10:]) / mean_intra_20_
+            ) if mean_intra_20_ > 0 else 1.0
+        else:
+            feat["intraday_range_ratio_10d"] = 1.0
+
+        if len(ret) >= 40:
+            rv5_ = np.std(ret[-5:])
+            rv40 = np.std(ret[-40:])
+            feat["realized_vol_5d_vs_40d"] = float(rv5_ / rv40) if rv40 > 0 else 1.0
+        else:
+            feat["realized_vol_5d_vs_40d"] = 1.0
+
+        if len(ret) >= 20:
+            rv10_ = np.std(ret[-10:])
+            rv20_ = np.std(ret[-20:])
+            feat["realized_vol_10d_vs_20d"] = float(rv10_ / rv20_) if rv20_ > 0 else 1.0
+        else:
+            feat["realized_vol_10d_vs_20d"] = 1.0
+
         # D: トレンド/OBV
         signed_vol = np.sign(ret) * volume[1:len(ret) + 1]
         obv = np.cumsum(signed_vol)
@@ -1361,12 +2286,12 @@ class OnsetDiscoverer:
         else:
             feat["obv_divergence"] = 0.0
 
-        feat["ma5_ma20_gap"] = float(
-            (close_ma5[-1] - close_ma20[-1]) / close_ma20[-1]
-        ) if close_ma20[-1] > 0 else 0.0
-        feat["price_vs_ma20_pct"] = float(
-            close[-1] / close_ma20[-1] - 1
-        ) if close_ma20[-1] > 0 else 0.0
+        feat["ma5_ma25_gap"] = float(
+            (close_ma5[-1] - close_ma25[-1]) / close_ma25[-1]
+        ) if close_ma25[-1] > 0 else 0.0
+        feat["price_vs_ma25_pct"] = float(
+            close[-1] / close_ma25[-1] - 1
+        ) if close_ma25[-1] > 0 else 0.0
 
         consec = 0
         for i in range(len(ret) - 1, -1, -1):
@@ -1375,6 +2300,50 @@ class OnsetDiscoverer:
             else:
                 break
         feat["consecutive_up_days"] = min(consec, 20)
+
+        # D追加: マルチウィンドウバリアント
+        # obv_slope_5d / obv_slope_20d
+        for _wo, _key_o in [(5, "obv_slope_5d"), (20, "obv_slope_20d")]:
+            _wo_act = min(_wo, len(obv))
+            if _wo_act >= 5:
+                _x = np.arange(_wo_act, dtype=float)
+                try:
+                    _slope = stats.linregress(_x, obv[-_wo_act:]).slope
+                    _avg_vol = np.mean(volume[-_wo_act:])
+                    feat[_key_o] = float(_slope / _avg_vol) if _avg_vol > 0 else 0.0
+                except Exception:
+                    feat[_key_o] = 0.0
+            else:
+                feat[_key_o] = 0.0
+
+        # obv_divergence_40d
+        if len(obv) >= 40:
+            try:
+                corr40, _ = stats.spearmanr(close[-40:], obv[-40:])
+                feat["obv_divergence_40d"] = float(corr40) if np.isfinite(corr40) else 0.0
+            except Exception:
+                feat["obv_divergence_40d"] = 0.0
+        else:
+            feat["obv_divergence_40d"] = 0.0
+
+        # MA gap variants (MA=5,25,75,200)
+        feat["ma25_ma75_gap"] = float(
+            (close_ma25[-1] - close_ma75[-1]) / close_ma75[-1]
+        ) if n >= 75 and close_ma75[-1] > 0 else 0.0
+        feat["ma5_ma75_gap"] = float(
+            (close_ma5[-1] - close_ma75[-1]) / close_ma75[-1]
+        ) if n >= 75 and close_ma75[-1] > 0 else 0.0
+
+        # price_vs_ma variants
+        feat["price_vs_ma5_pct"] = float(
+            close[-1] / close_ma5[-1] - 1
+        ) if close_ma5[-1] > 0 else 0.0
+        feat["price_vs_ma75_pct"] = float(
+            close[-1] / close_ma75[-1] - 1
+        ) if n >= 75 and close_ma75[-1] > 0 else 0.0
+        feat["price_vs_ma200_pct"] = float(
+            close[-1] / close_ma200[-1] - 1
+        ) if n >= 200 and close_ma200[-1] > 0 else 0.0
 
         # E: クロスセクショナル
         stock_ret_10d = float(close[-1] / close[-min(11, n)] - 1) if close[-min(11, n)] > 0 else 0.0
@@ -1444,6 +2413,41 @@ class OnsetDiscoverer:
         else:
             feat["vol_vs_market_vol"] = stock_vol_ratio
 
+        # E追加: マルチウィンドウバリアント
+        stock_ret_5d = float(close[-1] / close[-min(6, n)] - 1) if close[-min(6, n)] > 0 else 0.0
+        stock_ret_20d = float(close[-1] / close[-min(21, n)] - 1) if close[-min(21, n)] > 0 else 0.0
+        if sector_ret_10d is not None:
+            feat["sector_rel_ret_5d"] = stock_ret_5d - sector_ret_10d
+            feat["sector_rel_ret_20d"] = stock_ret_20d - sector_ret_10d
+        else:
+            feat["sector_rel_ret_5d"] = stock_ret_5d
+            feat["sector_rel_ret_20d"] = stock_ret_20d
+
+        # topix_beta_40d
+        if topix_ret_series is not None and len(ret) >= 40 and "date" in df.columns:
+            try:
+                dates_ts = pd.to_datetime(df["date"].values)
+                stock_s_ = pd.Series(ret, index=dates_ts[1:])
+                topix_idx_ = pd.to_datetime(topix_ret_series.index)
+                topix_aligned_ = pd.Series(topix_ret_series.values, index=topix_idx_)
+                common_ = stock_s_.index.intersection(topix_aligned_.index)
+                if len(common_) >= 30:
+                    sr_ = stock_s_.loc[common_].values[-40:]
+                    tr_ = topix_aligned_.loc[common_].values[-40:]
+                    if len(sr_) >= 20 and len(tr_) >= 20:
+                        cov_ = np.cov(sr_, tr_)
+                        feat["topix_beta_40d"] = float(
+                            cov_[0, 1] / cov_[1, 1]
+                        ) if cov_[1, 1] > 0 else 1.0
+                    else:
+                        feat["topix_beta_40d"] = 1.0
+                else:
+                    feat["topix_beta_40d"] = 1.0
+            except Exception:
+                feat["topix_beta_40d"] = 1.0
+        else:
+            feat["topix_beta_40d"] = 1.0
+
         # F: 信用取引 (8特徴量)
         has_margin = "margin_ratio" in df.columns and df["margin_ratio"].notna().any()
         feat["has_margin_data"] = 1.0 if has_margin else 0.0
@@ -1490,11 +2494,17 @@ class OnsetDiscoverer:
                 close_20 = close[-20:]
                 valid_mask = np.isfinite(mr_vals) & np.isfinite(close_20)
                 if valid_mask.sum() >= 10:
-                    try:
-                        corr, _ = stats.spearmanr(close_20[valid_mask], mr_vals[valid_mask])
-                        feat["margin_divergence"] = float(corr) if np.isfinite(corr) else 0.0
-                    except Exception:
+                    c_arr = close_20[valid_mask]
+                    m_arr = mr_vals[valid_mask]
+                    # 定数配列はspearmanrが未定義 → スキップ
+                    if np.ptp(c_arr) == 0 or np.ptp(m_arr) == 0:
                         feat["margin_divergence"] = 0.0
+                    else:
+                        try:
+                            corr, _ = stats.spearmanr(c_arr, m_arr)
+                            feat["margin_divergence"] = float(corr) if np.isfinite(corr) else 0.0
+                        except Exception:
+                            feat["margin_divergence"] = 0.0
                 else:
                     feat["margin_divergence"] = 0.0
             else:
@@ -1563,6 +2573,32 @@ class OnsetDiscoverer:
         else:
             feat["ma_deviation_75d"] = 0.0
 
+        # G追加: マルチウィンドウバリアント
+        # CCI (10日)
+        if n >= 10:
+            tp10 = (high[-10:] + low[-10:] + close[-10:]) / 3.0
+            tp10_mean = np.mean(tp10)
+            tp10_mean_dev = np.mean(np.abs(tp10 - tp10_mean))
+            feat["cci_10d"] = float(
+                (tp10[-1] - tp10_mean) / (0.015 * tp10_mean_dev)
+            ) if tp10_mean_dev > 0 else 0.0
+        else:
+            feat["cci_10d"] = 0.0
+
+        # MA乖離率 (5日)
+        if n >= 5:
+            ma5_val = np.mean(close[-5:])
+            feat["ma_deviation_5d"] = float(close[-1] / ma5_val - 1) if ma5_val > 0 else 0.0
+        else:
+            feat["ma_deviation_5d"] = 0.0
+
+        # MA乖離率 (200日)
+        if n >= 200:
+            ma200_val = np.mean(close[-200:])
+            feat["ma_deviation_200d"] = float(close[-1] / ma200_val - 1) if ma200_val > 0 else 0.0
+        else:
+            feat["ma_deviation_200d"] = 0.0
+
         # H: 流動性 (3特徴量)
         # Amihud非流動性 (20日): mean(|ret| / 売買代金) * 10^6
         if len(ret) >= 20:
@@ -1593,6 +2629,39 @@ class OnsetDiscoverer:
         else:
             feat["spread_proxy_5d"] = 0.0
 
+        # H追加: マルチウィンドウバリアント
+        # Amihud非流動性 (10日)
+        if len(ret) >= 10:
+            turnover_10_ = close[-10:] * volume[-10:]
+            abs_ret_10_ = np.abs(ret[-10:])
+            turnover_valid_10 = turnover_10_[:len(abs_ret_10_)]
+            with np.errstate(divide="ignore", invalid="ignore"):
+                illiq_10 = np.where(turnover_valid_10 > 0, abs_ret_10_ / turnover_valid_10, 0.0)
+            illiq_10 = np.where(np.isfinite(illiq_10), illiq_10, 0.0)
+            feat["amihud_illiquidity_10d"] = float(np.mean(illiq_10) * 1e6)
+        else:
+            feat["amihud_illiquidity_10d"] = 0.0
+
+        # 売買代金変化 (5日/20日, 5日/10日)
+        if n >= 20:
+            turnover_ = close * volume
+            to_ma5_ = np.mean(turnover_[-5:])
+            to_ma10_ = np.mean(turnover_[-10:])
+            to_ma20_ = np.mean(turnover_[-20:])
+            feat["turnover_change_5d_20d"] = float(to_ma5_ / to_ma20_) if to_ma20_ > 0 else 1.0
+            feat["turnover_change_5d_10d"] = float(to_ma5_ / to_ma10_) if to_ma10_ > 0 else 1.0
+        else:
+            feat["turnover_change_5d_20d"] = 1.0
+            feat["turnover_change_5d_10d"] = 1.0
+
+        # スプレッド代理 (10日)
+        if n >= 10:
+            hl_spread_10 = (high[-10:] - low[-10:]) / np.where(close[-10:] > 0, close[-10:], 1.0)
+            hl_spread_10 = np.where(np.isfinite(hl_spread_10), hl_spread_10, 0.0)
+            feat["spread_proxy_10d"] = float(np.mean(hl_spread_10))
+        else:
+            feat["spread_proxy_10d"] = 0.0
+
         # I: 価格パターン (3特徴量)
         # ギャップ頻度 (20日): |gap| > 0.5% の日数比率
         if n >= 21:
@@ -1613,6 +2682,28 @@ class OnsetDiscoverer:
         lookback_52w = min(252, n)
         high_52w = np.max(high[-lookback_52w:])
         feat["proximity_52w_high"] = float(close[-1] / high_52w) if high_52w > 0 else 0.0
+
+        # I追加: マルチウィンドウバリアント
+        # ギャップ頻度 (10日)
+        if n >= 11:
+            gaps_10_ = open_[-10:] / np.where(close[-11:-1] > 0, close[-11:-1], 1.0) - 1
+            gaps_10_ = np.where(np.isfinite(gaps_10_), gaps_10_, 0.0)
+            feat["gap_frequency_10d"] = float(np.mean(np.abs(gaps_10_) > 0.005))
+        else:
+            feat["gap_frequency_10d"] = 0.0
+
+        # 高値更新比率 (5日, 20日)
+        if n >= 6:
+            hh5 = high[-5:] > high[-6:-1]
+            feat["higher_highs_ratio_5d"] = float(np.mean(hh5))
+        else:
+            feat["higher_highs_ratio_5d"] = 0.5
+
+        if n >= 21:
+            hh20 = high[-20:] > high[-21:-1]
+            feat["higher_highs_ratio_20d"] = float(np.mean(hh20))
+        else:
+            feat["higher_highs_ratio_20d"] = 0.5
 
         # NaN/Inf安全化
         for k in feat:

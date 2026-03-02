@@ -21,6 +21,7 @@ from data.jquants_provider import JQuantsProvider
 from core.styles import apply_reuters_style
 from core.onset_detector.discoverer import (
     WIDE_FEATURE_DESCRIPTIONS_JP,
+    WIDE_FEATURE_LABELS_JP,
     ONSET_SIGNAL_NAMES_JP,
 )
 
@@ -42,6 +43,15 @@ st.set_page_config(page_title="Onset検出", page_icon="R", layout="wide")
 apply_reuters_style()
 
 RESULTS_DIR = Path("storage/onset_results")
+
+
+def _pick_max_return(od: dict):
+    """max_return系の値を優先順で取得（orは0.0をfalsyとして扱うため使わない）"""
+    for key in ("max_return", "max_return_60d", "fwd_return_60d"):
+        v = od.get(key)
+        if v is not None:
+            return v
+    return None
 
 
 def _save_results(result: dict) -> Path:
@@ -122,10 +132,12 @@ def _run_phase1_thread(progress_dict: dict, provider, config):
 # ---------------------------------------------------------------------------
 def main():
     st.markdown(
-        '<p style="font-size:18px;font-weight:700;margin-bottom:2px;">'
-        'Onset検出 Phase 1 '
-        '<span style="font-size:12px;color:#888;font-weight:400;">'
-        '— 共通点発見 + 追加スター株 + 初動特定</span></p>',
+        '<div style="margin-bottom:4px;">'
+        '<span style="font-size:18px;font-weight:700;letter-spacing:-0.01em;">'
+        'Onset検出</span>'
+        '<span style="font-size:11px;color:#888;font-weight:400;margin-left:10px;'
+        'letter-spacing:0.03em;">'
+        'Phase 1 &mdash; 共通特徴量発見 / 追加スター株探索 / 初動タイミング特定</span></div>',
         unsafe_allow_html=True,
     )
 
@@ -358,21 +370,24 @@ def main():
 
 
 def _normalize_ai_headers(text: str) -> str:
-    """AI解釈のMarkdownヘッダー（#, ##, ###）をインラインの太字に変換し、フォントを均一にする"""
+    """AI解釈のMarkdownヘッダーをインライン太字に変換（絵文字・装飾記号なし）"""
     import re
-    text = re.sub(r'^#### (.+)$', r'**▸ \1**', text, flags=re.MULTILINE)
-    text = re.sub(r'^### (.+)$', r'**▸ \1**', text, flags=re.MULTILINE)
-    text = re.sub(r'^## (.+)$', r'\n**■ \1**', text, flags=re.MULTILINE)
-    text = re.sub(r'^# (.+)$', r'\n**◆ \1**', text, flags=re.MULTILINE)
+    text = re.sub(r'^#### (.+)$', r'**\1**', text, flags=re.MULTILINE)
+    text = re.sub(r'^### (.+)$', r'**\1**', text, flags=re.MULTILINE)
+    text = re.sub(r'^## (.+)$', r'\n---\n**\1**', text, flags=re.MULTILINE)
+    text = re.sub(r'^# (.+)$', r'\n---\n**\1**', text, flags=re.MULTILINE)
     # 表（| ... |）はそのまま残す
     return text
 
 
 def _section(title: str):
-    """統一された小見出し（h4相当、フォントサイズ抑制）"""
+    """統一セクションヘッダ — institutional style"""
     st.markdown(
-        f'<p style="font-size:13px;font-weight:700;margin:14px 0 4px 0;'
-        f'border-bottom:1px solid #ddd;padding-bottom:3px;">{title}</p>',
+        f'<div style="margin:18px 0 6px 0;padding:0 0 4px 0;'
+        f'border-bottom:2px solid #1A1A2E;">'
+        f'<span style="font-size:12px;font-weight:700;'
+        f'letter-spacing:0.08em;text-transform:uppercase;'
+        f'color:#1A1A2E;">{title}</span></div>',
         unsafe_allow_html=True,
     )
 
@@ -380,13 +395,47 @@ def _section(title: str):
 def _tag(label: str, color: str) -> str:
     """インラインタグHTML"""
     return (
-        f'<span style="background:{color};color:#fff;padding:1px 6px;'
-        f'border-radius:3px;font-size:11px;font-weight:600;">{label}</span>'
+        f'<span style="background:{color};color:#fff;padding:2px 8px;'
+        f'border-radius:2px;font-size:10px;font-weight:600;'
+        f'letter-spacing:0.05em;text-transform:uppercase;">{label}</span>'
     )
 
 
 TAG_INPUT = _tag("入力", "#1565C0")
 TAG_FOUND = _tag("発見", "#E65100")
+
+
+def _render_summary_metrics(items: list[tuple[str, str, str]]):
+    """Institutional-grade KPIカード表示 — [(label, value, sub), ...]"""
+    cards_html = ""
+    for label, value, sub in items:
+        cards_html += (
+            f'<div style="flex:1;background:#F8F9FA;border:1px solid #E0E0E0;'
+            f'border-top:3px solid #1A1A2E;padding:12px 16px;text-align:center;">'
+            f'<div style="font-size:10px;font-weight:600;letter-spacing:0.1em;'
+            f'color:#888;margin-bottom:4px;">{label}</div>'
+            f'<div style="font-size:24px;font-weight:700;color:#1A1A2E;'
+            f'line-height:1.2;">{value}</div>'
+            f'<div style="font-size:10px;color:#999;margin-top:2px;">{sub}</div>'
+            f'</div>'
+        )
+    st.markdown(
+        f'<div style="display:flex;gap:8px;margin:8px 0 12px 0;">{cards_html}</div>',
+        unsafe_allow_html=True,
+    )
+
+
+def _confidence_badge(level: str, label: str) -> str:
+    """信頼度バッジ — 絵文字なしのCSS styled dot + ラベル"""
+    color_map = {"high": "#2E7D32", "mid": "#E65100", "low": "#C62828"}
+    color = color_map.get(level, "#9E9E9E")
+    return (
+        f'<span style="display:inline-flex;align-items:center;gap:5px;'
+        f'font-size:11px;color:#555;">'
+        f'<span style="display:inline-block;width:8px;height:8px;'
+        f'border-radius:50%;background:{color};"></span>'
+        f'{label}</span>'
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -436,16 +485,21 @@ def _build_result_text(result: dict) -> str:
         lines.append(f"  カバー率: {best['recall']:.0%}のスター株をカバー")
         lines.append("")
 
-    max_returns = [
-        od.get("max_return") or od.get("max_return_60d") or od.get("fwd_return_60d")
-        for od in onset_dates.values()
-        if od.get("onset_date") and (
-            od.get("max_return") is not None or
-            od.get("max_return_60d") is not None or
-            od.get("fwd_return_60d") is not None
-        )
-    ]
-    max_returns = [r for r in max_returns if r is not None]
+    max_returns = []
+    excess_returns = []
+    sharpe_ratios = []
+    for od in onset_dates.values():
+        if not od.get("onset_date"):
+            continue
+        r = _pick_max_return(od)
+        if r is not None and np.isfinite(r):
+            max_returns.append(r)
+        er = od.get("excess_return")
+        if er is not None and np.isfinite(er):
+            excess_returns.append(er)
+        sr = od.get("sharpe_ratio")
+        if sr is not None and np.isfinite(sr):
+            sharpe_ratios.append(sr)
     if max_returns:
         mean_ret = sum(max_returns) / len(max_returns)
         sorted_rets = sorted(max_returns)
@@ -455,6 +509,12 @@ def _build_result_text(result: dict) -> str:
         lines.append(f"  中央値 最大リターン: {median_ret:.1%}")
         lines.append(f"  最大: {max(max_returns):.1%}  最小: {min(max_returns):.1%}")
         lines.append(f"  対象銘柄数: {len(max_returns)}")
+        if excess_returns:
+            mean_ex = sum(excess_returns) / len(excess_returns)
+            lines.append(f"  平均 超過リターン(vs TOPIX): {mean_ex:.1%}")
+        if sharpe_ratios:
+            mean_sr = sum(sharpe_ratios) / len(sharpe_ratios)
+            lines.append(f"  平均 シャープレシオ(年率): {mean_sr:.2f}")
         lines.append("")
 
     # AI解釈
@@ -513,8 +573,8 @@ def _build_result_text(result: dict) -> str:
         src = "入力" if star.get("source") == "user" else "発見"
         onset = od.get("onset_date", "-")
         score = od.get("score", 0)
-        max_r = od.get("max_return") or od.get("max_return_60d") or od.get("fwd_return_60d")
-        fwd = f"{max_r:.1%}" if od.get("onset_date") and max_r is not None else "-"
+        max_r = _pick_max_return(od)
+        fwd = f"{max_r:.1%}" if od.get("onset_date") and max_r is not None and np.isfinite(max_r) else "-"
         sigs = "、".join(SIGNAL_JP_SHORT.get(s, s) for s in od.get("signals", []))
         name = star.get("name", "")[:14]
         lines.append(f"{code:<8} {name:<16} {src:<4} {onset:<12} {score:>3} {fwd:>7} {sigs}")
@@ -537,15 +597,16 @@ def _display_probability_summary(result: dict):
     best_combos = common_features.get("best_combos", [])
 
     # 初動後リターン: onset_date がある銘柄のmax_returnを優先収集
-    ret_pairs = []  # (code, return値)
+    ret_pairs = []  # (code, return値, excess_return, sharpe_ratio)
     for code, od in onset_dates.items():
         if not od.get("onset_date"):
             continue
-        # max_return（新） > max_return_60d（旧） > fwd_return_60d の優先順で取得
-        ret = od.get("max_return") or od.get("max_return_60d") or od.get("fwd_return_60d")
-        if ret is None:
+        ret = _pick_max_return(od)
+        if ret is None or not np.isfinite(ret):
             continue
-        ret_pairs.append((code, float(ret)))
+        excess = od.get("excess_return")
+        sharpe = od.get("sharpe_ratio")
+        ret_pairs.append((code, float(ret), excess, sharpe))
 
     if not best_combos and not ret_pairs:
         return
@@ -556,8 +617,13 @@ def _display_probability_summary(result: dict):
     # ブロック1: このシグナルが出たら何%がスター株になったか？
     # ================================================================
     st.markdown(
-        '<p style="font-size:14px;font-weight:700;margin:4px 0 8px 0;">'
-        '❓ このシグナルが出た銘柄は、何%がスター株になったか？</p>',
+        '<div style="margin:8px 0 10px 0;padding:0 0 4px 0;'
+        'border-bottom:2px solid #1A1A2E;">'
+        '<span style="font-size:12px;font-weight:700;letter-spacing:0.08em;'
+        'text-transform:uppercase;color:#1A1A2E;">'
+        'シグナル精度分析</span>'
+        '<span style="font-size:11px;color:#666;margin-left:12px;">'
+        '— 条件合致銘柄がスター株になった確率</span></div>',
         unsafe_allow_html=True,
     )
 
@@ -567,8 +633,9 @@ def _display_probability_summary(result: dict):
 
         if has_universe and n_universe > 0:
             st.caption(
-                f"📊 分析対象 {n_universe:,}銘柄のうち、対象期間中にいつかでも条件を満たした銘柄の何%がスター株になったか"
-                f"（スター株ベースレート = {base_rate_universe:.2%}）"
+                f"分析対象: {n_universe:,}銘柄  |  "
+                f"ベースレート: {base_rate_universe:.2%}  |  "
+                f"対象期間中に条件を満たした銘柄のうちスター株になった割合"
             )
 
             # 0件合致（過学習）とそれ以外に分離
@@ -584,27 +651,31 @@ def _display_probability_summary(result: dict):
 
                 # 信頼度
                 if u_stars >= 5:
-                    rel_icon, rel_label = "🟢", "信頼度: 高（N≥5）"
+                    conf_level, rel_label = "high", "信頼度: 高（N≧5）"
                 elif u_stars >= 3:
-                    rel_icon, rel_label = "🟡", "信頼度: 中（N=3〜4）"
+                    conf_level, rel_label = "mid", "信頼度: 中（N=3〜4）"
                 else:
-                    rel_icon, rel_label = "🔴", "信頼度: 低（N≤2 — 参考値）"
+                    conf_level, rel_label = "low", "信頼度: 低（N≦2）"
 
                 # 条件行を閾値付きで生成
                 cond_lines = _combo_cond_lines(c, numbered=True)
 
                 with st.expander(
-                    f"{rel_icon} **#{i+1}** — スター株確率 **{u_prec:.1%}**（ベースレートの{u_lift:.1f}倍）　"
-                    f"条件合致: {u_hits}件 / うちスター株: {u_stars}件　カバー率: {recall:.0%}",
+                    f"#{i+1}  |  スター株確率 {u_prec:.1%}（{u_lift:.1f}倍）  |  "
+                    f"合致: {u_hits}件  スター株: {u_stars}件  |  カバー率: {recall:.0%}",
                     expanded=(i == 0),
                 ):
-                    st.markdown("**以下の条件を全て同時に満たしている銘柄:**")
+                    st.markdown(
+                        _confidence_badge(conf_level, rel_label),
+                        unsafe_allow_html=True,
+                    )
+                    st.markdown("**条件（全て同時に満たす）:**")
                     for line in cond_lines:
                         st.markdown(line)
-                    st.caption(rel_label)
+
 
             if overfit_combos:
-                with st.expander(f"⚠️ 条件が厳しすぎるコンボ（母集団で0件合致 — 実用外） {len(overfit_combos)}件", expanded=False):
+                with st.expander(f"OVERFITTING  |  母集団で0件合致（実用外）  {len(overfit_combos)}件", expanded=False):
                     st.warning(
                         "以下のコンボは訓練データでは高精度でしたが、全銘柄×複数時点のスキャンで"
                         "一度も条件を満たした銘柄が見つかりませんでした。"
@@ -647,31 +718,35 @@ def _display_probability_summary(result: dict):
             small_sample_combos = [c for c in best_combos[:5] if c.get("tp", 0) < 5]
             if small_sample_combos:
                 st.warning(
-                    f"⚠️ **サンプルサイズ警告**: 同一データで条件を発見・評価しているため"
+                    f"**サンプルサイズ警告**: 同一データで条件を発見・評価しているため"
                     f"精度が過大評価されている可能性があります。"
                     f"母集団精度は再実行すると計算されます。"
                 )
 
-            st.caption(f"※ 再実行すると母集団精度（全銘柄×複数時点スキャン）が計算されます")
+            st.caption("再実行すると母集団精度（全銘柄×複数時点スキャン）が算出されます")
             for i, c in enumerate(best_combos[:5]):
                 tp = c.get("tp", 0)
                 total_hits = c.get("total_hits", c.get("n_combo", 0))
                 if tp >= 5:
-                    rel_icon, rel_label = "🟢", "信頼度: 高（N≥5）"
+                    conf_level, rel_label = "high", "信頼度: 高（N≧5）"
                 elif tp >= 3:
-                    rel_icon, rel_label = "🟡", "信頼度: 中（N=3〜4）"
+                    conf_level, rel_label = "mid", "信頼度: 中（N=3〜4）"
                 else:
-                    rel_icon, rel_label = "🔴", "信頼度: 低（N≤2 — 参考値）"
+                    conf_level, rel_label = "low", "信頼度: 低（N≦2）"
                 cond_lines = _combo_cond_lines(c, numbered=True)
                 with st.expander(
-                    f"{rel_icon} **#{i+1}** — 訓練精度 **{c['precision']:.0%}**（{c['lift']:.1f}倍）　"
+                    f"#{i+1}  |  訓練精度: {c['precision']:.0%}（{c['lift']:.1f}倍）  |  "
                     f"カバー率: {c['recall']:.0%}",
                     expanded=(i == 0),
                 ):
-                    st.markdown("**以下の条件を全て同時に満たしている銘柄:**")
+                    st.markdown(
+                        _confidence_badge(conf_level, rel_label),
+                        unsafe_allow_html=True,
+                    )
+                    st.markdown("**条件（全て同時に満たす）:**")
                     for line in cond_lines:
                         st.markdown(line)
-                    st.caption(rel_label)
+
 
     st.markdown("")
 
@@ -679,38 +754,68 @@ def _display_probability_summary(result: dict):
     # ブロック2: 初動後に買ったら何%リターン？
     # ================================================================
     st.markdown(
-        '<p style="font-size:14px;font-weight:700;margin:12px 0 8px 0;">'
-        '💰 初動後の最大到達リターン（保有中のピーク時点）</p>',
+        '<div style="margin:16px 0 10px 0;padding:0 0 4px 0;'
+        'border-bottom:2px solid #1A1A2E;">'
+        '<span style="font-size:12px;font-weight:700;letter-spacing:0.08em;'
+        'text-transform:uppercase;color:#1A1A2E;">'
+        '初動後リターン分析</span>'
+        '<span style="font-size:11px;color:#666;margin-left:12px;">'
+        '— 初動検出後の最大到達リターン（保有期間中ピーク）</span></div>',
         unsafe_allow_html=True,
     )
 
     if ret_pairs:
-        returns = [r for _, r in ret_pairs]
+        returns = [r for _, r, _, _ in ret_pairs]
+        excess_vals = [e for _, _, e, _ in ret_pairs if e is not None and np.isfinite(e)]
+        sharpe_vals = [s for _, _, _, s in ret_pairs if s is not None and np.isfinite(s)]
         n = len(returns)
         mean_ret = sum(returns) / n
         sorted_r = sorted(returns)
         median_ret = sorted_r[n // 2]
         max_ret = max(returns)
         min_ret = min(returns)
-        # 60日内に一度でも+0%以上になった銘柄の割合
         win_rate = sum(1 for r in returns if r > 0) / n
 
-        c1, c2, c3, c4 = st.columns(4)
-        c1.metric("平均 最大リターン", f"{mean_ret:.1%}")
-        c2.metric("中央値 最大リターン", f"{median_ret:.1%}")
-        c3.metric("最大 / 最小", f"{max_ret:.0%} / {min_ret:.0%}")
-        c4.metric("プラスに到達した割合", f"{win_rate:.0%}")
+        # メイン指標行（raw リターン）
+        row1 = [
+            ("平均 最大リターン", f"{mean_ret:.1%}", f"n={n}"),
+            ("中央値 最大リターン", f"{median_ret:.1%}", ""),
+            ("レンジ", f"{max_ret:.0%} / {min_ret:.0%}", "最大 / 最小"),
+            ("プラス到達率", f"{win_rate:.0%}", "ピーク時点"),
+        ]
+        _render_summary_metrics(row1)
 
-        st.caption(f"※ {n}銘柄の初動後60日間での株価ピーク到達リターン。実際の売却タイミングは問わない。")
+        # ベンチマーク超過リターン・シャープレシオ行
+        row2 = []
+        if excess_vals:
+            mean_excess = sum(excess_vals) / len(excess_vals)
+            sorted_ex = sorted(excess_vals)
+            median_excess = sorted_ex[len(sorted_ex) // 2]
+            row2.append(("平均 超過リターン", f"{mean_excess:.1%}", "vs TOPIX"))
+            row2.append(("中央値 超過リターン", f"{median_excess:.1%}", f"n={len(excess_vals)}"))
+        if sharpe_vals:
+            mean_sharpe = sum(sharpe_vals) / len(sharpe_vals)
+            sorted_sh = sorted(sharpe_vals)
+            median_sharpe = sorted_sh[len(sorted_sh) // 2]
+            row2.append(("平均 シャープレシオ", f"{mean_sharpe:.2f}", "年率換算"))
+            row2.append(("中央値 シャープレシオ", f"{median_sharpe:.2f}", f"n={len(sharpe_vals)}"))
+        if row2:
+            _render_summary_metrics(row2)
+
+        st.caption(
+            f"N={n}  |  初動後ピーク到達リターン（未実現）。"
+            f"超過リターン=銘柄ピークリターン−TOPIX同期間ピークリターン。"
+            f"シャープレシオ=日次超過リターンの平均/標準偏差×√252。"
+        )
 
         # 銘柄別リターン棒グラフ（銘柄名を含める）
         all_stars = result.get("all_stars", [])
         code_to_name = {str(s["code"]): s.get("name", str(s["code"])) for s in all_stars}
 
         paired_sorted = sorted(ret_pairs, key=lambda x: x[1], reverse=True)
-        bar_x = [f"{code_to_name.get(c, c)}" for c, _ in paired_sorted]
-        bar_y = [r * 100 for _, r in paired_sorted]
-        bar_colors = ["#D32F2F" if v >= 0 else "#1565C0" for v in bar_y]
+        bar_x = [f"{code_to_name.get(c, c)}" for c, _, _, _ in paired_sorted]
+        bar_y = [r * 100 for _, r, _, _ in paired_sorted]
+        bar_colors = ["#2E7D32" if v >= 0 else "#C62828" for v in bar_y]
         bar_text = [f"{v:.0f}%" for v in bar_y]
 
         # yaxis range に余裕を持たせてテキスト切れを防ぐ
@@ -719,34 +824,272 @@ def _display_probability_summary(result: dict):
         y_top = y_max * 1.35 + 10
         y_bot = min(y_min * 1.2 - 5, -5)
 
-        fig = go.Figure(go.Bar(
+        # 超過リターンがあればグループ棒グラフ（raw + excess）
+        bar_excess = [
+            (e * 100 if e is not None and np.isfinite(e) else None)
+            for _, _, e, _ in paired_sorted
+        ]
+        has_excess = any(v is not None for v in bar_excess)
+
+        fig = go.Figure()
+        fig.add_trace(go.Bar(
             x=bar_x,
             y=bar_y,
             marker_color=bar_colors,
             text=bar_text,
             textposition="outside",
             textfont=dict(size=9),
+            name="最大リターン",
         ))
+        if has_excess:
+            ex_y = [v if v is not None else 0 for v in bar_excess]
+            ex_colors = ["#1565C0" if v >= 0 else "#C62828" for v in ex_y]
+            ex_text = [f"{v:.0f}%" if bar_excess[i] is not None else "" for i, v in enumerate(ex_y)]
+            fig.add_trace(go.Bar(
+                x=bar_x,
+                y=ex_y,
+                marker_color=ex_colors,
+                text=ex_text,
+                textposition="outside",
+                textfont=dict(size=9),
+                name="超過リターン (vs TOPIX)",
+            ))
         fig.add_hline(
             y=mean_ret * 100,
-            line_dash="dash", line_color="#FF6F00", line_width=2,
-            annotation=dict(text=f"平均 {mean_ret:.1%}", font_size=10, font_color="#FF6F00"),
+            line_dash="dash", line_color="#1A1A2E", line_width=1.5,
+            annotation=dict(text=f"平均 {mean_ret:.1%}", font_size=10, font_color="#1A1A2E"),
         )
         fig.add_hline(y=0, line_color="#999", line_width=1)
         fig.update_layout(
-            height=270,
+            barmode="group",
+            height=300,
             margin=dict(l=10, r=10, t=20, b=60),
             yaxis=dict(
-                title="最大リターン（%）",
+                title="リターン（%）",
                 range=[y_bot, y_top],
             ),
             font=dict(size=10),
             xaxis=dict(tickangle=-35),
-            showlegend=False,
+            legend=dict(
+                orientation="h", yanchor="bottom", y=1.02,
+                xanchor="right", x=1, font=dict(size=9),
+            ) if has_excess else dict(visible=False),
+            showlegend=has_excess,
         )
         st.plotly_chart(fig, use_container_width=True)
     else:
         st.info("初動後リターンのデータがありません（初動日が特定されていない可能性があります）")
+
+
+# ---------------------------------------------------------------------------
+# 手法比較
+# ---------------------------------------------------------------------------
+def _display_method_comparison(common_features: dict):
+    """AND条件 vs 代替手法の比較表示"""
+    alt_methods = common_features.get("alt_methods", {})
+    best_combos = common_features.get("best_combos", [])
+    base_rate = common_features.get("base_rate", 0)
+    base_rate_universe = common_features.get("base_rate_universe", base_rate)
+    n_universe = common_features.get("n_universe", 0)
+
+    _section("スター株検出手法の比較")
+    st.caption(
+        "同じ特徴量データに対して4つの手法を適用し、精度（確率）・カバー率・Liftを比較。"
+        "母集団精度は全銘柄×複数時点でのクロスバリデーション結果。"
+    )
+
+    # 比較テーブル構築
+    rows = []
+
+    # 1. 現行AND条件
+    if best_combos:
+        bc = best_combos[0]
+        u_prec = bc.get("universe_precision")
+        u_hits = bc.get("universe_n_hits", 0)
+        u_stars = bc.get("universe_n_stars", 0)
+        if u_prec is not None:
+            u_lift = u_prec / base_rate_universe if base_rate_universe > 0 else 0
+            rows.append({
+                "手法": "AND条件（現行）",
+                "訓練精度": f"{bc['precision']:.1%}",
+                "母集団精度": f"{u_prec:.1%}",
+                "合致数": f"{u_hits}件",
+                "スター株": f"{u_stars}件",
+                "Lift": f"{u_lift:.1f}倍",
+                "カバー率": f"{bc['recall']:.0%}",
+                "説明": " AND ".join(bc.get("features_jp", bc["features"])),
+            })
+        else:
+            rows.append({
+                "手法": "AND条件（現行）",
+                "訓練精度": f"{bc['precision']:.1%}",
+                "母集団精度": "-",
+                "合致数": f"{bc.get('total_hits', '-')}",
+                "スター株": f"{bc.get('tp', '-')}",
+                "Lift": f"{bc['lift']:.1f}倍",
+                "カバー率": f"{bc['recall']:.0%}",
+                "説明": " AND ".join(bc.get("features_jp", bc["features"])),
+            })
+
+    # 2. 加重スコアリング
+    ws = alt_methods.get("weighted_scoring", {})
+    ws_best = ws.get("best")
+    if ws_best:
+        ws_u = ws.get("universe", {})
+        ws_u_prec = ws_u.get("universe_precision")
+        ws_u_hits = ws_u.get("universe_n_hits", 0)
+        ws_u_stars = ws_u.get("universe_n_stars", 0)
+        if ws_u_prec is not None:
+            ws_u_lift = ws_u_prec / base_rate_universe if base_rate_universe > 0 else 0
+            rows.append({
+                "手法": "加重スコアリング",
+                "訓練精度": f"{ws_best['precision']:.1%}",
+                "母集団精度": f"{ws_u_prec:.1%}",
+                "合致数": f"{ws_u_hits}件",
+                "スター株": f"{ws_u_stars}件",
+                "Lift": f"{ws_u_lift:.1f}倍",
+                "カバー率": f"{ws_best['recall']:.0%}",
+                "説明": f"スコア閾値={ws_best['score_threshold']:.2f}",
+            })
+        else:
+            rows.append({
+                "手法": "加重スコアリング",
+                "訓練精度": f"{ws_best['precision']:.1%}",
+                "母集団精度": "-",
+                "合致数": f"{ws_best['n_hits']}件",
+                "スター株": f"{ws_best['tp']}件",
+                "Lift": f"{ws_best['lift']:.1f}倍",
+                "カバー率": f"{ws_best['recall']:.0%}",
+                "説明": f"スコア閾値={ws_best['score_threshold']:.2f}",
+            })
+
+    # 3. 決定木
+    dt = alt_methods.get("decision_tree", {})
+    dt_best = dt.get("best")
+    if dt_best:
+        rows.append({
+            "手法": f"決定木（深さ{dt_best['max_depth']}）",
+            "訓練精度": f"{dt_best['precision']:.1%}",
+            "母集団精度": "（訓練のみ）",
+            "合致数": f"{dt_best['n_hits']}件",
+            "スター株": f"{dt_best['tp']}件",
+            "Lift": f"{dt_best['lift']:.1f}倍",
+            "カバー率": f"{dt_best['recall']:.0%}",
+            "説明": f"ルール数={dt_best['n_rules']}, depth={dt_best['max_depth']}",
+        })
+
+    # 4. パーセンタイルランク
+    pr = alt_methods.get("percentile_rank", {})
+    pr_best = pr.get("best")
+    if pr_best:
+        pr_u = pr.get("universe", {})
+        pr_u_prec = pr_u.get("universe_precision")
+        pr_u_hits = pr_u.get("universe_n_hits", 0)
+        pr_u_stars = pr_u.get("universe_n_stars", 0)
+        if pr_u_prec is not None:
+            pr_u_lift = pr_u_prec / base_rate_universe if base_rate_universe > 0 else 0
+            rows.append({
+                "手法": "パーセンタイルランク",
+                "訓練精度": f"{pr_best['precision']:.1%}",
+                "母集団精度": f"{pr_u_prec:.1%}",
+                "合致数": f"{pr_u_hits}件",
+                "スター株": f"{pr_u_stars}件",
+                "Lift": f"{pr_u_lift:.1f}倍",
+                "カバー率": f"{pr_best['recall']:.0%}",
+                "説明": pr_best.get("label", ""),
+            })
+        else:
+            rows.append({
+                "手法": "パーセンタイルランク",
+                "訓練精度": f"{pr_best['precision']:.1%}",
+                "母集団精度": "-",
+                "合致数": f"{pr_best['n_hits']}件",
+                "スター株": f"{pr_best['tp']}件",
+                "Lift": f"{pr_best['lift']:.1f}倍",
+                "カバー率": f"{pr_best['recall']:.0%}",
+                "説明": pr_best.get("label", ""),
+            })
+
+    if rows:
+        st.dataframe(
+            pd.DataFrame(rows),
+            use_container_width=True,
+            hide_index=True,
+        )
+    else:
+        st.info("比較データがありません")
+
+    # --- 各手法の詳細 ---
+    st.markdown("---")
+
+    # 加重スコアリング詳細
+    if ws.get("features"):
+        with st.expander("加重スコアリング — 詳細", expanded=False):
+            st.markdown(f"**概要**: {ws.get('description', '')}")
+            st.markdown("**特徴量ウェイト:**")
+            w_rows = []
+            for f in ws["features"]:
+                w_rows.append({
+                    "特徴量": f["name_jp"],
+                    "重み": f"{f['weight']:.3f}",
+                    "閾値": f"{f['threshold']:.4f}",
+                })
+            st.dataframe(pd.DataFrame(w_rows), use_container_width=True, hide_index=True)
+
+            if ws.get("all_results"):
+                st.markdown("**スコア閾値別の精度推移:**")
+                th_rows = []
+                for r in ws["all_results"]:
+                    th_rows.append({
+                        "閾値": f"{r['score_threshold']:.2f}",
+                        "精度": f"{r['precision']:.1%}",
+                        "カバー率": f"{r['recall']:.0%}",
+                        "Lift": f"{r['lift']:.1f}x",
+                        "合致数": r["n_hits"],
+                        "F1": f"{r['f1']:.3f}",
+                    })
+                st.dataframe(pd.DataFrame(th_rows), use_container_width=True, hide_index=True)
+
+    # 決定木詳細
+    if dt_best:
+        with st.expander("決定木 — 詳細", expanded=False):
+            st.markdown(f"**概要**: {dt.get('description', '')}")
+            st.markdown(f"**使用特徴量**: {', '.join(dt.get('features_used', []))}")
+            if dt_best.get("rules"):
+                st.markdown("**検出ルール（スター株と判定される経路）:**")
+                for ri, rule in enumerate(dt_best["rules"]):
+                    conditions = " かつ ".join(
+                        f"{name} {op} {th}" for name, op, th in rule
+                    )
+                    st.markdown(f"  ルール{ri+1}: {conditions}")
+            st.warning(
+                "決定木はサンプル数（スター株41件）に対して過学習しやすいため、"
+                "訓練精度が高くても母集団では低下する可能性があります。参考値としてご利用ください。"
+            )
+
+    # パーセンタイルランク詳細
+    if pr.get("all_results"):
+        with st.expander("パーセンタイルランク — 詳細", expanded=False):
+            st.markdown(f"**概要**: {pr.get('description', '')}")
+            st.markdown("**パーセンタイル閾値 × 必要特徴量数の組み合わせ:**")
+            p_rows = []
+            for r in pr["all_results"]:
+                p_rows.append({
+                    "条件": r["label"],
+                    "精度": f"{r['precision']:.1%}",
+                    "カバー率": f"{r['recall']:.0%}",
+                    "Lift": f"{r['lift']:.1f}x",
+                    "合致数": r["n_hits"],
+                    "F1": f"{r['f1']:.3f}",
+                })
+            st.dataframe(pd.DataFrame(p_rows), use_container_width=True, hide_index=True)
+
+    # ベースレート参考
+    if base_rate_universe > 0:
+        st.caption(
+            f"参考: ベースレート（条件なし）= {base_rate_universe:.2%}　|　"
+            f"分析対象: {n_universe:,}銘柄"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -770,43 +1113,50 @@ def _display_results(result: dict):
     n_onset = sum(1 for od in onset_dates.values() if od.get("onset_date"))
     best_combos = common_features.get("best_combos", [])
 
-    col1, col2, col3, col4 = st.columns(4)
-    col1.metric("入力スター株", f"{len(star_stocks)}件")
-    col2.metric("追加発見", f"{len(additional_stars)}件")
-    col3.metric("初動特定", f"{n_onset}/{len(all_stars)}件")
-    col4.metric("ベストコンボ", f"{len(best_combos)}件")
+    _render_summary_metrics(
+        [
+            ("入力スター株", f"{len(star_stocks)}", "ユーザー指定"),
+            ("追加発見", f"{len(additional_stars)}", "自動検出"),
+            ("初動特定", f"{n_onset}/{len(all_stars)}", "タイミング確定"),
+            ("ベストコンボ", f"{len(best_combos)}", "特徴量セット"),
+        ]
+    )
 
     # --- 確率・リターンサマリー（最重要セクション） ---
     _display_probability_summary(result)
 
     # --- AI解釈（折りたたみ可能） ---
     if ai_interp:
-        with st.expander("AI解釈（クリックで展開）", expanded=True):
+        with st.expander("AI解釈", expanded=True):
             normalized = _normalize_ai_headers(ai_interp)
             st.markdown(normalized)
 
     # --- タブ構成 ---
     tabs = st.tabs([
         "共通特徴量",
-        f"スター株一覧 ({len(all_stars)})",
+        "手法比較",
+        f"スター株一覧（{len(all_stars)}）",
         "初動タイムライン",
         "個別詳細",
-        "結果コピー",
+        "結果エクスポート",
     ])
 
     with tabs[0]:
         _display_common_features(common_features)
 
     with tabs[1]:
-        _display_star_list(star_stocks, additional_stars, all_stars, onset_dates)
+        _display_method_comparison(common_features)
 
     with tabs[2]:
-        _display_onset_timeline(all_stars, onset_dates)
+        _display_star_list(star_stocks, additional_stars, all_stars, onset_dates)
 
     with tabs[3]:
-        _display_individual_detail(all_stars, onset_dates, common_features)
+        _display_onset_timeline(all_stars, onset_dates)
 
     with tabs[4]:
+        _display_individual_detail(all_stars, onset_dates, common_features)
+
+    with tabs[5]:
         _display_copy_text(result)
 
 
@@ -827,26 +1177,41 @@ def _fmt_val(v: float) -> str:
 # 特徴量キー → 閾値フォーマット区分
 _FEAT_PCT = {
     # リターン・騰落率系（× 100 して %表示）
-    "ret_5d", "ret_20d", "up_days_ratio_10d", "quiet_accum_rate_20d",
-    "higher_lows_slope_10d", "range_position_20d",
-    "sector_rel_ret_10d", "ma5_ma20_gap", "price_vs_ma20_pct",
-    "ma_deviation_25d", "ma_deviation_75d",
-    "spread_proxy_5d", "max_gap_up_5d", "gap_frequency_20d",
-    "higher_highs_ratio_10d", "proximity_52w_high",
+    "ret_5d", "ret_20d", "ret_3d", "ret_10d", "ret_40d",
+    "up_days_ratio_10d", "up_days_ratio_5d", "up_days_ratio_20d",
+    "quiet_accum_rate_20d",
+    "higher_lows_slope_10d", "higher_lows_slope_5d", "higher_lows_slope_20d",
+    "range_position_20d", "range_position_10d", "range_position_40d",
+    "sector_rel_ret_10d", "sector_rel_ret_5d", "sector_rel_ret_20d",
+    "ma5_ma25_gap", "ma25_ma75_gap", "ma5_ma75_gap",
+    "price_vs_ma25_pct", "price_vs_ma5_pct", "price_vs_ma75_pct", "price_vs_ma200_pct",
+    "ma_deviation_25d", "ma_deviation_75d", "ma_deviation_5d", "ma_deviation_200d",
+    "spread_proxy_5d", "spread_proxy_10d",
+    "max_gap_up_5d", "max_gap_up_10d",
+    "gap_frequency_20d", "gap_frequency_10d",
+    "higher_highs_ratio_10d", "higher_highs_ratio_5d", "higher_highs_ratio_20d",
+    "proximity_52w_high",
     "margin_buy_change_pct", "margin_ratio_change_pct",
-    "bb_width_pctile_60d", "up_volume_ratio_10d",
+    "bb_width_pctile_60d", "bb_width_pctile_120d",
+    "up_volume_ratio_10d", "up_volume_ratio_5d", "up_volume_ratio_20d",
 }
 _FEAT_RATIO = {
     # 倍率系（X倍以上）
-    "vol_ratio_5d_20d", "vol_ratio_5d_60d", "vol_acceleration",
-    "atr_ratio_5d_20d", "intraday_range_ratio_5d", "realized_vol_5d_vs_20d",
-    "topix_beta_20d", "residual_vol_ratio", "vol_vs_market_vol",
-    "margin_ratio", "margin_buy_vol_ratio", "turnover_change_10d_20d",
-    "obv_slope_10d",
+    "vol_ratio_5d_20d", "vol_ratio_5d_60d", "vol_ratio_5d_40d",
+    "vol_ratio_10d_20d", "vol_ratio_10d_40d", "vol_acceleration",
+    "atr_ratio_5d_20d", "atr_ratio_5d_40d", "atr_ratio_10d_20d",
+    "intraday_range_ratio_5d", "intraday_range_ratio_10d",
+    "realized_vol_5d_vs_20d", "realized_vol_5d_vs_40d", "realized_vol_10d_vs_20d",
+    "topix_beta_20d", "topix_beta_40d",
+    "residual_vol_ratio", "vol_vs_market_vol",
+    "margin_ratio", "margin_buy_vol_ratio",
+    "turnover_change_10d_20d", "turnover_change_5d_20d", "turnover_change_5d_10d",
+    "obv_slope_10d", "obv_slope_5d", "obv_slope_20d",
 }
 _FEAT_DAYS = {
     # 日数系（X日以上）
-    "vol_surge_count_10d", "consecutive_up_days", "margin_buy_turnover_days",
+    "vol_surge_count_10d", "vol_surge_count_5d", "vol_surge_count_20d",
+    "consecutive_up_days", "margin_buy_turnover_days",
 }
 
 
@@ -877,7 +1242,7 @@ def _combo_cond_lines(c: dict, numbered: bool = False) -> list[str]:
     for idx, (feat_key, feat_label, th) in enumerate(zip(features, features_jp, thresholds)):
         desc = WIDE_FEATURE_DESCRIPTIONS_JP.get(feat_key, feat_label)
         th_str = _fmt_threshold(feat_key, th)
-        prefix = f"{idx+1}. " if numbered else "  ✅ "
+        prefix = f"{idx+1}. " if numbered else "- "
         lines.append(f"{prefix}**{feat_label}**（{desc}）が **{th_str}**")
     return lines
 
@@ -896,7 +1261,7 @@ def _display_common_features(common_features: dict):
     n_star = common_features.get("n_star", 0)
     n_non_star = common_features.get("n_non_star", 0)
 
-    useful_signals = [s for s in signals if s.get("verdict") != "meaningless"][:12]
+    useful_signals = [s for s in signals if s.get("verdict") != "meaningless"]
     if not useful_signals:
         st.info("有意な特徴量が見つかりませんでした")
         return
@@ -940,9 +1305,9 @@ def _display_common_features(common_features: dict):
 
             # 倍率を棒グラフで表示
             bar_vals = [1.0, ratio if ratio != float("inf") else 0]
-            bar_labels = ["市場平均（基準）", f"スター株 {ratio:.1f}倍" if ratio != float("inf") else "スター株"]
-            bar_colors = ["#9E9E9E", "#D32F2F"]
-            bar_texts = ["基準 1.0倍", f"+{ratio:.1f}倍" if ratio > 0 else f"{ratio:.1f}倍"]
+            bar_labels = ["市場平均", f"スター株（{ratio:.1f}倍）" if ratio != float("inf") else "スター株"]
+            bar_colors = ["#B0BEC5", "#1A1A2E"]
+            bar_texts = ["基準 1.0倍", f"{ratio:.1f}倍" if ratio > 0 else f"{ratio:.1f}倍"]
 
             # yaxis range — textposition="outside" のクリップ対策
             y_top = max(bar_vals) * 1.5 if max(bar_vals) > 0 else 2.0
@@ -954,15 +1319,15 @@ def _display_common_features(common_features: dict):
                 marker_color=bar_colors,
                 text=bar_texts,
                 textposition="outside",
-                textfont=dict(size=11, color=["#555", "#C62828"]),
+                textfont=dict(size=11, color=["#666", "#1A1A2E"]),
                 width=0.55,
             ))
             # 基準ライン
             fig.add_hline(y=1.0, line_dash="dash", line_color="#999", line_width=1)
-            ratio_label = f"{ratio:.1f}倍" if ratio != float("inf") else "∞"
+            ratio_label = f"{ratio:.1f}倍" if ratio != float("inf") else "N/A"
             fig.update_layout(
                 title=dict(
-                    text=f"<b>{desc_short}</b><br><sup>スター株は市場平均の {ratio_label}</sup>",
+                    text=f"<b>{desc_short}</b><br><sup>スター株は市場平均の{ratio_label}</sup>",
                     font_size=11,
                 ),
                 height=280,
@@ -1000,8 +1365,8 @@ def _display_common_features(common_features: dict):
         for s, v in zip(top10_j_rev, chart_vals)
     ]
     chart_colors = [
-        "#C62828" if s["verdict"] == "strong" else
-        "#EF6C00" if s["verdict"] == "weak_useful" else "#9E9E9E"
+        "#1A1A2E" if s["verdict"] == "strong" else
+        "#546E7A" if s["verdict"] == "weak_useful" else "#B0BEC5"
         for s in top10_j_rev
     ]
 
@@ -1023,7 +1388,7 @@ def _display_common_features(common_features: dict):
             "市場平均: %{customdata[2]:.4f}<extra></extra>"
         ),
     ))
-    fig_rank.add_vline(x=0.5, line_dash="dot", line_color="#999",
+    fig_rank.add_vline(x=0.5, line_dash="dot", line_color="#B0BEC5",
                        annotation_text="中程度", annotation_position="top right",
                        annotation_font_size=9)
     fig_rank.update_layout(
@@ -1052,6 +1417,83 @@ def _display_common_features(common_features: dict):
                 "判定": s.get("verdict", ""),
             })
         st.dataframe(pd.DataFrame(rank_rows), use_container_width=True, hide_index=True)
+
+    # ================================================================
+    # Section 2.5: 相関分析 — 冗長特徴量の排除結果
+    # ================================================================
+    corr_info = common_features.get("corr_info", {})
+    if corr_info:
+        _section("特徴量の相関分析 — 独立した情報源の特定")
+        dropped = corr_info.get("dropped_features", [])
+        selected = corr_info.get("selected_indices", [])
+        feat_names_jp = corr_info.get("feature_names_jp", [])
+        corr_th = corr_info.get("threshold", 0.7)
+
+        independent_names = [feat_names_jp[i] for i in selected] if feat_names_jp else []
+        dropped_jp = [
+            WIDE_FEATURE_LABELS_JP.get(f, f) for f in dropped
+        ]
+
+        st.caption(
+            f"上位特徴量間のSpearman相関を計算し、|相関| ≧ {corr_th} の冗長な特徴量を排除。"
+            f"残った独立特徴量のみでコンボを生成することで、精度向上を狙う。"
+        )
+
+        col_ind, col_drop = st.columns(2)
+        with col_ind:
+            st.markdown(
+                f'<div style="border-top:3px solid #2E7D32;padding:8px;background:#F1F8E9;">'
+                f'<span style="font-size:11px;font-weight:600;color:#2E7D32;">'
+                f'独立特徴量（コンボ対象）: {len(independent_names)}個</span></div>',
+                unsafe_allow_html=True,
+            )
+            for name in independent_names:
+                st.markdown(f"- {name}")
+        with col_drop:
+            st.markdown(
+                f'<div style="border-top:3px solid #C62828;padding:8px;background:#FFEBEE;">'
+                f'<span style="font-size:11px;font-weight:600;color:#C62828;">'
+                f'排除（冗長）: {len(dropped_jp)}個</span></div>',
+                unsafe_allow_html=True,
+            )
+            for name in dropped_jp:
+                st.markdown(f"- ~~{name}~~")
+
+        # 相関ヒートマップ
+        matrix = corr_info.get("matrix")
+        if matrix and len(matrix) > 1:
+            with st.expander("相関行列ヒートマップ", expanded=False):
+                import plotly.figure_factory as ff
+                labels = [n[:12] for n in feat_names_jp]
+                # 上三角のみ表示用にテキスト整形
+                z_text = [
+                    [f"{matrix[i][j]:.2f}" if i <= j else ""
+                     for j in range(len(matrix[0]))]
+                    for i in range(len(matrix))
+                ]
+                fig_corr = ff.create_annotated_heatmap(
+                    z=matrix,
+                    x=labels,
+                    y=labels,
+                    annotation_text=z_text,
+                    colorscale=[
+                        [0.0, "#C62828"],   # -1: 赤
+                        [0.5, "#FFFFFF"],   #  0: 白
+                        [1.0, "#1565C0"],   # +1: 青
+                    ],
+                    showscale=True,
+                    zmin=-1, zmax=1,
+                )
+                fig_corr.update_layout(
+                    height=max(300, len(labels) * 35 + 80),
+                    margin=dict(l=10, r=10, t=10, b=10),
+                    font=dict(size=9),
+                )
+                st.plotly_chart(fig_corr, use_container_width=True)
+                st.caption(
+                    f"|相関| ≧ {corr_th} のペアは同じ情報を測定していると判断し、"
+                    f"J統計量が低い方を排除。"
+                )
 
     # ================================================================
     # Section 3: 詳細比較テーブル
@@ -1083,7 +1525,11 @@ def _display_common_features(common_features: dict):
     # ================================================================
     # Section 4: ベスト特徴量コンボ
     # ================================================================
-    _section("ベスト特徴量コンボ — 複数条件を同時に満たす銘柄の絞り込み")
+    _section("ベスト特徴量コンボ — 独立した特徴量の組み合わせ")
+    st.caption(
+        "相関分析で冗長特徴量を排除した上で、独立した情報を組み合わせたコンボ。"
+        "多様性スコアが高いほど、異なる角度からの条件で絞り込んでいる。"
+    )
     if best_combos:
         base_rate_u = common_features.get("base_rate_universe", base_rate)
         n_univ = common_features.get("n_universe", 0)
@@ -1096,27 +1542,33 @@ def _display_common_features(common_features: dict):
             u_prec = c.get("universe_precision")
             u_hits = c.get("universe_n_hits", 0)
             u_stars = c.get("universe_n_stars", 0)
+            diversity = c.get("diversity_score", 0)
             cond_lines = _combo_cond_lines(c, numbered=True)
 
             if u_prec is not None and n_univ > 0:
                 u_lift = u_prec / base_rate_u if base_rate_u > 0 else 0
                 header = (
                     f"**#{i+1}**  スター株確率 **{u_prec:.1%}**（{u_lift:.1f}倍）　"
-                    f"合致: {u_hits}件 / スター株: {u_stars}件　カバー率: {c['recall']:.0%}"
+                    f"合致: {u_hits}件 / スター株: {u_stars}件　カバー率: {c['recall']:.0%}　"
+                    f"多様性: {diversity:.2f}"
                 )
             else:
                 header = (
                     f"**#{i+1}**  精度 **{c['precision']:.0%}**（{c['lift']:.1f}倍）　"
-                    f"カバー率: {c['recall']:.0%}"
+                    f"カバー率: {c['recall']:.0%}　多様性: {diversity:.2f}"
                 )
 
             with st.expander(header, expanded=(i == 0)):
                 st.markdown("**以下の条件を全て同時に満たしている銘柄:**")
                 for line in cond_lines:
                     st.markdown(line)
+                if diversity > 0:
+                    st.caption(
+                        f"多様性スコア: {diversity:.3f}（1.0 = 完全に独立、0.0 = 完全相関）"
+                    )
 
         if overfit_bc:
-            with st.expander(f"⚠️ 過学習コンボ（母集団で0件合致） {len(overfit_bc)}件", expanded=False):
+            with st.expander(f"OVERFITTING  |  母集団で0件合致（実用外）  {len(overfit_bc)}件", expanded=False):
                 st.warning("訓練データ内では高精度でしたが、全銘柄×複数時点のスキャンで一度も合致しませんでした。条件が厳しすぎるため実用外です。")
                 for i, c in enumerate(overfit_bc):
                     cond_lines = _combo_cond_lines(c, numbered=True)
@@ -1150,14 +1602,13 @@ def _display_star_list(
     """全スター株を入力/発見の区別付きで一覧表示"""
 
     st.markdown(
-        f'{TAG_INPUT} ユーザーが指定したスター株　'
-        f'{TAG_FOUND} 共通特徴量コンボ条件で自動発見された銘柄',
+        f'{TAG_INPUT} ユーザー指定スター株 &nbsp;&nbsp;'
+        f'{TAG_FOUND} 特徴量コンボで自動発見',
         unsafe_allow_html=True,
     )
     st.caption(
-        "60日後リターン(参考): 初動から60日後時点での株価変化率　｜　"
-        "最大リターン(期間末まで): 初動後〜分析期間終了までのピーク到達リターン　｜　"
-        "最大DD: 初動後〜期間末でのピークからの最大下落率（ドローダウン）"
+        "最大リターン: 初動後ピーク到達リターン　｜　超過リターン: 銘柄リターン−TOPIXリターン　｜　"
+        "SR: シャープレシオ（年率）　｜　最大DD: ピークからの最大下落率"
     )
 
     rows = []
@@ -1166,23 +1617,30 @@ def _display_star_list(
         od = onset_dates.get(code, {})
         is_input = star.get("source") == "user"
         has_onset = bool(od.get("onset_date"))
+        excess_r = od.get("excess_return")
+        sharpe_r = od.get("sharpe_ratio")
         rows.append({
             "種別": "入力" if is_input else "発見",
             "コード": code,
             "銘柄名": star.get("name", ""),
             "セクター": star.get("sector", star.get("sector_17_name", "")),
-            "超過リターン": f"{star.get('excess_return', 0):.1%}"
+            "スター超過Ret": f"{star.get('excess_return', 0):.1%}"
                 if star.get("excess_return") is not None else "-",
             "初動日": od.get("onset_date", "-"),
-            "シグナル数": od.get("score", 0) if has_onset else "-",
-            "60日後リターン(参考)": f"{od['fwd_return_60d']:.1%}" if has_onset and od.get("fwd_return_60d") is not None else "-",
-            "最大リターン(期間末まで)": (
-                f"{(od.get('max_return') or od.get('max_return_60d')):.1%}"
-                if has_onset and (od.get("max_return") or od.get("max_return_60d")) is not None else "-"
+            "シグナル": od.get("score", 0) if has_onset else "-",
+            "最大リターン": (
+                f"{_pick_max_return(od):.1%}"
+                if has_onset and _pick_max_return(od) is not None else "-"
+            ),
+            "超過リターン": (
+                f"{excess_r:.1%}" if has_onset and excess_r is not None else "-"
+            ),
+            "SR": (
+                f"{sharpe_r:.2f}" if has_onset and sharpe_r is not None else "-"
             ),
             "最大DD": (
-                f"{(od.get('max_drawdown') or od.get('max_drawdown_60d')):.1%}"
-                if has_onset and (od.get("max_drawdown") or od.get("max_drawdown_60d")) is not None else "-"
+                f"{(od.get('max_drawdown') if od.get('max_drawdown') is not None else od.get('max_drawdown_60d')):.1%}"
+                if has_onset and (od.get("max_drawdown") is not None or od.get("max_drawdown_60d") is not None) else "-"
             ),
         })
 
@@ -1239,16 +1697,19 @@ def _display_onset_timeline(all_stars: list, onset_dates: dict):
         sigs_jp = "、".join(
             _fmt_signal_with_qty(s, sig_qty) for s in od.get("signals", [])
         )
-        # max_return（新） > max_return_60d（旧） > fwd_return_60d の優先順
-        max_ret = od.get("max_return") or od.get("max_return_60d") or od.get("fwd_return_60d")
+        max_ret = _pick_max_return(od)
+        excess_r = od.get("excess_return")
+        sharpe_r = od.get("sharpe_ratio")
         rows.append({
             "種別": "入力" if is_input else "発見",
             "コード": code,
             "銘柄名": star.get("name", ""),
             "初動日": od.get("onset_date", "-"),
-            "シグナル数": od.get("score", 0),
+            "シグナル": od.get("score", 0),
             "発火シグナル": sigs_jp,
-            "最大リターン(期間末)": f"{max_ret:.1%}" if od.get("onset_date") and max_ret is not None else "-",
+            "最大Ret": f"{max_ret:.1%}" if od.get("onset_date") and max_ret is not None else "-",
+            "超過Ret": f"{excess_r:.1%}" if od.get("onset_date") and excess_r is not None else "-",
+            "SR": f"{sharpe_r:.2f}" if od.get("onset_date") and sharpe_r is not None else "-",
         })
 
     if rows:
@@ -1284,7 +1745,7 @@ def _display_onset_timeline(all_stars: list, onset_dates: dict):
             x=[s[1] for s in sorted_signals],
             y=sig_labels,
             orientation="h",
-            marker_color="#1E88E5",
+            marker_color="#1A1A2E",
             text=[f"{s[1]}/{n_total}" for s in sorted_signals],
             textposition="auto",
         ))
@@ -1327,15 +1788,34 @@ def _display_individual_detail(all_stars: list, onset_dates: dict, common_featur
         unsafe_allow_html=True,
     )
 
-    col1, col2, col3 = st.columns(3)
+    detail_items = []
     if star.get("total_return") is not None:
-        col1.metric("期間リターン", f"{star['total_return']:.1%}")
+        detail_items.append(("期間リターン", f"{star['total_return']:.1%}", "分析期間全体"))
     if star.get("excess_return") is not None:
-        col2.metric("超過リターン", f"{star['excess_return']:.1%}")
+        detail_items.append(("スター超過リターン", f"{star['excess_return']:.1%}", "対ベンチマーク"))
     if od.get("onset_date"):
-        col3.metric("初動日", od["onset_date"])
+        detail_items.append(("初動日", od["onset_date"], "検出日"))
+    if detail_items:
+        _render_summary_metrics(detail_items)
 
+    # 初動後パフォーマンス指標（excess return, Sharpe含む）
     if od.get("onset_date"):
+        perf_items = []
+        max_ret = _pick_max_return(od)
+        if max_ret is not None and np.isfinite(max_ret):
+            perf_items.append(("最大リターン", f"{max_ret:.1%}", "初動後ピーク"))
+        onset_excess = od.get("excess_return")
+        if onset_excess is not None:
+            perf_items.append(("超過リターン", f"{onset_excess:.1%}", "vs TOPIX"))
+        onset_sharpe = od.get("sharpe_ratio")
+        if onset_sharpe is not None:
+            perf_items.append(("シャープレシオ", f"{onset_sharpe:.2f}", "年率換算"))
+        dd = od.get("max_drawdown") if od.get("max_drawdown") is not None else od.get("max_drawdown_60d")
+        if dd is not None:
+            perf_items.append(("最大DD", f"{dd:.1%}", "ピークから"))
+        if perf_items:
+            _render_summary_metrics(perf_items)
+
         _section("初動シグナル")
         sig_qty = od.get("signal_quantities", {})
         sigs_detail = []
@@ -1343,10 +1823,7 @@ def _display_individual_detail(all_stars: list, onset_dates: dict, common_featur
             with_qty = _fmt_signal_with_qty(s, sig_qty)
             full_desc = ONSET_SIGNAL_NAMES_JP.get(s, s)
             sigs_detail.append(f"{with_qty}（{full_desc}）")
-        max_ret = od.get("max_return") or od.get("max_return_60d") or od.get("fwd_return_60d")
         sig_text = f"シグナルスコア: **{od['score']}/10** ｜ "
-        if max_ret is not None:
-            sig_text += f"最大到達リターン: **{max_ret:.1%}** ｜ "
         sig_text += "発火: " + "、".join(sigs_detail)
         st.markdown(sig_text)
     else:
