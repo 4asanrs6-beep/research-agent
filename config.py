@@ -54,15 +54,57 @@ BACKTEST_DEFAULTS = {
 }
 
 # AI研究エージェント設定（Claude Code CLI経由）
+CLAUDE_CLI_MODEL = os.getenv("CLAUDE_CLI_MODEL", "claude-opus-4-6")  # 計画生成・結果解釈用
+CLAUDE_CLI_CODE_MODEL = os.getenv("CLAUDE_CLI_CODE_MODEL", "sonnet")  # コード生成用（高速）
 CLAUDE_CLI_TIMEOUT = int(os.getenv("CLAUDE_CLI_TIMEOUT", "600"))  # CLI呼び出しタイムアウト秒
+CLAUDE_CLI_MODEL = os.getenv("CLAUDE_CLI_MODEL", "sonnet")  # 使用モデル（sonnet/opus/haiku）
 
 # コード実行設定
 CODE_EXECUTION_TIMEOUT = int(os.getenv("CODE_EXECUTION_TIMEOUT", "120"))  # 秒
 
 # 標準バックテスト設定
+# AI研究イテレーション設定
+AI_RESEARCH_PHASE1_CONFIGS = 5              # Phase 1: AI構造探索
+AI_RESEARCH_GRID_MAX_COMBINATIONS = 50      # Phase 3: グリッド最大組み合わせ数
+AI_RESEARCH_GRID_MAX_PARAMS = 3             # Phase 2: AIが指定する最大パラメータ数
+AI_RESEARCH_GRID_MAX_VALUES_PER_PARAM = 6   # Phase 2: パラメータあたり最大候補値数
+AI_RESEARCH_MIN_SIGNALS = 20        # 最小シグナル数（これ未満なら条件緩和を促す）
+AI_RESEARCH_MAX_STOCKS = 4000        # AI研究で使用する最大銘柄数（実質上限なし）
+
+STAR_STOCK_DEFAULTS = {
+    "min_total_return": 0.50,
+    "min_excess_return": 0.30,
+    "min_volume_increase_ratio": 1.5,
+    "max_auto_detect": 50,
+    # 仕手株フィルター
+    "min_market_cap_billion": 50.0,
+    "max_drawdown_from_peak": 0.40,
+    "max_single_day_return": 0.20,
+    "min_up_days_ratio": 0.45,
+    "require_positive_end": True,
+    # 高度分析パラメータ
+    "rolling_beta_window": 60,
+    "volume_surge_threshold": 2.0,
+    "accumulation_price_threshold": 0.005,
+    "accumulation_volume_threshold": 1.5,
+    "obv_trend_window": 60,
+    "sector_correlation_window": 60,
+    "factor_window": 60,
+    "vpin_bucket_size": 20,
+    "lead_lag_max_lag": 10,
+    "n_clusters": 4,
+    # 反復的特徴量発見パラメータ
+    "discovery_max_iterations": 5,
+    "discovery_target_precision": 0.20,
+    "discovery_min_recall": 0.30,
+    "discovery_neg_sample_size": 200,
+    "onset_min_forward_return": 0.10,
+    "onset_max_candidates": 5,
+}
+
 STANDARD_BACKTEST_DEFAULTS = {
     # ユニバース
-    "max_stocks": 50,
+    "max_stocks": 4000,
     # テクニカルシグナル
     "volume_surge_window": 20,
     "ma_deviation_window": 25,

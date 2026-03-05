@@ -2,7 +2,6 @@
 
 import json
 import threading
-import time
 from datetime import date, datetime
 
 import streamlit as st
@@ -23,8 +22,9 @@ from core.universe_filter import (
     TOPIX_SCALE_CATEGORIES,
     SECTOR_17_LIST,
 )
-from core.styles import apply_reuters_style
+from core.styles import apply_reuters_style, apply_waiting_overlay
 from core.result_display import render_result_tabs
+from core.sidebar import render_sidebar_running_indicator
 
 st.set_page_config(page_title="標準バックテスト", page_icon="R", layout="wide")
 
@@ -91,17 +91,7 @@ def _run_bt_thread(
 # ---------------------------------------------------------------------------
 def main():
     apply_reuters_style()
-
-    # サイドバー: 実行中インジケーター
-    thread = st.session_state.get("bt_thread")
-    if thread and thread.is_alive():
-        prog = st.session_state.get("bt_progress", {})
-        st.sidebar.markdown(
-            '<div class="sidebar-running">'
-            '<span class="pulse"></span> バックテスト実行中...<br>'
-            f'<small>{prog.get("message", "")}</small></div>',
-            unsafe_allow_html=True,
-        )
+    render_sidebar_running_indicator()
 
     st.markdown("# Standard Backtest")
     st.caption("パラメータ設定による定型バックテスト")
@@ -121,7 +111,8 @@ def main():
     has_result = "bt_result" in st.session_state
 
     if is_running:
-        _show_progress()
+        apply_waiting_overlay()
+        _progress_fragment()
         return
     if has_result:
         _show_result()
@@ -130,9 +121,22 @@ def main():
 
 
 # ---------------------------------------------------------------------------
-# 進捗表示
+# 進捗表示（@st.fragment で部分再描画）
 # ---------------------------------------------------------------------------
-def _show_progress():
+@st.fragment(run_every=1)
+def _progress_fragment():
+    """フラグメント内で進捗を自動更新する。"""
+    thread = st.session_state.get("bt_thread")
+    if thread is not None and not thread.is_alive():
+        # 結果を昇格させてページ全体を再描画
+        prog = st.session_state.get("bt_progress", {})
+        if "_result" in prog:
+            st.session_state["bt_result"] = prog.pop("_result")
+        elif prog.get("error"):
+            st.session_state["bt_result"] = {"error": prog["error"]}
+        st.rerun(scope="app")
+        return
+
     progress = st.session_state.get("bt_progress", {})
     start_time = st.session_state.get("bt_start_time")
 
@@ -151,9 +155,6 @@ def _show_progress():
         f"**{msg}** &nbsp; <span style='color:#999;font-size:0.9em;'>{elapsed_str}</span>",
         unsafe_allow_html=True,
     )
-
-    time.sleep(1)
-    st.rerun()
 
 
 # ---------------------------------------------------------------------------
@@ -320,20 +321,12 @@ def _show_input_form():
             end_date = st.date_input("終了日", value=date.today(), key="sbt_end")
 
         st.markdown("**実行設定**")
-        ec1, ec2 = st.columns(2)
-        with ec1:
-            max_stocks = st.number_input(
-                "対象銘柄数の上限", min_value=5, max_value=4000,
-                value=D["max_stocks"], step=50, key="sbt_max_stocks",
-                help="フィルタ条件に合致する銘柄が多い場合、ここで指定した数だけランダムに抽出して分析します。"
-                     "全銘柄を対象にしたい場合は大きな値を設定してください。数が多いほど正確ですが実行時間が長くなります。",
-            )
-        with ec2:
-            n_recent_examples = st.number_input(
-                "直近事例の表示数", min_value=5, max_value=1000,
-                value=10, step=5, key="sbt_n_examples",
-                help="結果の「直近事例」タブに表示するシグナル発動事例の件数。",
-            )
+        n_recent_examples = st.number_input(
+            "直近事例の表示数", min_value=5, max_value=1000,
+            value=10, step=5, key="sbt_n_examples",
+            help="結果の「直近事例」タブに表示するシグナル発動事例の件数。",
+        )
+        max_stocks = 4000  # 全銘柄対象
 
     # ==================================================================
     # セクション2: テクニカルシグナル
@@ -543,6 +536,153 @@ def _show_input_form():
                     key="sbt_sr_max",
                 )
 
+        st.markdown("**回転日数フィルター（信用残÷20日平均出来高）**")
+        td1, td2 = st.columns(2)
+        with td1:
+            use_buy_td_min = st.checkbox("買い残回転日数 下限", key="sbt_use_buy_td_min")
+            buy_td_min = 5.0
+            if use_buy_td_min:
+                buy_td_min = st.number_input(
+                    "買い残回転日数 下限", min_value=0.0, max_value=200.0, value=5.0, step=1.0,
+                    key="sbt_buy_td_min",
+                )
+            use_buy_td_max = st.checkbox("買い残回転日数 上限", key="sbt_use_buy_td_max")
+            buy_td_max = 30.0
+            if use_buy_td_max:
+                buy_td_max = st.number_input(
+                    "買い残回転日数 上限", min_value=0.0, max_value=200.0, value=30.0, step=1.0,
+                    key="sbt_buy_td_max",
+                )
+        with td2:
+            use_sell_td_min = st.checkbox("売り残回転日数 下限", key="sbt_use_sell_td_min")
+            sell_td_min = 5.0
+            if use_sell_td_min:
+                sell_td_min = st.number_input(
+                    "売り残回転日数 下限", min_value=0.0, max_value=200.0, value=5.0, step=1.0,
+                    key="sbt_sell_td_min",
+                )
+            use_sell_td_max = st.checkbox("売り残回転日数 上限", key="sbt_use_sell_td_max")
+            sell_td_max = 30.0
+            if use_sell_td_max:
+                sell_td_max = st.number_input(
+                    "売り残回転日数 上限", min_value=0.0, max_value=200.0, value=30.0, step=1.0,
+                    key="sbt_sell_td_max",
+                )
+
+        st.markdown("**対出来高比率フィルター（信用残÷当日出来高）**")
+        vr1, vr2 = st.columns(2)
+        with vr1:
+            use_buy_vr_min = st.checkbox("買い残対出来高比率 下限", key="sbt_use_buy_vr_min")
+            buy_vr_min = 1.0
+            if use_buy_vr_min:
+                buy_vr_min = st.number_input(
+                    "買い残対出来高比率 下限", min_value=0.0, max_value=100.0, value=1.0, step=0.5,
+                    key="sbt_buy_vr_min",
+                )
+            use_buy_vr_max = st.checkbox("買い残対出来高比率 上限", key="sbt_use_buy_vr_max")
+            buy_vr_max = 10.0
+            if use_buy_vr_max:
+                buy_vr_max = st.number_input(
+                    "買い残対出来高比率 上限", min_value=0.0, max_value=100.0, value=10.0, step=0.5,
+                    key="sbt_buy_vr_max",
+                )
+        with vr2:
+            use_sell_vr_min = st.checkbox("売り残対出来高比率 下限", key="sbt_use_sell_vr_min")
+            sell_vr_min = 1.0
+            if use_sell_vr_min:
+                sell_vr_min = st.number_input(
+                    "売り残対出来高比率 下限", min_value=0.0, max_value=100.0, value=1.0, step=0.5,
+                    key="sbt_sell_vr_min",
+                )
+            use_sell_vr_max = st.checkbox("売り残対出来高比率 上限", key="sbt_use_sell_vr_max")
+            sell_vr_max = 10.0
+            if use_sell_vr_max:
+                sell_vr_max = st.number_input(
+                    "売り残対出来高比率 上限", min_value=0.0, max_value=100.0, value=10.0, step=0.5,
+                    key="sbt_sell_vr_max",
+                )
+
+        st.markdown("**前週比変化率フィルター**")
+        ch1, ch2, ch3 = st.columns(3)
+        with ch1:
+            use_buy_chg_min = st.checkbox("買い残変化率 下限", key="sbt_use_buy_chg_min")
+            buy_chg_min = 10.0
+            if use_buy_chg_min:
+                buy_chg_min = st.number_input(
+                    "買い残変化率 下限(%)", min_value=-100.0, max_value=500.0, value=10.0, step=5.0,
+                    key="sbt_buy_chg_min",
+                )
+            use_buy_chg_max = st.checkbox("買い残変化率 上限", key="sbt_use_buy_chg_max")
+            buy_chg_max = -5.0
+            if use_buy_chg_max:
+                buy_chg_max = st.number_input(
+                    "買い残変化率 上限(%)", min_value=-100.0, max_value=500.0, value=-5.0, step=5.0,
+                    key="sbt_buy_chg_max",
+                )
+        with ch2:
+            use_sell_chg_min = st.checkbox("売り残変化率 下限", key="sbt_use_sell_chg_min")
+            sell_chg_min = 10.0
+            if use_sell_chg_min:
+                sell_chg_min = st.number_input(
+                    "売り残変化率 下限(%)", min_value=-100.0, max_value=500.0, value=10.0, step=5.0,
+                    key="sbt_sell_chg_min",
+                )
+            use_sell_chg_max = st.checkbox("売り残変化率 上限", key="sbt_use_sell_chg_max")
+            sell_chg_max = -5.0
+            if use_sell_chg_max:
+                sell_chg_max = st.number_input(
+                    "売り残変化率 上限(%)", min_value=-100.0, max_value=500.0, value=-5.0, step=5.0,
+                    key="sbt_sell_chg_max",
+                )
+        with ch3:
+            use_mr_chg_min = st.checkbox("貸借倍率変化率 下限", key="sbt_use_mr_chg_min")
+            mr_chg_min = 10.0
+            if use_mr_chg_min:
+                mr_chg_min = st.number_input(
+                    "貸借倍率変化率 下限(%)", min_value=-100.0, max_value=500.0, value=10.0, step=5.0,
+                    key="sbt_mr_chg_min",
+                )
+            use_mr_chg_max = st.checkbox("貸借倍率変化率 上限", key="sbt_use_mr_chg_max")
+            mr_chg_max = -5.0
+            if use_mr_chg_max:
+                mr_chg_max = st.number_input(
+                    "貸借倍率変化率 上限(%)", min_value=-100.0, max_value=500.0, value=-5.0, step=5.0,
+                    key="sbt_mr_chg_max",
+                )
+
+        st.markdown("**対出来高比率の前週比変化率フィルター**")
+        vc1, vc2 = st.columns(2)
+        with vc1:
+            use_buy_vrc_min = st.checkbox("買い残対出来高比率変化率 下限", key="sbt_use_buy_vrc_min")
+            buy_vrc_min = 10.0
+            if use_buy_vrc_min:
+                buy_vrc_min = st.number_input(
+                    "買い残対出来高比率変化率 下限(%)", min_value=-100.0, max_value=500.0, value=10.0, step=5.0,
+                    key="sbt_buy_vrc_min",
+                )
+            use_buy_vrc_max = st.checkbox("買い残対出来高比率変化率 上限", key="sbt_use_buy_vrc_max")
+            buy_vrc_max = -5.0
+            if use_buy_vrc_max:
+                buy_vrc_max = st.number_input(
+                    "買い残対出来高比率変化率 上限(%)", min_value=-100.0, max_value=500.0, value=-5.0, step=5.0,
+                    key="sbt_buy_vrc_max",
+                )
+        with vc2:
+            use_sell_vrc_min = st.checkbox("売り残対出来高比率変化率 下限", key="sbt_use_sell_vrc_min")
+            sell_vrc_min = 10.0
+            if use_sell_vrc_min:
+                sell_vrc_min = st.number_input(
+                    "売り残対出来高比率変化率 下限(%)", min_value=-100.0, max_value=500.0, value=10.0, step=5.0,
+                    key="sbt_sell_vrc_min",
+                )
+            use_sell_vrc_max = st.checkbox("売り残対出来高比率変化率 上限", key="sbt_use_sell_vrc_max")
+            sell_vrc_max = -5.0
+            if use_sell_vrc_max:
+                sell_vrc_max = st.number_input(
+                    "売り残対出来高比率変化率 上限(%)", min_value=-100.0, max_value=500.0, value=-5.0, step=5.0,
+                    key="sbt_sell_vrc_max",
+                )
+
     # ==================================================================
     # セクション4: 測定・コスト設定
     # ==================================================================
@@ -582,7 +722,7 @@ def _show_input_form():
     # ==================================================================
     # 実行ボタン
     # ==================================================================
-    if st.button("バックテスト実行", type="primary", use_container_width=True):
+    if st.button("バックテスト実行", type="primary", width='stretch'):
         # --- SignalConfig 構築 ---
         sig_cfg = SignalConfig(
             consecutive_bullish_days=bullish_days if use_bullish else None,
@@ -616,6 +756,24 @@ def _show_input_form():
             margin_ratio_min=margin_ratio_min if use_margin_min else None,
             margin_ratio_max=margin_ratio_max if use_margin_max else None,
             short_selling_ratio_max=short_ratio_max if use_short_ratio else None,
+            margin_buy_change_pct_min=buy_chg_min if use_buy_chg_min else None,
+            margin_buy_change_pct_max=buy_chg_max if use_buy_chg_max else None,
+            margin_sell_change_pct_min=sell_chg_min if use_sell_chg_min else None,
+            margin_sell_change_pct_max=sell_chg_max if use_sell_chg_max else None,
+            margin_ratio_change_pct_min=mr_chg_min if use_mr_chg_min else None,
+            margin_ratio_change_pct_max=mr_chg_max if use_mr_chg_max else None,
+            margin_buy_turnover_days_min=buy_td_min if use_buy_td_min else None,
+            margin_buy_turnover_days_max=buy_td_max if use_buy_td_max else None,
+            margin_sell_turnover_days_min=sell_td_min if use_sell_td_min else None,
+            margin_sell_turnover_days_max=sell_td_max if use_sell_td_max else None,
+            margin_buy_vol_ratio_min=buy_vr_min if use_buy_vr_min else None,
+            margin_buy_vol_ratio_max=buy_vr_max if use_buy_vr_max else None,
+            margin_sell_vol_ratio_min=sell_vr_min if use_sell_vr_min else None,
+            margin_sell_vol_ratio_max=sell_vr_max if use_sell_vr_max else None,
+            margin_buy_vol_ratio_change_pct_min=buy_vrc_min if use_buy_vrc_min else None,
+            margin_buy_vol_ratio_change_pct_max=buy_vrc_max if use_buy_vrc_max else None,
+            margin_sell_vol_ratio_change_pct_min=sell_vrc_min if use_sell_vrc_min else None,
+            margin_sell_vol_ratio_change_pct_max=sell_vrc_max if use_sell_vrc_max else None,
             holding_period_days=holding_days,
             signal_logic="AND" if "AND" in signal_logic else "OR",
         )

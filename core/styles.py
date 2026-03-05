@@ -183,10 +183,22 @@ button[data-testid="stBaseButton-primary"]:hover {
     background-color: var(--r-accent) !important;
 }
 
-/* Tab styling */
+/* Tab styling — institutional dark */
+.stTabs [data-baseweb="tab-list"] button {
+    font-size: 0.82em !important;
+    font-weight: 600 !important;
+    letter-spacing: 0.04em !important;
+    text-transform: uppercase !important;
+}
 .stTabs [data-baseweb="tab-list"] button[aria-selected="true"] {
-    border-bottom-color: var(--r-accent) !important;
-    color: var(--r-accent) !important;
+    border-bottom-color: var(--r-text) !important;
+    color: var(--r-text) !important;
+}
+
+/* Expander — clean borders */
+.stExpander {
+    border: 1px solid var(--r-border) !important;
+    border-radius: 2px !important;
 }
 
 /* Divider */
@@ -194,7 +206,37 @@ button[data-testid="stBaseButton-primary"]:hover {
     border-color: var(--r-border);
 }
 
-/* Remove emoji-heavy default styling */
+/* Links — accent color */
 .stApp .stMarkdown a { color: var(--r-accent); }
+
+/* Metric value override — darker text */
+[data-testid="stMetricValue"] {
+    color: var(--r-text) !important;
+    font-weight: 700 !important;
+}
+
+/* Waiting overlay — dim page header while background task runs */
+.waiting-overlay .stApp h1,
+.waiting-overlay .stApp .stCaption {
+    opacity: 0.4;
+}
+.waiting-dimmed h1,
+.waiting-dimmed [data-testid="stCaptionContainer"] {
+    opacity: 0.4;
+    pointer-events: none;
+}
 </style>
 """
+
+
+def apply_waiting_overlay() -> None:
+    """待機中のページヘッダーを薄く表示するCSSを注入する"""
+    st.markdown(
+        """<style>
+        .stApp h1, .stApp [data-testid="stCaptionContainer"] {
+            opacity: 0.4;
+            pointer-events: none;
+        }
+        </style>""",
+        unsafe_allow_html=True,
+    )
