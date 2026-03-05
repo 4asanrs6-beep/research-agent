@@ -253,7 +253,7 @@ def main():
             }
             for s in star_stocks_input[:10]
         ])
-        st.dataframe(preview_df, use_container_width=True, hide_index=True)
+        st.dataframe(preview_df, width="stretch", hide_index=True)
         if len(star_stocks_input) > 10:
             st.caption(f"...他 {len(star_stocks_input) - 10}件")
     else:
@@ -285,7 +285,7 @@ def main():
     col1, col2 = st.columns([2, 8])
     with col1:
         run_clicked = st.button(
-            "Phase 1 実行", type="primary", use_container_width=True,
+            "Phase 1 実行", type="primary", width="stretch",
         )
 
     # --- パイプライン実行（session_stateでスレッド管理 → 画面復帰時も継続） ---
@@ -506,7 +506,7 @@ def _display_match_stats_and_examples(combo: dict):
         )
         st.dataframe(
             pd.DataFrame(rows),
-            use_container_width=True,
+            width="stretch",
             hide_index=True,
             height=min(len(rows) * 38 + 40, 420),
         )
@@ -810,7 +810,7 @@ def _display_probability_summary(result: dict):
                         "Lift": f"{c['lift']:.1f}倍",
                         "合致": f"{total_hits}件中{tp}件スター株",
                     })
-                st.dataframe(pd.DataFrame(ref_rows), use_container_width=True, hide_index=True)
+                st.dataframe(pd.DataFrame(ref_rows), width="stretch", hide_index=True)
 
         else:
             # 母集団精度がない場合（旧データ互換）
@@ -975,7 +975,7 @@ def _display_probability_summary(result: dict):
             ) if has_excess else dict(visible=False),
             showlegend=has_excess,
         )
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width="stretch")
     else:
         st.info("初動後リターンのデータがありません（初動日が特定されていない可能性があります）")
 
@@ -1112,7 +1112,7 @@ def _display_method_comparison(common_features: dict):
     if rows:
         st.dataframe(
             pd.DataFrame(rows),
-            use_container_width=True,
+            width="stretch",
             hide_index=True,
         )
     else:
@@ -1133,7 +1133,7 @@ def _display_method_comparison(common_features: dict):
                     "重み": f"{f['weight']:.3f}",
                     "閾値": f"{f['threshold']:.4f}",
                 })
-            st.dataframe(pd.DataFrame(w_rows), use_container_width=True, hide_index=True)
+            st.dataframe(pd.DataFrame(w_rows), width="stretch", hide_index=True)
 
             if ws.get("all_results"):
                 st.markdown("**スコア閾値別の精度推移:**")
@@ -1147,7 +1147,7 @@ def _display_method_comparison(common_features: dict):
                         "合致数": r["n_hits"],
                         "F1": f"{r['f1']:.3f}",
                     })
-                st.dataframe(pd.DataFrame(th_rows), use_container_width=True, hide_index=True)
+                st.dataframe(pd.DataFrame(th_rows), width="stretch", hide_index=True)
 
     # 決定木詳細
     if dt_best:
@@ -1181,7 +1181,7 @@ def _display_method_comparison(common_features: dict):
                     "合致数": r["n_hits"],
                     "F1": f"{r['f1']:.3f}",
                 })
-            st.dataframe(pd.DataFrame(p_rows), use_container_width=True, hide_index=True)
+            st.dataframe(pd.DataFrame(p_rows), width="stretch", hide_index=True)
 
     # ベースレート参考
     if base_rate_universe > 0:
@@ -1439,7 +1439,7 @@ def _display_common_features(common_features: dict):
                     zeroline=True, zerolinecolor="#E0E0E0",
                 ),
             )
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width="stretch")
 
     # ================================================================
     # Section 2: ランキングチャート（Youden's J — 判別力）
@@ -1496,7 +1496,7 @@ def _display_common_features(common_features: dict):
         xaxis=dict(title="判別力 Youden's J（0.0〜1.0）", range=[0, 1.05]),
         font=dict(size=11),
     )
-    st.plotly_chart(fig_rank, use_container_width=True)
+    st.plotly_chart(fig_rank, width="stretch")
 
     # 全特徴量ランキング（折りたたみ）
     with st.expander(f"全特徴量ランキング（{len(useful_signals)}件）", expanded=False):
@@ -1515,7 +1515,7 @@ def _display_common_features(common_features: dict):
                 "倍率": ratio_str,
                 "判定": s.get("verdict", ""),
             })
-        st.dataframe(pd.DataFrame(rank_rows), use_container_width=True, hide_index=True)
+        st.dataframe(pd.DataFrame(rank_rows), width="stretch", hide_index=True)
 
     # ================================================================
     # Section 2.5: 相関分析 — 冗長特徴量の排除結果
@@ -1588,7 +1588,7 @@ def _display_common_features(common_features: dict):
                     margin=dict(l=10, r=10, t=10, b=10),
                     font=dict(size=9),
                 )
-                st.plotly_chart(fig_corr, use_container_width=True)
+                st.plotly_chart(fig_corr, width="stretch")
                 st.caption(
                     f"|相関| ≧ {corr_th} のペアは同じ情報を測定していると判断し、"
                     f"J統計量が低い方を排除。"
@@ -1619,7 +1619,7 @@ def _display_common_features(common_features: dict):
             })
             rows.append(row)
         df = pd.DataFrame(rows)
-        st.dataframe(df, use_container_width=True, hide_index=True)
+        st.dataframe(df, width="stretch", hide_index=True)
 
     # ================================================================
     # Section 4: ベスト特徴量コンボ
@@ -1691,7 +1691,7 @@ def _display_common_features(common_features: dict):
                     "再現率": f"{c['recall']:.0%}",
                     "Lift": f"{c['lift']:.1f}x",
                 })
-            st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+            st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
     else:
         st.info("特徴量コンボが見つかりませんでした")
 
@@ -1755,7 +1755,7 @@ def _display_star_list(
                 ] * len(row),
                 axis=1,
             ),
-            use_container_width=True, hide_index=True,
+            width="stretch", hide_index=True,
         )
 
 
@@ -1824,7 +1824,7 @@ def _display_onset_timeline(all_stars: list, onset_dates: dict):
                 ] * len(row),
                 axis=1,
             ),
-            use_container_width=True, hide_index=True,
+            width="stretch", hide_index=True,
         )
 
     # シグナル頻度
@@ -1856,7 +1856,7 @@ def _display_onset_timeline(all_stars: list, onset_dates: dict):
             xaxis_title="発火回数",
             font=dict(size=11),
         )
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width="stretch")
 
 
 def _display_individual_detail(all_stars: list, onset_dates: dict, common_features: dict):

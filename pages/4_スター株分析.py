@@ -294,7 +294,7 @@ def _show_input_form():
     st.markdown("---")
 
     # 実行ボタン
-    if st.button("分析開始", type="primary", use_container_width=True):
+    if st.button("分析開始", type="primary", width="stretch"):
         user_codes = []
         if user_codes_text.strip():
             user_codes = [_normalize_code(c) for c in user_codes_text.split(",") if c.strip()]
@@ -451,7 +451,7 @@ def _tab_star_stock_list(result: StarStockResult):
         })
 
     df = pd.DataFrame(rows)
-    st.dataframe(df, use_container_width=True, height=min(len(df) * 38 + 40, 600))
+    st.dataframe(df, width="stretch", height=min(len(df) * 38 + 40, 600))
 
     # サマリーメトリクス
     mc1, mc2, mc3, mc4 = st.columns(4)
@@ -546,7 +546,7 @@ def _tab_common_features(result: StarStockResult):
                     "識別スコア": f"{cs.get('discriminative_score', 0):.3f}",
                     "二重特異": "Yes" if is_ds else "",
                 })
-            st.dataframe(pd.DataFrame(combo_rows), use_container_width=True, hide_index=True, key="ss_combo_validation")
+            st.dataframe(pd.DataFrame(combo_rows), width="stretch", hide_index=True, key="ss_combo_validation")
 
             # Precision棒グラフ（組み合わせ）
             fig_combo = go.Figure()
@@ -572,7 +572,7 @@ def _tab_common_features(result: StarStockResult):
                 xaxis_title="Precision (%)", height=max(350, len(combo_labels) * 25 + 100),
                 yaxis=dict(autorange="reversed"),
             )
-            st.plotly_chart(fig_combo, use_container_width=True, key="ss_combo_chart")
+            st.plotly_chart(fig_combo, width="stretch", key="ss_combo_chart")
 
             st.markdown(
                 "**読み方**: Precision 30% = この組み合わせ条件を満たす銘柄の30%がスター株。"
@@ -616,7 +616,7 @@ def _tab_common_features(result: StarStockResult):
                 yaxis_title="タイミングスコア（タイミング特異性）",
                 height=450,
             )
-            st.plotly_chart(fig_ds, use_container_width=True, key="ss_double_specificity_map")
+            st.plotly_chart(fig_ds, width="stretch", key="ss_double_specificity_map")
 
         # --- 個別シグナル（参考） ---
         with st.expander("個別シグナル詳細（参考）"):
@@ -641,7 +641,7 @@ def _tab_common_features(result: StarStockResult):
                     "識別スコア": f"{sig.get('discriminative_score', 0):.3f}",
                     "判定": sig["verdict"],
                 })
-            st.dataframe(pd.DataFrame(sv_rows), use_container_width=True, hide_index=True, key="ss_signal_validation")
+            st.dataframe(pd.DataFrame(sv_rows), width="stretch", hide_index=True, key="ss_signal_validation")
 
             # Liftの棒グラフ
             fig_lift = go.Figure()
@@ -654,7 +654,7 @@ def _tab_common_features(result: StarStockResult):
             fig_lift.update_layout(
                 title="個別シグナルのLift値", yaxis_title="Lift", height=300,
             )
-            st.plotly_chart(fig_lift, use_container_width=True, key="ss_lift_chart")
+            st.plotly_chart(fig_lift, width="stretch", key="ss_lift_chart")
     else:
         st.info("シグナル検証が実行されていません。")
 
@@ -679,7 +679,7 @@ def _tab_common_features(result: StarStockResult):
                 "最大": f"{np.max(arr):.4f}",
             })
         if stat_rows:
-            st.dataframe(pd.DataFrame(stat_rows), use_container_width=True, hide_index=True, key="ss_signal_stats")
+            st.dataframe(pd.DataFrame(stat_rows), width="stretch", hide_index=True, key="ss_signal_stats")
 
     # --- セクター分布 ---
     st.markdown("### セクター構成")
@@ -691,7 +691,7 @@ def _tab_common_features(result: StarStockResult):
         {"セクター": k, "銘柄数": v, "比率": f"{v/len(stocks):.0%}"}
         for k, v in sorted(sectors.items(), key=lambda x: x[1], reverse=True)
     ])
-    st.dataframe(sector_df, use_container_width=True, hide_index=True, key="ss_sector_dist")
+    st.dataframe(sector_df, width="stretch", hide_index=True, key="ss_sector_dist")
 
     # --- 指標の分布（箱ひげ図） ---
     st.markdown("### 主要指標の分布")
@@ -706,7 +706,7 @@ def _tab_common_features(result: StarStockResult):
             row=1, col=i + 1,
         )
     fig_box.update_layout(height=350, showlegend=False, title_text="スター株の主要指標分布")
-    st.plotly_chart(fig_box, use_container_width=True, key="ss_box_dist")
+    st.plotly_chart(fig_box, width="stretch", key="ss_box_dist")
 
     # --- 特徴量ヒートマップ ---
     st.markdown("### 銘柄別シグナル一覧")
@@ -744,7 +744,7 @@ def _tab_common_features(result: StarStockResult):
         height=max(400, top_n * 28 + 120),
         yaxis=dict(autorange="reversed"),
     )
-    st.plotly_chart(fig, use_container_width=True, key="ss_heatmap")
+    st.plotly_chart(fig, width="stretch", key="ss_heatmap")
 
     # AI要約（折りたたみ）
     if result.common_features_summary:
@@ -800,7 +800,7 @@ def _tab_foreign_flow(result: StarStockResult):
         yaxis_title="銘柄数",
         height=350,
     )
-    st.plotly_chart(fig_dist, use_container_width=True, key="ss_flow_dist")
+    st.plotly_chart(fig_dist, width="stretch", key="ss_flow_dist")
 
     # プロキシ指標テーブル
     st.markdown("#### プロキシ指標別分析")
@@ -824,7 +824,7 @@ def _tab_foreign_flow(result: StarStockResult):
         rows.append(row)
 
     if rows:
-        st.dataframe(pd.DataFrame(rows), use_container_width=True, key="ss_flow_table")
+        st.dataframe(pd.DataFrame(rows), width="stretch", key="ss_flow_table")
 
     # VPIN時系列チャート（上位5銘柄）
     st.markdown("#### VPIN時系列（上位5銘柄）")
@@ -844,7 +844,7 @@ def _tab_foreign_flow(result: StarStockResult):
         xaxis_title="期間（サンプルポイント）",
         height=350,
     )
-    st.plotly_chart(fig_vpin, use_container_width=True, key="ss_vpin_chart")
+    st.plotly_chart(fig_vpin, width="stretch", key="ss_vpin_chart")
 
 
 # ---------------------------------------------------------------------------
@@ -883,7 +883,7 @@ def _tab_factor_analysis(result: StarStockResult):
             title="ファクターα分布（正の値 = ファクターで説明できない超過リターン）",
             xaxis_title="日次α", yaxis_title="銘柄数", height=350,
         )
-        st.plotly_chart(fig_alpha, use_container_width=True, key="ss_alpha_dist")
+        st.plotly_chart(fig_alpha, width="stretch", key="ss_alpha_dist")
 
     # ファクター露出散布図
     st.markdown("#### ファクター露出マップ")
@@ -910,7 +910,7 @@ def _tab_factor_analysis(result: StarStockResult):
             yaxis_title="日次α（説明できないリターン）",
             height=450,
         )
-        st.plotly_chart(fig_scatter, use_container_width=True, key="ss_factor_scatter")
+        st.plotly_chart(fig_scatter, width="stretch", key="ss_factor_scatter")
 
     # テーブル
     st.markdown("#### ファクター分解詳細")
@@ -927,7 +927,7 @@ def _tab_factor_analysis(result: StarStockResult):
             "R²": f"{s.get('factor_r_squared', 0):.3f}",
         })
     if factor_rows:
-        st.dataframe(pd.DataFrame(factor_rows), use_container_width=True, key="ss_factor_table")
+        st.dataframe(pd.DataFrame(factor_rows), width="stretch", key="ss_factor_table")
 
 
 # ---------------------------------------------------------------------------
@@ -988,7 +988,7 @@ def _tab_typology(result: StarStockResult):
             yaxis_title=f"PC2 ({variance[1]:.1%})" if len(variance) > 1 else "PC2",
             height=500,
         )
-        st.plotly_chart(fig_pca, use_container_width=True, key="ss_pca")
+        st.plotly_chart(fig_pca, width="stretch", key="ss_pca")
 
     # --- 各クラスターの深堀り ---
     st.markdown("### クラスター別 詳細分析")
@@ -1042,7 +1042,7 @@ def _tab_typology(result: StarStockResult):
                     "スター化開始": s.get("star_onset_date", ""),
                 })
             st.dataframe(
-                pd.DataFrame(mem_rows), use_container_width=True, hide_index=True,
+                pd.DataFrame(mem_rows), width="stretch", hide_index=True,
                 key=f"ss_cluster_{c_id}_members",
             )
 
@@ -1089,7 +1089,7 @@ def _tab_typology(result: StarStockResult):
                         title=f"{header} 特徴量プロファイル",
                         showlegend=False,
                     )
-                    st.plotly_chart(fig_radar, use_container_width=True, key=f"ss_radar_{c_id}")
+                    st.plotly_chart(fig_radar, width="stretch", key=f"ss_radar_{c_id}")
         except Exception as e:
             st.caption(f"レーダーチャート描画エラー: {e}")
 
@@ -1129,7 +1129,7 @@ def _tab_typology(result: StarStockResult):
             ),
         ))
         fig_sankey.update_layout(title="Lead-Lag関係（Granger因果）", height=500)
-        st.plotly_chart(fig_sankey, use_container_width=True, key="ss_sankey")
+        st.plotly_chart(fig_sankey, width="stretch", key="ss_sankey")
 
         # Lead-Lagテーブル
         ll_rows = []
@@ -1142,7 +1142,7 @@ def _tab_typology(result: StarStockResult):
                 "p値": f"{p['p_value']:.4f}",
             })
         if ll_rows:
-            st.dataframe(pd.DataFrame(ll_rows), use_container_width=True, key="ss_ll_table")
+            st.dataframe(pd.DataFrame(ll_rows), width="stretch", key="ss_ll_table")
 
 
 # ---------------------------------------------------------------------------
@@ -1185,7 +1185,7 @@ def _tab_prediction_model(result: StarStockResult):
                 "p値": f"{p_values[i]:.4f}" if i < len(p_values) else "",
                 "判定": "有意" if is_sig else "",
             })
-        st.dataframe(pd.DataFrame(rows), use_container_width=True, key="ss_famamacbeth")
+        st.dataframe(pd.DataFrame(rows), width="stretch", key="ss_famamacbeth")
 
     if sig:
         sig_jp = [feature_labels_map.get(f, f) for f in sig]
@@ -1243,7 +1243,7 @@ def _tab_early_detection(result: StarStockResult):
             "変化点詳細": cp_types,
             "レジーム数": s.get("n_regimes", 1),
         })
-    st.dataframe(pd.DataFrame(onset_rows), use_container_width=True, hide_index=True, key="ss_onset_summary")
+    st.dataframe(pd.DataFrame(onset_rows), width="stretch", hide_index=True, key="ss_onset_summary")
 
     # --- Onset候補テーブル ---
     sv = result.signal_validation
@@ -1267,7 +1267,7 @@ def _tab_early_detection(result: StarStockResult):
                         "選択": "Yes" if is_selected else "",
                     })
             if cand_rows:
-                st.dataframe(pd.DataFrame(cand_rows), use_container_width=True, hide_index=True, key="ss_onset_candidates")
+                st.dataframe(pd.DataFrame(cand_rows), width="stretch", hide_index=True, key="ss_onset_candidates")
 
     # --- 変化点詳細テーブル ---
     st.markdown("### 変化点詳細")
@@ -1287,7 +1287,7 @@ def _tab_early_detection(result: StarStockResult):
             })
 
     if cp_rows:
-        st.dataframe(pd.DataFrame(cp_rows), use_container_width=True, hide_index=True, key="ss_changepoints")
+        st.dataframe(pd.DataFrame(cp_rows), width="stretch", hide_index=True, key="ss_changepoints")
     else:
         st.info("変化点は検出されませんでした。")
 
@@ -1304,7 +1304,7 @@ def _tab_early_detection(result: StarStockResult):
                 title="スター化はいつ始まったか",
                 xaxis_title="日付", yaxis_title="銘柄数", height=300,
             )
-            st.plotly_chart(fig_onset, use_container_width=True, key="ss_onset_hist")
+            st.plotly_chart(fig_onset, width="stretch", key="ss_onset_hist")
 
     # --- シグナルヒートマップ（onset日前後） ---
     st.markdown("### Onsetシグナル・ヒートマップ")
@@ -1378,7 +1378,7 @@ def _tab_early_detection(result: StarStockResult):
                         xaxis_title="日付", yaxis_title="シグナル",
                         height=400,
                     )
-                    st.plotly_chart(fig_hm, use_container_width=True, key="ss_onset_heatmap")
+                    st.plotly_chart(fig_hm, width="stretch", key="ss_onset_heatmap")
 
                     # onset日のスコアサマリー
                     score = sel.get("onset_signal_score", 0)
@@ -1476,7 +1476,7 @@ def _tab_timing_candidates(result: StarStockResult):
             "直近60日リターン": f"{c.get('recent_return_60d', 0):.1%}",
             "出来高変化": f"{c.get('recent_volume_change', 1):.1f}x",
         })
-    st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True, key="ss_timing_table")
+    st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True, key="ss_timing_table")
 
     # 類似度分布
     sims = [c["similarity"] for c in candidates]
@@ -1488,7 +1488,7 @@ def _tab_timing_candidates(result: StarStockResult):
         xaxis_title="コサイン類似度（1.0 = スター化直前パターンと完全一致）",
         yaxis_title="銘柄数", height=300,
     )
-    st.plotly_chart(fig_sim, use_container_width=True, key="ss_sim_dist")
+    st.plotly_chart(fig_sim, width="stretch", key="ss_sim_dist")
 
     # 上位候補のdiscoveredコンボ特徴量を横棒グラフで比較
     if len(candidates) >= 3 and sv:
@@ -1519,7 +1519,7 @@ def _tab_timing_candidates(result: StarStockResult):
                 title="Discoveredコンボの特徴量値（上位5候補）",
                 xaxis_title="特徴量値",
             )
-            st.plotly_chart(fig_bar, use_container_width=True, key="ss_timing_bar")
+            st.plotly_chart(fig_bar, width="stretch", key="ss_timing_bar")
         else:
             st.info("有効なコンボが見つかっていないため、特徴量比較を表示できません。")
 

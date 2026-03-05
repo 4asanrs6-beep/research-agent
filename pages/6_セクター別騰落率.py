@@ -88,11 +88,22 @@ def load_sector_returns_table(
     result = pd.DataFrame(index=SECTOR_17_LIST)
     result.index.name = "セクター"
 
-    _, raw1d = _nearest_trading_day(
+    d1_str, raw1d = _nearest_trading_day(
         (ref_ts - timedelta(days=1)).strftime("%Y-%m-%d"), ref_date_str
     )
     if not raw1d.empty:
         result["1日"] = calc_return(filter_df(raw1d), ref_df).reindex(SECTOR_17_LIST)
+
+        # 前日比: 2営業日前→1営業日前の変動
+        if d1_str:
+            d1_ts = pd.Timestamp(d1_str)
+            _, raw2d = _nearest_trading_day(
+                (d1_ts - timedelta(days=1)).strftime("%Y-%m-%d"), d1_str
+            )
+            if not raw2d.empty:
+                result["前日騰落"] = calc_return(
+                    filter_df(raw2d), filter_df(raw1d)
+                ).reindex(SECTOR_17_LIST)
 
     _, raw5d = _nearest_trading_day(
         (ref_ts - timedelta(days=7)).strftime("%Y-%m-%d"), ref_date_str
@@ -135,10 +146,12 @@ with st.sidebar:
 
     with st.expander("カスタム期間を追加"):
         use_custom = st.checkbox("カスタム期間列を表示", value=False)
+        custom_max = end_date - timedelta(days=1)
+        custom_default = min(today - timedelta(days=90), custom_max)
         custom_start = st.date_input(
             "開始日",
-            value=today - timedelta(days=90),
-            max_value=end_date - timedelta(days=1),
+            value=custom_default,
+            max_value=custom_max,
             disabled=not use_custom,
         )
 
@@ -217,7 +230,7 @@ for col in numeric_cols:
 st.dataframe(
     styled,
     column_config=col_config,
-    use_container_width=True,
+    width="stretch",
     height=660,
     hide_index=True,
 )
@@ -264,4 +277,4 @@ fig.update_layout(
     margin=dict(l=10, r=120, t=10, b=40),
 )
 
-st.plotly_chart(fig, use_container_width=True)
+st.plotly_chart(fig, width="stretch")

@@ -102,11 +102,22 @@ def load_stock_returns(
     result["銘柄名"] = pd.Series(name_map)
     result["規模区分"] = pd.Series(scale_map)
 
-    _, raw1d = _nearest_trading_day(
+    d1_str, raw1d = _nearest_trading_day(
         (ref_ts - timedelta(days=1)).strftime("%Y-%m-%d"), ref_date_str
     )
     if not raw1d.empty:
         result["1日"] = calc_ret(filter_to_sector(raw1d), ref_df)
+
+        # 前日比: 2営業日前→1営業日前の変動
+        if d1_str:
+            d1_ts = pd.Timestamp(d1_str)
+            _, raw2d = _nearest_trading_day(
+                (d1_ts - timedelta(days=1)).strftime("%Y-%m-%d"), d1_str
+            )
+            if not raw2d.empty:
+                result["前日騰落"] = calc_ret(
+                    filter_to_sector(raw2d), filter_to_sector(raw1d)
+                )
 
     _, raw5d = _nearest_trading_day(
         (ref_ts - timedelta(days=7)).strftime("%Y-%m-%d"), ref_date_str
@@ -201,10 +212,12 @@ with st.sidebar:
 
     with st.expander("カスタム期間を追加"):
         use_custom = st.checkbox("カスタム期間列を表示", value=False)
+        custom_max = end_date - timedelta(days=1)
+        custom_default = min(today - timedelta(days=90), custom_max)
         custom_start = st.date_input(
             "開始日",
-            value=today - timedelta(days=90),
-            max_value=end_date - timedelta(days=1),
+            value=custom_default,
+            max_value=custom_max,
             disabled=not use_custom,
         )
 
@@ -297,7 +310,7 @@ styled = _styler_color(
     ret_cols,
 )
 
-st.dataframe(styled, use_container_width=True, height=700)
+st.dataframe(styled, width="stretch", height=700)
 
 st.divider()
 
@@ -351,4 +364,4 @@ fig.update_layout(
     margin=dict(l=10, r=120, t=10, b=40),
 )
 
-st.plotly_chart(fig, use_container_width=True)
+st.plotly_chart(fig, width="stretch")
