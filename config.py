@@ -124,3 +124,7 @@ STANDARD_BACKTEST_DEFAULTS = {
     # シグナル結合
     "signal_logic": "AND",
 }
+
+# Qlib統合設定
+QLIB_DATA_DIR = STORAGE_DIR / "qlib_data" / "jp_data"
+QLIB_DATA_DIR.mkdir(parents=True, exist_ok=True)

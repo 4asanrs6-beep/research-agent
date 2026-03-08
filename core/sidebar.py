@@ -12,12 +12,16 @@ def render_sidebar_running_indicator():
     rp_thread = st.session_state.get("rp_thread")
     bt_thread = st.session_state.get("bt_thread")
     ss_thread = st.session_state.get("ss_thread")
+    ql_thread = st.session_state.get("qlib_exp_thread")
+    ql_conv_thread = st.session_state.get("qlib_convert_thread")
 
     rp_alive = rp_thread is not None and rp_thread.is_alive()
     bt_alive = bt_thread is not None and bt_thread.is_alive()
     ss_alive = ss_thread is not None and ss_thread.is_alive()
+    ql_alive = ql_thread is not None and ql_thread.is_alive()
+    ql_conv_alive = ql_conv_thread is not None and ql_conv_thread.is_alive()
 
-    if not rp_alive and not bt_alive and not ss_alive:
+    if not rp_alive and not bt_alive and not ss_alive and not ql_alive and not ql_conv_alive:
         return
 
     with st.sidebar:
@@ -53,3 +57,15 @@ def render_sidebar_running_indicator():
                 unsafe_allow_html=True,
             )
             st.page_link("pages/4_スター株分析.py", label="スター株分析ページへ移動", icon=":material/star:")
+
+        if ql_alive or ql_conv_alive:
+            prog = st.session_state.get("qlib_exp_progress", {}) if ql_alive else st.session_state.get("qlib_convert_progress", {})
+            msg = prog.get("message", "処理中...")
+            label = "Qlib実験実行中..." if ql_alive else "Qlibデータ変換中..."
+            st.markdown(
+                '<div class="sidebar-running">'
+                f'<span class="pulse"></span> {label}<br>'
+                f'<small>{msg}</small></div>',
+                unsafe_allow_html=True,
+            )
+            st.page_link("pages/8_Qlib実験.py", label="Qlib実験ページへ移動", icon=":material/model_training:")
