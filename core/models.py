@@ -66,6 +66,22 @@ class Knowledge:
 
 
 @dataclass
+class AnomalyFeatureCondition:
+    feature_key: str = ""
+    operator: str = "gt"  # "gt", "lt", "gte", "lte", "between"
+    value: float | None = None
+    value_upper: float | None = None  # "between" 用
+    description: str = ""
+
+
+@dataclass
+class AnomalyRuleConfig:
+    conditions: list[dict] = field(default_factory=list)
+    logic: str = "AND"  # "AND" / "OR"
+    forward_eval_days: list[int] = field(default_factory=lambda: [1, 3, 5, 10, 20])
+
+
+@dataclass
 class StatisticsResult:
     """統計分析結果"""
     test_name: str = ""

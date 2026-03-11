@@ -102,6 +102,49 @@ STAR_STOCK_DEFAULTS = {
     "onset_max_candidates": 5,
 }
 
+ANOMALY_DEFAULTS = {
+    "forward_eval_days": [1, 3, 5, 10, 20],
+    "default_logic": "AND",
+    "template_rules": [
+        {
+            "name": "出来高ブレイクアウト",
+            "description": "出来高急増 + レンジ上限ブレイク",
+            "conditions": [
+                {"feature_key": "vol_ratio_5d_20d", "operator": "gt", "value": 2.0},
+                {"feature_key": "range_position_20d", "operator": "gt", "value": 0.8},
+            ],
+            "logic": "AND",
+        },
+        {
+            "name": "ボラ圧縮後の上放れ",
+            "description": "ボリンジャーバンド収縮後に上方ブレイク",
+            "conditions": [
+                {"feature_key": "bb_width_pctile_60d", "operator": "lt", "value": 20.0},
+                {"feature_key": "ret_5d", "operator": "gt", "value": 0.05},
+            ],
+            "logic": "AND",
+        },
+        {
+            "name": "セクター逆行高",
+            "description": "セクターに逆行して強い銘柄",
+            "conditions": [
+                {"feature_key": "sector_rel_ret_10d", "operator": "gt", "value": 0.05},
+                {"feature_key": "vol_ratio_5d_20d", "operator": "gt", "value": 1.5},
+            ],
+            "logic": "AND",
+        },
+        {
+            "name": "大型株の異常出来高",
+            "description": "売買回転急増 + ATR低下（静かな異常出来高）",
+            "conditions": [
+                {"feature_key": "turnover_change_5d_20d", "operator": "gt", "value": 1.5},
+                {"feature_key": "atr_ratio_5d_20d", "operator": "lt", "value": 0.8},
+            ],
+            "logic": "AND",
+        },
+    ],
+}
+
 STANDARD_BACKTEST_DEFAULTS = {
     # ユニバース
     "max_stocks": 4000,

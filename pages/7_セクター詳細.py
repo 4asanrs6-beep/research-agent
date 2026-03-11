@@ -13,6 +13,7 @@ import plotly.graph_objects as go
 import streamlit as st
 
 from config import JQUANTS_API_KEY, MARKET_DATA_DIR
+from core.sidebar import render_sidebar_running_indicator
 from core.styles import apply_reuters_style
 from core.universe_filter import MARKET_SEGMENTS, SECTOR_17_LIST
 from data.cache import DataCache
@@ -20,6 +21,7 @@ from data.jquants_provider import JQuantsProvider
 
 st.set_page_config(page_title="セクター詳細", page_icon="R", layout="wide")
 apply_reuters_style()
+render_sidebar_running_indicator()
 
 _cache = DataCache(MARKET_DATA_DIR)
 _provider = JQuantsProvider(api_key=JQUANTS_API_KEY, cache=_cache)

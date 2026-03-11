@@ -18,6 +18,7 @@ import streamlit as st
 from config import MARKET_DATA_DIR, JQUANTS_API_KEY
 from data.cache import DataCache
 from data.jquants_provider import JQuantsProvider
+from core.sidebar import render_sidebar_running_indicator
 from core.styles import apply_reuters_style
 from core.onset_detector.discoverer import (
     WIDE_FEATURE_DESCRIPTIONS_JP,
@@ -41,6 +42,7 @@ SIGNAL_JP_SHORT = {
 
 st.set_page_config(page_title="Onset検出", page_icon="R", layout="wide")
 apply_reuters_style()
+render_sidebar_running_indicator()
 
 RESULTS_DIR = Path("storage/onset_results")
 

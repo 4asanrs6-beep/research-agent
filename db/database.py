@@ -96,6 +96,29 @@ class Database:
                 CREATE INDEX IF NOT EXISTS idx_runs_plan_id ON runs(plan_id);
                 CREATE INDEX IF NOT EXISTS idx_knowledge_run_id ON knowledge(run_id);
                 CREATE INDEX IF NOT EXISTS idx_knowledge_validity ON knowledge(validity);
+
+                CREATE TABLE IF NOT EXISTS anomaly_rules (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT NOT NULL,
+                    description TEXT,
+                    features_config TEXT NOT NULL DEFAULT '{}',
+                    universe_config TEXT NOT NULL DEFAULT '{}',
+                    backtest_stats TEXT,
+                    status TEXT NOT NULL DEFAULT 'draft',
+                    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+                );
+
+                CREATE TABLE IF NOT EXISTS anomaly_scans (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    rule_id INTEGER NOT NULL,
+                    scan_date TEXT NOT NULL,
+                    results TEXT NOT NULL DEFAULT '[]',
+                    summary TEXT,
+                    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                    FOREIGN KEY (rule_id) REFERENCES anomaly_rules(id) ON DELETE CASCADE
+                );
+                CREATE INDEX IF NOT EXISTS idx_scans_rule_date ON anomaly_scans(rule_id, scan_date);
             """)
             # --- マイグレーション: 既存DBに新カラムを追加 ---
             existing = {
@@ -396,3 +419,135 @@ class Database:
     def delete_knowledge(self, knowledge_id: int) -> None:
         with self._connect() as conn:
             conn.execute("DELETE FROM knowledge WHERE id = ?", (knowledge_id,))
+
+    # === Anomaly Rules CRUD ===
+
+    def create_anomaly_rule(
+        self,
+        name: str,
+        description: str = "",
+        features_config: dict | None = None,
+        universe_config: dict | None = None,
+        status: str = "draft",
+    ) -> int:
+        with self._connect() as conn:
+            cursor = conn.execute(
+                """INSERT INTO anomaly_rules (name, description, features_config, universe_config, status)
+                   VALUES (?, ?, ?, ?, ?)""",
+                (
+                    name,
+                    description,
+                    json.dumps(features_config or {}, ensure_ascii=False),
+                    json.dumps(universe_config or {}, ensure_ascii=False),
+                    status,
+                ),
+            )
+            return cursor.lastrowid
+
+    def get_anomaly_rule(self, rule_id: int) -> dict | None:
+        with self._connect() as conn:
+            row = conn.execute("SELECT * FROM anomaly_rules WHERE id = ?", (rule_id,)).fetchone()
+            if not row:
+                return None
+            d = dict(row)
+            d["features_config"] = json.loads(d["features_config"])
+            d["universe_config"] = json.loads(d["universe_config"])
+            if d.get("backtest_stats"):
+                d["backtest_stats"] = json.loads(d["backtest_stats"])
+            return d
+
+    def list_anomaly_rules(self, status: str | None = None) -> list[dict]:
+        with self._connect() as conn:
+            if status:
+                rows = conn.execute(
+                    "SELECT * FROM anomaly_rules WHERE status = ? ORDER BY updated_at DESC",
+                    (status,),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT * FROM anomaly_rules ORDER BY updated_at DESC"
+                ).fetchall()
+            result = []
+            for r in rows:
+                d = dict(r)
+                d["features_config"] = json.loads(d["features_config"])
+                d["universe_config"] = json.loads(d["universe_config"])
+                if d.get("backtest_stats"):
+                    d["backtest_stats"] = json.loads(d["backtest_stats"])
+                result.append(d)
+            return result
+
+    def update_anomaly_rule(self, rule_id: int, **kwargs) -> None:
+        allowed = {"name", "description", "features_config", "universe_config", "backtest_stats", "status"}
+        fields = {k: v for k, v in kwargs.items() if k in allowed}
+        if not fields:
+            return
+        for json_field in ("features_config", "universe_config", "backtest_stats"):
+            if json_field in fields and isinstance(fields[json_field], (dict, list)):
+                fields[json_field] = json.dumps(fields[json_field], ensure_ascii=False)
+        fields["updated_at"] = datetime.now().isoformat()
+        set_clause = ", ".join(f"{k} = ?" for k in fields)
+        values = list(fields.values()) + [rule_id]
+        with self._connect() as conn:
+            conn.execute(f"UPDATE anomaly_rules SET {set_clause} WHERE id = ?", values)
+
+    def delete_anomaly_rule(self, rule_id: int) -> None:
+        with self._connect() as conn:
+            conn.execute("DELETE FROM anomaly_rules WHERE id = ?", (rule_id,))
+
+    # === Anomaly Scans CRUD ===
+
+    def create_anomaly_scan(
+        self,
+        rule_id: int,
+        scan_date: str,
+        results: list | None = None,
+        summary: dict | None = None,
+    ) -> int:
+        with self._connect() as conn:
+            cursor = conn.execute(
+                """INSERT INTO anomaly_scans (rule_id, scan_date, results, summary)
+                   VALUES (?, ?, ?, ?)""",
+                (
+                    rule_id,
+                    scan_date,
+                    json.dumps(results or [], ensure_ascii=False),
+                    json.dumps(summary or {}, ensure_ascii=False),
+                ),
+            )
+            return cursor.lastrowid
+
+    def list_anomaly_scans(self, rule_id: int | None = None) -> list[dict]:
+        with self._connect() as conn:
+            if rule_id:
+                rows = conn.execute(
+                    "SELECT * FROM anomaly_scans WHERE rule_id = ? ORDER BY created_at DESC",
+                    (rule_id,),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT * FROM anomaly_scans ORDER BY created_at DESC"
+                ).fetchall()
+            result = []
+            for r in rows:
+                d = dict(r)
+                d["results"] = json.loads(d["results"])
+                if d.get("summary"):
+                    d["summary"] = json.loads(d["summary"])
+                result.append(d)
+            return result
+
+    def get_anomaly_scan(self, scan_id: int) -> dict | None:
+        with self._connect() as conn:
+            row = conn.execute("SELECT * FROM anomaly_scans WHERE id = ?", (scan_id,)).fetchone()
+            if not row:
+                return None
+            d = dict(row)
+            d["results"] = json.loads(d["results"])
+            if d.get("summary"):
+                d["summary"] = json.loads(d["summary"])
+            return d
+
+    def delete_anomaly_scan(self, scan_id: int) -> None:
+        with self._connect() as conn:
+            conn.execute("DELETE FROM anomaly_scans WHERE id = ?", (scan_id,))
