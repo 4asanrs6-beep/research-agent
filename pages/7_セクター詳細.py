@@ -15,7 +15,7 @@ import streamlit as st
 from config import JQUANTS_API_KEY, MARKET_DATA_DIR
 from core.sidebar import render_sidebar_running_indicator
 from core.styles import apply_reuters_style
-from core.universe_filter import MARKET_SEGMENTS, SECTOR_17_LIST
+from core.universe_filter import MARKET_SEGMENTS, SECTOR_17_LIST, SECTOR_33_LIST
 from data.cache import DataCache
 from data.jquants_provider import JQuantsProvider
 
@@ -50,6 +50,7 @@ def load_stock_returns(
     use_custom: bool,
     custom_start: str,
     market_segments_tuple: tuple,
+    sector_type: str = "17",
 ) -> tuple[pd.DataFrame, str]:
     """セクター内銘柄の騰落率テーブルを計算する（時価総額は別途取得）。
 
@@ -57,9 +58,10 @@ def load_stock_returns(
         result_df   : index=コード, columns=[銘柄名, 1日, 5日, 1ヶ月, ...]
         ref_date_str: 基準日
     """
+    sector_col = "sector_17_name" if sector_type == "17" else "sector_33_name"
     stocks_df = _provider.get_listed_stocks()
 
-    mask = stocks_df["sector_17_name"] == sector
+    mask = stocks_df[sector_col] == sector
     if market_segments_tuple and "market_name" in stocks_df.columns:
         mask &= stocks_df["market_name"].isin(set(market_segments_tuple))
     sector_stocks = stocks_df[mask].copy()
@@ -201,6 +203,19 @@ def _styler_color(styler, cols: list[str]):
 with st.sidebar:
     st.header("設定")
 
+    # sector_type はクエリパラメータから取得（デフォルト17）
+    sector_type_key = st.query_params.get("sector_type", "17")
+    sector_type_label = "17業種" if sector_type_key == "17" else "33業種"
+    sector_type_default = 0 if sector_type_key == "17" else 1
+    sector_type = st.radio(
+        "業種分類",
+        ["17業種", "33業種"],
+        index=sector_type_default,
+        horizontal=True,
+    )
+    sector_type_key = "17" if sector_type == "17業種" else "33"
+    active_sector_list = SECTOR_17_LIST if sector_type_key == "17" else SECTOR_33_LIST
+
     today = date.today()
     end_date = st.date_input("基準日", value=today, max_value=today)
 
@@ -234,9 +249,9 @@ with st.sidebar:
 # セクター解決: query_params → session_state → セレクタ
 sector = st.query_params.get("sector", "") or st.session_state.pop("detail_sector", "")
 
-if not sector or sector not in SECTOR_17_LIST:
+if not sector or sector not in active_sector_list:
     st.title("セクター詳細")
-    sector = st.selectbox("セクターを選択", SECTOR_17_LIST)
+    sector = st.selectbox("セクターを選択", active_sector_list)
     if not sector:
         st.stop()
 
@@ -263,7 +278,7 @@ markets_tuple = (
 with st.spinner(f"{sector} の騰落率を読み込み中..."):
     try:
         result_df, ref_date_str = load_stock_returns(
-            sector, end_str, use_custom, custom_start_str, markets_tuple
+            sector, end_str, use_custom, custom_start_str, markets_tuple, sector_type_key
         )
     except Exception as e:
         st.error(f"データ取得エラー: {e}")

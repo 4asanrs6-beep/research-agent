@@ -1,4 +1,4 @@
-"""セクター別騰落率ページ — TOPIX 17業種を期間別テーブル＋棒グラフで比較
+"""セクター別騰落率ページ — TOPIX 17業種 / 33業種を期間別テーブル＋棒グラフで比較
 
 【高速化戦略】
   get_price_daily_by_date(date) → 必要な日付だけ取得
@@ -14,7 +14,7 @@ import streamlit as st
 from config import JQUANTS_API_KEY, MARKET_DATA_DIR
 from core.sidebar import render_sidebar_running_indicator
 from core.styles import apply_reuters_style
-from core.universe_filter import MARKET_SEGMENTS, SECTOR_17_LIST
+from core.universe_filter import MARKET_SEGMENTS, SECTOR_17_LIST, SECTOR_33_LIST
 from data.cache import DataCache
 from data.jquants_provider import JQuantsProvider
 
@@ -48,9 +48,13 @@ def load_sector_returns_table(
     use_custom: bool,
     custom_start: str,
     market_segments_tuple: tuple,
+    sector_type: str = "17",
 ) -> tuple[pd.DataFrame, str]:
+    sector_col = "sector_17_name" if sector_type == "17" else "sector_33_name"
+    sector_list = SECTOR_17_LIST if sector_type == "17" else SECTOR_33_LIST
+
     stocks_df = _provider.get_listed_stocks()
-    sector_map = stocks_df.set_index("code")["sector_17_name"].to_dict()
+    sector_map = stocks_df.set_index("code")[sector_col].to_dict()
     market_map = (
         stocks_df.set_index("code")["market_name"].to_dict()
         if "market_name" in stocks_df.columns
@@ -61,7 +65,7 @@ def load_sector_returns_table(
         df = raw.copy()
         df["sector"] = df["code"].map(sector_map)
         df["market_name"] = df["code"].map(market_map)
-        df = df[df["sector"].isin(SECTOR_17_LIST)]
+        df = df[df["sector"].isin(sector_list)]
         if market_segments_tuple:
             df = df[df["market_name"].isin(set(market_segments_tuple))]
         return df[["code", "adj_close", "sector"]].dropna()
@@ -87,14 +91,14 @@ def load_sector_returns_table(
     ref_df = filter_df(ref_raw)
     ref_ts = pd.Timestamp(ref_date_str)
 
-    result = pd.DataFrame(index=SECTOR_17_LIST)
+    result = pd.DataFrame(index=sector_list)
     result.index.name = "セクター"
 
     d1_str, raw1d = _nearest_trading_day(
         (ref_ts - timedelta(days=1)).strftime("%Y-%m-%d"), ref_date_str
     )
     if not raw1d.empty:
-        result["1日"] = calc_return(filter_df(raw1d), ref_df).reindex(SECTOR_17_LIST)
+        result["1日"] = calc_return(filter_df(raw1d), ref_df).reindex(sector_list)
 
         # 前日比: 2営業日前→1営業日前の変動
         if d1_str:
@@ -105,24 +109,24 @@ def load_sector_returns_table(
             if not raw2d.empty:
                 result["前日騰落"] = calc_return(
                     filter_df(raw2d), filter_df(raw1d)
-                ).reindex(SECTOR_17_LIST)
+                ).reindex(sector_list)
 
     _, raw5d = _nearest_trading_day(
         (ref_ts - timedelta(days=7)).strftime("%Y-%m-%d"), ref_date_str
     )
     if not raw5d.empty:
-        result["5日"] = calc_return(filter_df(raw5d), ref_df).reindex(SECTOR_17_LIST)
+        result["5日"] = calc_return(filter_df(raw5d), ref_df).reindex(sector_list)
 
     target_1m = (ref_ts - pd.DateOffset(months=1)).strftime("%Y-%m-%d")
     _, raw1m = _nearest_trading_day(target_1m, ref_date_str)
     if not raw1m.empty:
-        result["1ヶ月"] = calc_return(filter_df(raw1m), ref_df).reindex(SECTOR_17_LIST)
+        result["1ヶ月"] = calc_return(filter_df(raw1m), ref_df).reindex(sector_list)
 
     if use_custom and custom_start:
         _, rawc = _nearest_trading_day(custom_start, ref_date_str)
         if not rawc.empty:
             result[f"カスタム({custom_start}〜)"] = (
-                calc_return(filter_df(rawc), ref_df).reindex(SECTOR_17_LIST)
+                calc_return(filter_df(rawc), ref_df).reindex(sector_list)
             )
 
     return result, ref_date_str
@@ -134,6 +138,13 @@ def load_sector_returns_table(
 
 with st.sidebar:
     st.header("設定")
+
+    sector_type = st.radio(
+        "業種分類",
+        ["17業種", "33業種"],
+        horizontal=True,
+    )
+    sector_type_key = "17" if sector_type == "17業種" else "33"
 
     today = date.today()
     end_date = st.date_input("基準日", value=today, max_value=today)
@@ -181,7 +192,7 @@ markets_tuple = (
 with st.spinner("データ読み込み中..."):
     try:
         result_df, ref_date_str = load_sector_returns_table(
-            end_str, use_custom, custom_start_str, markets_tuple
+            end_str, use_custom, custom_start_str, markets_tuple, sector_type_key
         )
     except Exception as e:
         st.error(f"データ取得エラー: {e}")
@@ -199,7 +210,7 @@ numeric_cols = result_df.columns.tolist()
 # セクター列をリンクURLに変換してから reset_index
 display_df = result_df.reset_index()
 display_df["セクター"] = display_df["セクター"].apply(
-    lambda s: f"セクター詳細?sector={s}"
+    lambda s: f"セクター詳細?sector={s}&sector_type={sector_type_key}"
 )
 
 
@@ -233,7 +244,7 @@ st.dataframe(
     styled,
     column_config=col_config,
     width="stretch",
-    height=660,
+    height=min(660, max(400, len(result_df) * 36 + 60)),
     hide_index=True,
 )
 
@@ -266,7 +277,7 @@ fig = go.Figure(
 
 x_abs = max(abs(bar_data.min()), abs(bar_data.max())) * 1.4 if not bar_data.empty else 5
 fig.update_layout(
-    height=520,
+    height=max(520, len(bar_data) * 26 + 80),
     xaxis=dict(
         title="騰落率（%）",
         tickformat="+.1f",
