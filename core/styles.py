@@ -398,7 +398,7 @@ def render_ranking_html(
                     cells.append('<td class="num val-muted">—</td>')
                 elif isinstance(val, (int, float)):
                     cls = "val-pos" if val > 0 else ("val-neg" if val < 0 else "")
-                    cells.append(f'<td class="num {cls}">{val:+.1f}%</td>')
+                    cells.append(f'<td class="num {cls}">{val:+.2f}%</td>')
                 else:
                     cells.append(f'<td class="num">{val}</td>')
                 continue

@@ -109,16 +109,14 @@ def compute_sector_summary(
     df = ranking_df.dropna(subset=["daily_return"])
     df = df[df["sector_17_name"].isin(SECTOR_17_LIST)]
 
-    def _agg(g):
-        return pd.Series({
-            "mean_return": g["daily_return"].mean(),
-            "median_return": g["daily_return"].median(),
-            "advance": int((g["daily_return"] > 0.0001).sum()),
-            "decline": int((g["daily_return"] < -0.0001).sum()),
-            "count": len(g),
-        })
-
-    summary = df.groupby("sector_17_name").apply(_agg, include_groups=False)
+    grouped = df.groupby("sector_17_name")["daily_return"]
+    summary = pd.DataFrame({
+        "mean_return": grouped.mean(),
+        "median_return": grouped.median(),
+        "advance": grouped.apply(lambda s: int((s > 0.0001).sum())),
+        "decline": grouped.apply(lambda s: int((s < -0.0001).sum())),
+        "count": grouped.size(),
+    })
     return summary.reindex(SECTOR_17_LIST).fillna(0)
 
 
@@ -130,15 +128,14 @@ def compute_market_segment_strength(
     segments = ["プライム", "スタンダード", "グロース"]
     df = df[df["market_name"].isin(segments)]
 
-    def _agg(g):
-        return pd.Series({
-            "mean_return": g["daily_return"].mean(),
-            "advance": int((g["daily_return"] > 0.0001).sum()),
-            "decline": int((g["daily_return"] < -0.0001).sum()),
-            "count": len(g),
-        })
-
-    return df.groupby("market_name").apply(_agg, include_groups=False).reindex(segments).fillna(0)
+    grouped = df.groupby("market_name")["daily_return"]
+    result = pd.DataFrame({
+        "mean_return": grouped.mean(),
+        "advance": grouped.apply(lambda s: int((s > 0.0001).sum())),
+        "decline": grouped.apply(lambda s: int((s < -0.0001).sum())),
+        "count": grouped.size(),
+    })
+    return result.reindex(segments).fillna(0)
 
 
 def detect_new_highs_lows(
