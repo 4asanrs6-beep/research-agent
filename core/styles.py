@@ -1,5 +1,8 @@
 """Reuters風UIテーマ — CSS注入 + HTMLヘルパー関数"""
 
+from __future__ import annotations
+
+import pandas as pd
 import streamlit as st
 
 # --- 配色定数 ---
@@ -183,10 +186,22 @@ button[data-testid="stBaseButton-primary"]:hover {
     background-color: var(--r-accent) !important;
 }
 
-/* Tab styling */
+/* Tab styling — institutional dark */
+.stTabs [data-baseweb="tab-list"] button {
+    font-size: 0.82em !important;
+    font-weight: 600 !important;
+    letter-spacing: 0.04em !important;
+    text-transform: uppercase !important;
+}
 .stTabs [data-baseweb="tab-list"] button[aria-selected="true"] {
-    border-bottom-color: var(--r-accent) !important;
-    color: var(--r-accent) !important;
+    border-bottom-color: var(--r-text) !important;
+    color: var(--r-text) !important;
+}
+
+/* Expander — clean borders */
+.stExpander {
+    border: 1px solid var(--r-border) !important;
+    border-radius: 2px !important;
 }
 
 /* Divider */
@@ -194,7 +209,247 @@ button[data-testid="stBaseButton-primary"]:hover {
     border-color: var(--r-border);
 }
 
-/* Remove emoji-heavy default styling */
+/* Links — accent color */
 .stApp .stMarkdown a { color: var(--r-accent); }
+
+/* Metric value override — darker text */
+[data-testid="stMetricValue"] {
+    color: var(--r-text) !important;
+    font-weight: 700 !important;
+}
+
+/* ---------- Ranking table ---------- */
+.rank-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.82em;
+    line-height: 1.5;
+    margin-bottom: 1rem;
+}
+.rank-table thead th {
+    background: #1A1A2E;
+    color: #F5F5F5;
+    font-weight: 600;
+    padding: 8px 12px;
+    text-align: left;
+    white-space: nowrap;
+    border-bottom: 2px solid var(--r-accent);
+    letter-spacing: 0.02em;
+    font-size: 0.92em;
+}
+.rank-table thead th.num {
+    text-align: right;
+}
+.rank-table tbody tr {
+    border-bottom: 1px solid #EBEBEB;
+    transition: background 0.12s;
+}
+.rank-table tbody tr:nth-child(even) {
+    background: #FAFAFA;
+}
+.rank-table tbody tr:hover {
+    background: #FFF3E6;
+}
+.rank-table tbody td {
+    padding: 6px 12px;
+    white-space: nowrap;
+}
+.rank-table tbody td.num {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+.rank-table tbody td.rank-cell {
+    text-align: center;
+    font-weight: 700;
+    color: #999;
+    width: 36px;
+}
+.rank-table tbody td.code-cell {
+    font-weight: 600;
+    color: #1565C0;
+}
+.rank-table tbody td.name-cell {
+    max-width: 160px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.rank-table .val-pos {
+    color: #2E7D32;
+    font-weight: 600;
+}
+.rank-table .val-neg {
+    color: #C62828;
+    font-weight: 600;
+}
+.rank-table .val-hot {
+    color: #FF8000;
+    font-weight: 700;
+}
+.rank-table .val-muted {
+    color: #999;
+}
+.rank-table .tag-sector {
+    background: #F0F0F0;
+    border-radius: 3px;
+    padding: 1px 6px;
+    font-size: 0.88em;
+    color: #555;
+}
+.rank-table .tag-market {
+    background: #E8EAF6;
+    border-radius: 3px;
+    padding: 1px 6px;
+    font-size: 0.88em;
+    color: #3949AB;
+}
+
+/* Waiting overlay — dim page header while background task runs */
+.waiting-overlay .stApp h1,
+.waiting-overlay .stApp .stCaption {
+    opacity: 0.4;
+}
+.waiting-dimmed h1,
+.waiting-dimmed [data-testid="stCaptionContainer"] {
+    opacity: 0.4;
+    pointer-events: none;
+}
 </style>
 """
+
+
+def render_ranking_html(
+    df: pd.DataFrame,
+    *,
+    ret_cols: list[str] | None = None,
+    change_cols: list[str] | None = None,
+    num_cols: list[str] | None = None,
+    max_height: int = 500,
+) -> None:
+    """DataFrameをプロ仕様のHTMLランキングテーブルとして描画する。
+
+    Parameters
+    ----------
+    df : 表示するDataFrame（整形済み）
+    ret_cols : 騰落率列名リスト（+/- で色分け）
+    change_cols : 変化倍率列名リスト（2x超でオレンジ、1.5x超で緑）
+    num_cols : 右寄せにする数値列名リスト
+    max_height : テーブルの最大高さ（px）
+    """
+    if df.empty:
+        st.info("該当データなし")
+        return
+
+    ret_cols = ret_cols or []
+    change_cols = change_cols or []
+    num_cols = num_cols or []
+
+    # 自動検出: 数値列は右寄せ候補
+    auto_num = set(num_cols) | set(ret_cols)
+    for col in df.columns:
+        if col in ("#", "コード", "銘柄名", "市場", "セクター"):
+            continue
+        auto_num.add(col)
+
+    # ヘッダー生成
+    header_cells = []
+    for col in df.columns:
+        cls = ' class="num"' if col in auto_num else ""
+        header_cells.append(f"<th{cls}>{col}</th>")
+    thead = "<thead><tr>" + "".join(header_cells) + "</tr></thead>"
+
+    # ボディ生成
+    tbody_rows = []
+    for _, row in df.iterrows():
+        cells = []
+        for col in df.columns:
+            val = row[col]
+
+            # ランク列
+            if col == "#":
+                cells.append(f'<td class="rank-cell">{val}</td>')
+                continue
+
+            # コード列
+            if col == "コード":
+                cells.append(f'<td class="code-cell">{val}</td>')
+                continue
+
+            # 銘柄名列
+            if col == "銘柄名":
+                name_str = str(val) if pd.notna(val) else ""
+                cells.append(f'<td class="name-cell">{name_str}</td>')
+                continue
+
+            # セクター列
+            if col == "セクター":
+                s = str(val) if pd.notna(val) else ""
+                cells.append(f'<td><span class="tag-sector">{s}</span></td>')
+                continue
+
+            # 市場列
+            if col == "市場":
+                m = str(val) if pd.notna(val) else ""
+                cells.append(f'<td><span class="tag-market">{m}</span></td>')
+                continue
+
+            # 騰落率列
+            if col in ret_cols:
+                if pd.isna(val):
+                    cells.append('<td class="num val-muted">—</td>')
+                elif isinstance(val, (int, float)):
+                    cls = "val-pos" if val > 0 else ("val-neg" if val < 0 else "")
+                    cells.append(f'<td class="num {cls}">{val:+.2f}%</td>')
+                else:
+                    cells.append(f'<td class="num">{val}</td>')
+                continue
+
+            # 変化倍率列 (前日比, 急増倍率)
+            if col in change_cols:
+                if pd.isna(val):
+                    cells.append('<td class="num val-muted">—</td>')
+                elif isinstance(val, str):
+                    # Already formatted like "2.5x"
+                    try:
+                        num_val = float(val.replace("x", ""))
+                        cls = "val-hot" if num_val > 2.0 else ("val-pos" if num_val > 1.5 else "")
+                        cells.append(f'<td class="num {cls}">{val}</td>')
+                    except ValueError:
+                        cells.append(f'<td class="num">{val}</td>')
+                else:
+                    cells.append(f'<td class="num">{val}</td>')
+                continue
+
+            # 一般数値列
+            if col in auto_num:
+                if pd.isna(val):
+                    cells.append('<td class="num val-muted">—</td>')
+                else:
+                    cells.append(f'<td class="num">{val}</td>')
+                continue
+
+            # テキスト列
+            cells.append(f"<td>{val if pd.notna(val) else ''}</td>")
+
+        tbody_rows.append("<tr>" + "".join(cells) + "</tr>")
+
+    tbody = "<tbody>" + "".join(tbody_rows) + "</tbody>"
+
+    html = (
+        f'<div style="max-height:{max_height}px;overflow-y:auto;border:1px solid #E0E0E0;'
+        f'border-radius:4px;">'
+        f'<table class="rank-table">{thead}{tbody}</table></div>'
+    )
+    st.markdown(html, unsafe_allow_html=True)
+
+
+def apply_waiting_overlay() -> None:
+    """待機中のページヘッダーを薄く表示するCSSを注入する"""
+    st.markdown(
+        """<style>
+        .stApp h1, .stApp [data-testid="stCaptionContainer"] {
+            opacity: 0.4;
+            pointer-events: none;
+        }
+        </style>""",
+        unsafe_allow_html=True,
+    )

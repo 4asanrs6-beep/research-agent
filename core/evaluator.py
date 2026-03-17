@@ -47,68 +47,133 @@ class Evaluator:
             return self._evaluate_trade(statistics_result, backtest_result)
 
     def _evaluate_event_study(self, stats: dict | None, bt: dict | None) -> dict:
-        """イベントスタディモードの評価"""
+        """イベントスタディモードの評価
+
+        エッジの方向（ロング/ショート）を自動判定し、方向に応じたスコアリングを行う。
+        - 超過リターン正 + 有意 → ロングエッジ（シグナル銘柄を買う）
+        - 超過リターン負 + 有意 → ショートエッジ（シグナル銘柄を空売りする）
+        - 非有意 → エッジなし
+        """
         reasons = []
         stat_score = 0.0
         bt_score = 0.0
 
+        # エッジ方向の判定
+        mean_excess = 0.0
+        if bt and "error" not in bt:
+            mean_excess = bt.get("mean_excess_return", 0.0)
+        is_sig = stats.get("is_significant", False) if stats and "error" not in stats else False
+
+        if is_sig and mean_excess < 0:
+            edge_dir = "short"
+            edge_label = "ショート"
+        elif mean_excess > 0:
+            edge_dir = "long"
+            edge_label = "ロング"
+        else:
+            edge_dir = "none"
+            edge_label = None
+
         # --- 統計分析 ---
         if stats and "error" not in stats:
             p_value = stats.get("p_value", 1.0)
-            cohens_d = abs(stats.get("cohens_d", 0.0))
-            is_sig = stats.get("is_significant", False)
+            cohens_d_raw = stats.get("cohens_d", 0.0)
+            cohens_d_abs = abs(cohens_d_raw)
             n_signals = stats.get("n_signals", stats.get("n_excess", 0))
 
+            # 統計的有意性: ロングでもショートでもエッジがあればプラス評価
             if is_sig:
                 stat_score += 0.4
-                reasons.append(f"統計的に有意 (p={p_value:.4f})")
+                reasons.append(f"統計的に有意（{edge_label}方向のエッジ） (p={p_value:.4f})")
             else:
                 reasons.append(f"統計的に有意ではない (p={p_value:.4f})")
 
-            if cohens_d >= self.min_cohens_d:
+            # 効果量: 方向に関わらず絶対値で評価
+            if cohens_d_abs >= self.min_cohens_d:
                 stat_score += 0.3
-                reasons.append(f"効果量が十分 (d={cohens_d:.3f})")
+                reasons.append(f"効果量が十分 (|d|={cohens_d_abs:.3f}, {edge_label or '方向不明'})")
             else:
-                reasons.append(f"効果量が小さい (d={cohens_d:.3f})")
+                reasons.append(f"効果量が小さい (|d|={cohens_d_abs:.3f})")
 
             if n_signals >= 30:
                 stat_score += 0.1
             else:
                 reasons.append(f"サンプル数が少ない (n={n_signals})")
 
+            # 勝率: ショートの場合は反転して評価
             excess_wr = stats.get("excess_win_rate", 0)
-            if excess_wr > 0.5:
-                stat_score += 0.2
-                reasons.append(f"超過リターン勝率: {excess_wr:.1%}")
+            if edge_dir == "short":
+                short_wr = 1.0 - excess_wr
+                if short_wr > 0.5:
+                    stat_score += 0.2
+                    reasons.append(f"ショート勝率（BM下回り率）: {short_wr:.1%}")
+                else:
+                    reasons.append(f"ショート勝率が50%未満 ({short_wr:.1%})")
+            else:
+                if excess_wr > 0.5:
+                    stat_score += 0.2
+                    reasons.append(f"超過リターン勝率: {excess_wr:.1%}")
+                elif excess_wr > 0:
+                    reasons.append(f"超過リターン勝率が50%未満 ({excess_wr:.1%})")
         else:
             reasons.append("統計分析結果なし")
 
-        # --- バックテスト（超過リターン中心） ---
+        # --- バックテスト ---
         if bt and "error" not in bt:
-            mean_excess = bt.get("mean_excess_return", 0.0)
             mean_ret = bt.get("mean_return", 0.0)
             mean_bench = bt.get("mean_benchmark_return", 0.0)
             win_rate = bt.get("win_rate", 0.0)
+            excess_wr_bt = bt.get("excess_win_rate", 0)
 
-            if mean_excess > 0:
+            if edge_dir == "short":
+                # ショートエッジ: 負の超過リターン = ショートで利益
                 bt_score += 0.4
-                reasons.append(f"平均超過リターンがプラス ({mean_excess:.2%})")
+                reasons.append(
+                    f"ショートエッジ: 超過リターン {mean_excess:.2%}"
+                    f"（ショートで +{-mean_excess:.2%}）"
+                )
+                if mean_ret < mean_bench:
+                    bt_score += 0.2
+                    reasons.append(
+                        f"シグナル銘柄がBM下回り → ショート有効"
+                        f" (シグナル{mean_ret:.2%} vs TOPIX{mean_bench:.2%})"
+                    )
+                short_wr_bt = 1.0 - win_rate
+                if short_wr_bt > 0.5:
+                    bt_score += 0.2
+                    reasons.append(f"ショート勝率: {short_wr_bt:.1%}")
+                short_excess_wr = 1.0 - excess_wr_bt
+                if short_excess_wr > 0.5:
+                    bt_score += 0.2
+
+            elif edge_dir == "long":
+                # ロングエッジ
+                bt_score += 0.4
+                reasons.append(f"ロングエッジ: 超過リターン +{mean_excess:.2%}")
+                if mean_ret > mean_bench:
+                    bt_score += 0.2
+                    reasons.append(
+                        f"ベンチマーク超過"
+                        f" (シグナル{mean_ret:.2%} vs TOPIX{mean_bench:.2%})"
+                    )
+                else:
+                    reasons.append(
+                        f"ベンチマーク未達"
+                        f" (シグナル{mean_ret:.2%} vs TOPIX{mean_bench:.2%})"
+                    )
+                if win_rate > 0.5:
+                    bt_score += 0.2
+                    reasons.append(f"勝率50%超 ({win_rate:.1%})")
+                if excess_wr_bt > 0.5:
+                    bt_score += 0.2
+
             else:
+                # エッジなし（非有意 + 負）
                 reasons.append(f"平均超過リターンがマイナス ({mean_excess:.2%})")
-
-            if mean_ret > mean_bench:
-                bt_score += 0.2
-                reasons.append(f"ベンチマーク超過 (シグナル{mean_ret:.2%} vs TOPIX{mean_bench:.2%})")
-            else:
-                reasons.append(f"ベンチマーク未達 (シグナル{mean_ret:.2%} vs TOPIX{mean_bench:.2%})")
-
-            if win_rate > 0.5:
-                bt_score += 0.2
-                reasons.append(f"勝率50%超 ({win_rate:.1%})")
-
-            excess_wr = bt.get("excess_win_rate", 0)
-            if excess_wr > 0.5:
-                bt_score += 0.2
+                reasons.append(
+                    f"ベンチマーク未達"
+                    f" (シグナル{mean_ret:.2%} vs TOPIX{mean_bench:.2%})"
+                )
         else:
             reasons.append("バックテスト結果なし")
 

@@ -7,6 +7,7 @@ from db.database import Database
 from data.cache import DataCache
 from data.jquants_provider import JQuantsProvider
 from core.styles import apply_reuters_style, render_status_badge, render_card
+from core.sidebar import render_sidebar_running_indicator
 
 st.set_page_config(
     page_title="研究エージェント",
@@ -28,17 +29,7 @@ def get_data_provider():
 
 def main():
     apply_reuters_style()
-
-    # --- サイドバー: 実行中インジケーター ---
-    thread = st.session_state.get("research_thread")
-    if thread and thread.is_alive():
-        progress = st.session_state.get("research_progress", {})
-        st.sidebar.markdown(
-            '<div class="sidebar-running">'
-            '<span class="pulse"></span> 研究を実行中...<br>'
-            f'<small>{progress.get("message", "")}</small></div>',
-            unsafe_allow_html=True,
-        )
+    render_sidebar_running_indicator()
 
     # --- ヘッダー ---
     st.markdown("# Research Agent")

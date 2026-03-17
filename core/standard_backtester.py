@@ -8,6 +8,7 @@ import logging
 import threading
 import time as _time
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Callable
 
@@ -20,6 +21,18 @@ from core.signal_generator import SignalConfig, SignalGenerator
 from core.universe_filter import UniverseFilterConfig, apply_universe_filter
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class PreloadedData:
+    """バックテスト間で再利用するキャッシュデータ"""
+    prices_df: pd.DataFrame             # 全株価（テクニカル指標算出前）
+    topix_df: pd.DataFrame              # TOPIX指数
+    margin_df: pd.DataFrame | None      # 信用取引データ
+    codes: list[str] = field(default_factory=list)
+    code_name_map: dict = field(default_factory=dict)
+    start_date: str = ""
+    end_date: str = ""
 
 
 # ======================================================================
@@ -139,6 +152,238 @@ class StandardBacktester:
             )
         except Exception as e:
             logger.error("標準バックテストエラー: %s", e, exc_info=True)
+            return {"error": str(e)}
+
+    # ------------------------------------------------------------------
+    # データプリロード（1回だけ実行し、複数バックテストで再利用）
+    # ------------------------------------------------------------------
+    def preload_data(
+        self,
+        universe_config: UniverseFilterConfig,
+        start_date: str,
+        end_date: str,
+        max_stocks: int = 50,
+        on_progress: Callable[[str, float], None] | None = None,
+    ) -> PreloadedData:
+        """ユニバースフィルタ → 株価取得 → TOPIX取得 → 信用取得をまとめて実行
+
+        この処理が70-200秒かかる重い部分。
+        結果の PreloadedData を run_with_preloaded_data() に渡すことで
+        2回目以降のバックテストではデータ取得をスキップできる。
+        """
+        def _progress(msg: str, pct: float = 0.0):
+            if on_progress:
+                on_progress(msg, pct)
+
+        # 1. ユニバースフィルタ
+        _progress("ユニバースをフィルタリング中...", 0.05)
+        all_stocks = self.provider.get_listed_stocks()
+        filtered = apply_universe_filter(all_stocks, universe_config)
+
+        if filtered.empty:
+            raise ValueError("フィルタ条件に合致する銘柄がありません")
+
+        codes = filtered["code"].unique().tolist()
+        if len(codes) > max_stocks:
+            codes = list(np.random.choice(codes, max_stocks, replace=False))
+        logger.info("対象銘柄数: %d", len(codes))
+
+        code_name_map: dict[str, str] = {}
+        if "name" in filtered.columns:
+            for _, row in filtered[filtered["code"].isin(codes)].iterrows():
+                code_name_map[row["code"]] = row["name"]
+
+        # ウォームアップ期間
+        warmup_days = 300
+        start_dt = pd.Timestamp(start_date)
+        warmup_start = (start_dt - timedelta(days=warmup_days + 100)).strftime("%Y-%m-%d")
+
+        # 2. 株価データ取得
+        _progress("株価データを取得中...", 0.10)
+        biz_dates = pd.bdate_range(warmup_start, end_date)
+        codes_set = set(codes)
+        n_biz_dates = len(biz_dates)
+
+        if len(codes) < n_biz_dates:
+            logger.info("取得戦略: 銘柄別 (%d銘柄 < %d営業日)", len(codes), n_biz_dates)
+            prices_df = self._fetch_prices_by_stock(codes, warmup_start, end_date, _progress)
+        else:
+            logger.info("取得戦略: 日付別 (%d銘柄 >= %d営業日)", len(codes), n_biz_dates)
+            prices_df = self._fetch_prices_by_date(biz_dates, _progress)
+
+        if prices_df is None or prices_df.empty:
+            raise ValueError("株価データを取得できませんでした")
+
+        if "date" not in prices_df.columns:
+            raise ValueError("株価データにdate列がありません")
+        prices_df["date"] = pd.to_datetime(prices_df["date"])
+        prices_df = prices_df[prices_df["code"].isin(codes_set)].copy()
+        logger.info("株価データ: %d行 (%d銘柄)", len(prices_df), prices_df["code"].nunique())
+
+        if prices_df.empty:
+            raise ValueError("対象銘柄の株価データが見つかりませんでした")
+
+        # セクター情報を付与
+        if "sector_17_name" in filtered.columns:
+            sector_map = filtered.set_index("code")["sector_17_name"].to_dict()
+            prices_df["sector_17_name"] = prices_df["code"].map(sector_map)
+
+        prices_df = prices_df.sort_values(["code", "date"])
+
+        # 3. TOPIX指数取得
+        _progress("TOPIX指数を取得中...", 0.37)
+        topix = pd.DataFrame()
+        topix_raw = _api_call_with_retry(
+            lambda: self.provider.get_index_prices("0000", start_date, end_date),
+            self._limiter,
+        )
+        if topix_raw is not None and not topix_raw.empty:
+            topix = topix_raw
+            topix["date"] = pd.to_datetime(topix["date"])
+            logger.info("TOPIX取得: %d行", len(topix))
+        else:
+            logger.warning("TOPIX取得失敗（リトライ後も取得不可）")
+
+        # 4. 信用取引データ取得（全銘柄分を事前取得）
+        _progress("信用取引データを取得中...", 0.38)
+        fridays = [d for d in biz_dates if d.weekday() == 4]
+        margin_df = self._fetch_margin_by_date(fridays, _progress)
+        if margin_df is not None:
+            logger.info("信用取引データ: %d行", len(margin_df))
+
+        _progress("データプリロード完了", 0.45)
+
+        return PreloadedData(
+            prices_df=prices_df,
+            topix_df=topix,
+            margin_df=margin_df,
+            codes=codes,
+            code_name_map=code_name_map,
+            start_date=start_date,
+            end_date=end_date,
+        )
+
+    # ------------------------------------------------------------------
+    # プリロード済みデータを使った高速バックテスト
+    # ------------------------------------------------------------------
+    def run_with_preloaded_data(
+        self,
+        signal_config: SignalConfig,
+        preloaded: PreloadedData,
+        commission_rate: float = 0.001,
+        slippage_rate: float = 0.001,
+        n_recent_examples: int = 10,
+        on_progress: Callable[[str, float], None] | None = None,
+    ) -> dict:
+        """プリロード済みデータを使って高速バックテスト
+
+        データ取得をスキップするため、15-30秒で完了する。
+        """
+        def _progress(msg: str, pct: float = 0.0):
+            if on_progress:
+                on_progress(msg, pct)
+
+        try:
+            start_date = preloaded.start_date
+            end_date = preloaded.end_date
+
+            # prices_df のコピーを使用（各実行で信用指標マージ等が変わるため）
+            prices_df = preloaded.prices_df.copy()
+
+            # 信用取引データのマージ（signal_config で必要な場合のみ）
+            margin_df = preloaded.margin_df
+            if signal_config.needs_margin_data() and margin_df is not None:
+                _progress("信用取引指標を計算中...", 0.47)
+                prices_df = self.signal_gen.compute_margin_indicators(
+                    prices_df, margin_df, margin_type=signal_config.margin_type,
+                )
+
+            # シグナル生成
+            _progress("シグナルを生成中...", 0.50)
+            signals = self.signal_gen.generate_signals(prices_df, signal_config, margin_df=None)
+            n_total_signals = len(signals)
+
+            if not signals.empty:
+                signals["date"] = pd.to_datetime(signals["date"])
+                signals = signals[signals["date"] >= start_date]
+
+            logger.info(
+                "シグナル: 全期間=%d, 分析期間(%s〜)=%d",
+                n_total_signals, start_date, len(signals),
+            )
+
+            if signals.empty:
+                price_min_date = prices_df["date"].min().strftime("%Y-%m-%d")
+                price_max_date = prices_df["date"].max().strftime("%Y-%m-%d")
+                analysis_rows = len(prices_df[prices_df["date"] >= start_date])
+                diag_parts = [
+                    f"対象銘柄: {len(preloaded.codes)}社",
+                    f"株価行数: {len(prices_df)} (日付範囲: {price_min_date}〜{price_max_date})",
+                    f"分析期間内の株価行数: {analysis_rows}",
+                    f"ウォームアップ含む全シグナル: {n_total_signals}件",
+                    f"分析期間({start_date}〜)内: 0件",
+                    f"条件: {', '.join(signal_config.get_active_conditions_summary())}",
+                    f"結合: {signal_config.signal_logic}",
+                ]
+                return {"error": "シグナルが発生しませんでした。\n" + "\n".join(diag_parts)}
+
+            # イベントスタディ
+            _progress("イベントスタディを実行中...", 0.60)
+            bt_result, signal_returns, excess_returns = self._vectorized_event_study(
+                prices_df=prices_df,
+                signals=signals,
+                holding_days=signal_config.holding_period_days,
+                commission_rate=commission_rate,
+                slippage_rate=slippage_rate,
+                benchmark_df=preloaded.topix_df,
+                code_name_map=preloaded.code_name_map,
+            )
+
+            # 統計検定
+            _progress("統計検定を実行中...", 0.80)
+            stats_result = self._compute_statistics(
+                signal_returns=signal_returns,
+                excess_returns=excess_returns,
+                bt_result=bt_result,
+            )
+
+            # 自動評価
+            _progress("結果を評価中...", 0.88)
+            evaluator = Evaluator()
+            evaluation = evaluator.evaluate(stats_result, bt_result)
+
+            # 直近事例収集
+            _progress("直近事例を収集中...", 0.93)
+            recent_examples, pending_signals = self._collect_recent_examples(
+                signals=signals, prices_df=prices_df,
+                holding_days=signal_config.holding_period_days,
+                n=n_recent_examples,
+                code_name_map=preloaded.code_name_map,
+            )
+
+            _progress("完了", 1.0)
+
+            config_snapshot = {
+                "signal_config": _signal_config_to_dict(signal_config),
+                "commission_rate": commission_rate,
+                "slippage_rate": slippage_rate,
+                "start_date": start_date,
+                "end_date": end_date,
+                "n_stocks_used": len(preloaded.codes),
+                "n_signals": len(signals),
+            }
+
+            return {
+                "statistics": stats_result,
+                "backtest": bt_result,
+                "evaluation": evaluation,
+                "recent_examples": recent_examples,
+                "pending_signals": pending_signals,
+                "config_snapshot": config_snapshot,
+            }
+
+        except Exception as e:
+            logger.error("プリロードバックテストエラー: %s", e, exc_info=True)
             return {"error": str(e)}
 
     def _run_inner(
@@ -718,7 +963,7 @@ class StandardBacktester:
             "signal_std": round(sig_std, 6),
             "excess_std": round(exc_std, 6),
             "t_statistic": round(t_stat, 4),
-            "p_value": round(p_value, 6),
+            "p_value": p_value,
             "cohens_d": round(cohens_d, 4),
             "win_rate": round(win_rate, 4),
             "excess_win_rate": round(excess_win_rate, 4),
