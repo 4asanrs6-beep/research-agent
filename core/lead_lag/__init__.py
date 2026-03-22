@@ -109,4 +109,82 @@ def run_backtest(
     result.jp_close_prices = aligned.jp_close_prices
     result.jp_open_prices = aligned.jp_open_prices
 
+    # --- 最新USデータが整列済み期間の後にある場合、追加シグナルを計算 ---
+    try:
+        _progress("最新シグナルの確認中...", 0.99)
+        from datetime import date as _today_date
+        today_str = _today_date.today().strftime("%Y-%m-%d")
+        us_all = fetch_us_etf_data(
+            tickers=config.us_tickers, start=config.start_date, end=today_str, cache=None,  # キャッシュなしで最新取得
+        )
+        us_pivot = us_all.pivot(index="date", columns="ticker", values="adj_close")
+        us_pivot = us_pivot[aligned.us_tickers].sort_index()
+        last_common = aligned.common_dates[-1]
+        # 整列済み期間後のUS営業日を探す
+        us_after = us_pivot.index[us_pivot.index > last_common]
+        if len(us_after) > 0:
+            latest_us_date = us_after[-1]
+            # 最新USリターン
+            us_prev_idx = us_pivot.index.get_loc(latest_us_date) - 1
+            if us_prev_idx >= 0:
+                latest_us_ret = (us_pivot.iloc[us_pivot.index.get_loc(latest_us_date)] /
+                                 us_pivot.iloc[us_prev_idx] - 1).values
+
+                # 既存のシグナルDFに1行追加
+                if "PCA_SUB" in result.strategies and result.strategies["PCA_SUB"].signals is not None:
+                    sig_df = result.strategies["PCA_SUB"].signals
+                    # 最後の行のシグナル計算と同じロジックで新しいシグナルを生成
+                    from .strategy import rolling_pca_signal, build_prior_subspace, estimate_prior_correlation, _get_sector_indices
+                    us_cc_all = np.vstack([aligned.us_cc_returns.values, latest_us_ret.reshape(1, -1)])
+                    # JP側はダミー (NaN) を追加
+                    jp_dummy = np.full((1, len(aligned.jp_tickers)), np.nan)
+                    jp_cc_all = np.vstack([aligned.jp_cc_returns.values, jp_dummy])
+
+                    us_cyc, us_def, jp_cyc, jp_def = _get_sector_indices(aligned.us_tickers, aligned.jp_tickers, config)
+                    V0 = build_prior_subspace(len(aligned.us_tickers), len(aligned.jp_tickers), us_cyc, us_def, jp_cyc, jp_def)
+
+                    import pandas as _pd
+                    prior_end_ts = _pd.Timestamp(config.prior_end_date)
+                    extended_dates = aligned.common_dates.append(_pd.DatetimeIndex([latest_us_date]))
+                    prior_mask = extended_dates <= prior_end_ts
+                    if prior_mask.sum() < config.rolling_window:
+                        prior_mask = np.ones(len(extended_dates), dtype=bool)
+                    combined_prior = np.hstack([us_cc_all[prior_mask], jp_cc_all[prior_mask]])
+                    # NaN行を除外
+                    valid_rows = ~np.isnan(combined_prior).any(axis=1)
+                    if valid_rows.sum() >= config.rolling_window:
+                        C0 = estimate_prior_correlation(V0, combined_prior[valid_rows])
+                        signals_ext, _ = rolling_pca_signal(
+                            us_cc_all, jp_cc_all, C0,
+                            lambda_reg=config.lambda_reg,
+                            rolling_window=config.rolling_window,
+                            n_components=config.n_components,
+                        )
+                        # 最後の行のシグナルを取得
+                        new_sig = signals_ext[-1]
+                        if not np.isnan(new_sig).all():
+                            new_row = _pd.DataFrame(
+                                [new_sig], index=[latest_us_date], columns=sig_df.columns
+                            )
+                            result.strategies["PCA_SUB"].signals = _pd.concat([sig_df, new_row])
+                            # daily_returnsにもNaN行を追加 (実績なし)
+                            new_ret = _pd.Series([np.nan], index=[latest_us_date], name="PCA_SUB")
+                            result.strategies["PCA_SUB"].daily_returns = _pd.concat([
+                                result.strategies["PCA_SUB"].daily_returns, new_ret
+                            ])
+                            # US returnsにも追加
+                            new_us_row = _pd.DataFrame(
+                                [latest_us_ret], index=[latest_us_date], columns=aligned.us_tickers
+                            )
+                            result.us_cc_returns = _pd.concat([result.us_cc_returns, new_us_row])
+                            # JP close pricesに最終終値を複製 (指値計算用)
+                            if result.jp_close_prices is not None:
+                                last_jp_close = result.jp_close_prices.iloc[-1:]
+                                last_jp_close.index = [latest_us_date]
+                                result.jp_close_prices = _pd.concat([result.jp_close_prices, last_jp_close])
+                            logger.info("最新USデータ (%s) からの追加シグナルを生成しました", latest_us_date.strftime("%Y-%m-%d"))
+    except Exception as e:
+        import traceback as _tb
+        logger.warning("最新シグナル計算失敗: %s\n%s", e, _tb.format_exc())
+
     return result

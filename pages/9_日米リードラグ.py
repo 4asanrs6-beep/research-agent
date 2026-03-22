@@ -93,6 +93,13 @@ def main():
     st.markdown("# 日米セクター リードラグ戦略")
     st.caption("米国セクターETFの当日リターンから、翌営業日の日本セクターETFの寄引リターンを予測 (中川ら, 2026)")
 
+    # スレッド完了の早期検出 (全タブで結果を使えるようにする)
+    ll_thread = st.session_state.get("ll_thread")
+    if ll_thread is not None and not ll_thread.is_alive() and "ll_result" not in st.session_state:
+        prog = st.session_state.get("ll_progress", {})
+        if "_result" in prog:
+            st.session_state["ll_result"] = prog.pop("_result")
+
     tab_trade, tab_setup, tab_auto, tab_results, tab_signals, tab_param_compare = st.tabs([
         "本日の売買",
         "設定・実行",
@@ -694,7 +701,18 @@ def _render_presets():
             with col2:
                 if st.button("読み込む", key="load_preset"):
                     p = presets[selected]
-                    st.session_state["preset_loaded"] = p
+                    # フォームウィジェットのsession_stateを直接上書き
+                    from datetime import date as _d
+                    st.session_state["form_L"] = p["L"]
+                    st.session_state["form_lambda"] = p["lambda"]
+                    st.session_state["form_K"] = p["K"]
+                    st.session_state["form_q"] = p["q"]
+                    st.session_state["form_gap"] = p.get("gap", 100)
+                    st.session_state["form_prior"] = _d.fromisoformat(p.get("prior_end", "2018-12-31"))
+                    st.session_state["form_start"] = _d.fromisoformat(p.get("start", "2015-01-01"))
+                    st.session_state["form_end"] = _d.fromisoformat(p.get("end", "2025-12-31"))
+                    st.session_state["form_us"] = p.get("us_universe", "US_11")
+                    st.success(f"「{selected}」を読み込みました")
                     st.rerun()
                 if st.button("削除", key="delete_preset"):
                     del presets[selected]
@@ -765,33 +783,71 @@ def _render_daily_trade_tab():
         param_text += f"  GAP={gap_pct}%"
     st.caption(f"設定: {param_text}  |  期間: {result.period_start}〜{result.period_end}")
 
-    # --- 日付選択 ---
+    # --- 日付選択 (選んだ日 = 日本の売買日) ---
     available_dates = sig_df.index.tolist()
+    from datetime import date as _date
+    today = _date.today()
+
+    # 売買可能な日 = データの2日目以降 (前日のシグナルが必要) + 最新シグナルの翌日
+    trade_dates = available_dates[1:]  # signals[t-1] で t に売買
+
     selected_input = st.date_input(
-        "日付を選択",
-        value=available_dates[-1].date() if hasattr(available_dates[-1], 'date') else available_dates[-1],
-        min_value=available_dates[0].date() if hasattr(available_dates[0], 'date') else available_dates[0],
-        max_value=available_dates[-1].date() if hasattr(available_dates[-1], 'date') else available_dates[-1],
+        "売買する日を選択",
+        value=today,
+        min_value=trade_dates[0].date() if hasattr(trade_dates[0], 'date') else trade_dates[0],
+        max_value=today,
         key="trade_date_input",
     )
-    # 選択した日付に最も近い営業日を探す
-    selected_ts = pd.Timestamp(selected_input)
-    diffs = [(abs((d - selected_ts).days), d) for d in available_dates]
-    selected_date = min(diffs, key=lambda x: x[0])[1]
-    if selected_ts != selected_date:
-        st.caption(f"※ {selected_input} は非営業日のため {selected_date.strftime('%Y-%m-%d')} を表示")
 
-    sig = sig_df.loc[selected_date]
+    # 最も近い売買可能日を探す
+    selected_ts = pd.Timestamp(selected_input)
+    # 選択日以前の最も近い売買日を探す (未来日を使わない)
+    candidates = [d for d in trade_dates if d <= selected_ts]
+    if not candidates:
+        candidates = trade_dates[:1]
+    jp_trade_date = candidates[-1]
+
+    # シグナル日 = 売買日の前日 (available_datesでの1つ前)
+    trade_idx = available_dates.index(jp_trade_date) if jp_trade_date in available_dates else -1
+    if trade_idx < 0:
+        # jp_trade_dateが最新シグナルの翌日の場合 (データの最後)
+        signal_date = available_dates[-1]
+    else:
+        signal_date = available_dates[trade_idx - 1] if trade_idx > 0 else available_dates[0]
+
+    # 最新シグナルの翌日 (まだ売買していない日) も選択可能にする
+    last_signal = available_dates[-1]
+    is_future = (jp_trade_date == last_signal) or (selected_ts > last_signal)
+    if selected_ts > last_signal:
+        # 最新シグナルで翌営業日を売買
+        signal_date = last_signal
+        jp_trade_date = selected_ts
+        is_future = True
+
+    if selected_ts != jp_trade_date and not is_future:
+        st.caption(f"※ {selected_input} は非営業日のため {jp_trade_date.strftime('%Y-%m-%d')} を表示")
+
+    # シグナルデータ
+    sig = sig_df.loc[signal_date]
     q = config.quantile_q
     n_long = max(1, int(np.ceil(len(sig.dropna()) * q)))
     sorted_sig = sig.dropna().sort_values(ascending=False)
-    is_latest = (selected_date == available_dates[-1])
 
-    # --- 前日の米国セクター ---
-    us_dates_before = us_ret.index[us_ret.index <= selected_date]
+    # 米国データ日
+    us_dates_before = us_ret.index[us_ret.index <= signal_date]
+    us_trade_date = us_dates_before[-1] if len(us_dates_before) > 0 else None
+
+    jp_date_str = jp_trade_date.strftime('%Y-%m-%d') if hasattr(jp_trade_date, 'strftime') else str(jp_trade_date)
+    us_date_str = us_trade_date.strftime('%Y-%m-%d') if us_trade_date is not None else "不明"
+
+    if is_future:
+        st.info(f"**米国 {us_date_str} の終値に基づく → 日本 {jp_date_str} の売買指示**")
+    else:
+        st.markdown(f"**米国 {us_date_str} の終値 → 日本 {jp_date_str} の売買 (実績)**")
+
     if len(us_dates_before) > 0:
         us_day_ret = us_ret.loc[us_dates_before[-1]]
-        st.markdown(f"### 前日の米国セクター騰落率 ({us_dates_before[-1].strftime('%Y-%m-%d')})")
+        st.markdown(f"### 米国セクター騰落率 ({us_date_str})")
         us_rows = []
         for t in us_day_ret.index:
             us_rows.append({
@@ -810,10 +866,11 @@ def _render_daily_trade_tab():
 
     # --- 売買シグナルテーブル ---
     has_gap = config.gap_threshold < 1.0
-    gap_row = gap_df.loc[selected_date] if gap_df is not None and selected_date in gap_df.index else None
     has_price = close_df is not None and open_df is not None
 
-    st.markdown(f"### 日本セクターETF 売買判断 ({selected_date.strftime('%Y-%m-%d')})")
+    # is_future は既に上で設定済み
+
+    st.markdown(f"### 日本セクターETF 売買判断 ({jp_date_str})")
 
     trade_rows = []
     for rank, (ticker, sig_val) in enumerate(sorted_sig.items()):
@@ -825,22 +882,12 @@ def _render_daily_trade_tab():
         else:
             position = "-"
 
-        # 価格
-        prev_close = None
-        today_open = None
-        today_close = None
-        if has_price and selected_date in close_df.index:
-            date_idx = close_df.index.get_loc(selected_date)
-            if date_idx > 0 and ticker in close_df.columns:
-                prev_close = close_df.iloc[date_idx - 1][ticker]
-            if ticker in open_df.columns:
-                today_open = open_df.loc[selected_date, ticker]
-            if ticker in close_df.columns:
-                today_close = close_df.loc[selected_date, ticker]
+        # 前日終値 = シグナル日の終値 (売買日の基準価格)
+        last_close = None
+        if has_price and signal_date in close_df.index and ticker in close_df.columns:
+            last_close = close_df.loc[signal_date, ticker]
 
-        pc = int(prev_close) if prev_close is not None and not np.isnan(prev_close) else None
-        op = int(today_open) if today_open is not None and not np.isnan(today_open) else None
-        cl = int(today_close) if today_close is not None and not np.isnan(today_close) else None
+        lc = int(last_close) if last_close is not None and not np.isnan(last_close) else None
 
         row = {
             "セクター": sector,
@@ -849,37 +896,44 @@ def _render_daily_trade_tab():
             "シグナル": round(sig_val, 2),
         }
 
-        if pc:
-            row["前日終値"] = f"{pc:,}"
+        if lc:
+            row["前日終値"] = f"{lc:,}"
 
         # 指値目安
-        if has_gap and pc and abs(sig_val) > 1e-10 and position in ("ロング", "ショート"):
+        if has_gap and lc and abs(sig_val) > 1e-10 and position in ("ロング", "ショート"):
             if position == "ロング":
-                limit = int(pc * (1 + abs(sig_val) * config.gap_threshold))
+                limit = int(lc * (1 + abs(sig_val) * config.gap_threshold))
                 row["指値目安"] = f"{limit:,}以下で買い"
             else:
-                limit = int(pc * (1 - abs(sig_val) * config.gap_threshold))
+                limit = int(lc * (1 - abs(sig_val) * config.gap_threshold))
                 row["指値目安"] = f"{limit:,}以上で売り"
         elif position in ("ロング", "ショート"):
             row["指値目安"] = "成行"
 
-        # 過去日なら実績も表示
-        if op:
-            row["寄付き"] = f"{op:,}"
-        if cl:
-            row["終値"] = f"{cl:,}"
-        if op and cl and op > 0:
-            row["当日騰落(%)"] = round((cl / op - 1) * 100, 1)
+        # 売買日のデータがある場合は実績を表示
+        jp_td = jp_trade_date if not is_future else None
+        if jp_td is not None and has_price and hasattr(jp_td, 'strftime'):
+            jp_td_ts = pd.Timestamp(jp_td) if not isinstance(jp_td, pd.Timestamp) else jp_td
+            if jp_td_ts in open_df.index and ticker in open_df.columns:
+                t_open = open_df.loc[jp_td_ts, ticker]
+                t_close = close_df.loc[jp_td_ts, ticker] if jp_td_ts in close_df.index else None
+                op = int(t_open) if t_open is not None and not np.isnan(t_open) else None
+                cl = int(t_close) if t_close is not None and not np.isnan(t_close) else None
+                if op:
+                    row["寄付き"] = f"{op:,}"
+                if cl:
+                    row["終値"] = f"{cl:,}"
+                if op and cl and op > 0:
+                    row["当日騰落(%)"] = round((cl / op - 1) * 100, 1)
 
-        # GAP判定
-        if has_gap and gap_row is not None and ticker in gap_row.index and position in ("ロング", "ショート"):
-            gap_val = gap_row[ticker]
-            if not np.isnan(gap_val) and abs(sig_val) > 1e-10:
-                if position == "ロング":
-                    can_trade = gap_val <= abs(sig_val) * config.gap_threshold
-                else:
-                    can_trade = gap_val >= -abs(sig_val) * config.gap_threshold
-                row["GAP判定"] = "エントリー" if can_trade else "スキップ"
+                # GAP判定 (実績)
+                if has_gap and lc and op and abs(sig_val) > 1e-10 and position in ("ロング", "ショート"):
+                    actual_gap = (op - lc) / lc
+                    if position == "ロング":
+                        can_trade = actual_gap <= abs(sig_val) * config.gap_threshold
+                    else:
+                        can_trade = actual_gap >= -abs(sig_val) * config.gap_threshold
+                    row["GAP判定"] = "エントリー" if can_trade else "スキップ"
 
         trade_rows.append(row)
 
@@ -911,15 +965,16 @@ def _render_daily_trade_tab():
     )
 
     # --- 当日リターンサマリー ---
-    if not is_latest or (op and cl):
+    if not is_future:
         st.markdown("### 当日の戦略リターン")
         ret_cols = []
         for strat_name in ["PCA_SUB", "GAP_CUSTOM"]:
             if strat_name in strategies:
                 ret = strategies[strat_name].daily_returns
-                if selected_date in ret.index and not np.isnan(ret.loc[selected_date]):
+                jp_td_ts = pd.Timestamp(jp_trade_date) if not isinstance(jp_trade_date, pd.Timestamp) else jp_trade_date
+                if jp_td_ts in ret.index and not np.isnan(ret.loc[jp_td_ts]):
                     label = "フィルターなし" if strat_name == "PCA_SUB" else f"GAP_{gap_pct}%"
-                    ret_cols.append((label, ret.loc[selected_date] * 100))
+                    ret_cols.append((label, ret.loc[jp_td_ts] * 100))
         if ret_cols:
             cols = st.columns(len(ret_cols))
             for col, (label, val) in zip(cols, ret_cols):
@@ -1107,20 +1162,17 @@ def _render_setup_tab():
         "日本市場の翌営業日t+1の日中リターン (Open-to-Close) に波及する"
     )
 
-    # プリセットのデフォルト値
-    p = st.session_state.pop("preset_loaded", None)
-    d_L = p["L"] if p else 60
-    d_lam = p["lambda"] if p else 0.9
-    d_K = p["K"] if p else 3
-    d_q = p["q"] if p else 0.3
-    d_gap = p["gap"] if p else 100
-    d_prior = p.get("prior_end", "2018-12-31") if p else "2018-12-31"
-    d_start = p.get("start", "2015-01-01") if p else "2015-01-01"
-    d_end = p.get("end", "2025-12-31") if p else "2025-12-31"
-    d_us = p.get("us_universe", "US_11") if p else "US_11"
-
-    if p:
-        st.success(f"プリセットを読み込みました")
+    # デフォルト値をsession_stateから初期化 (初回のみ)
+    if "form_L" not in st.session_state:
+        st.session_state.setdefault("form_L", 60)
+        st.session_state.setdefault("form_lambda", 0.9)
+        st.session_state.setdefault("form_K", 3)
+        st.session_state.setdefault("form_q", 0.3)
+        st.session_state.setdefault("form_gap", 100)
+        st.session_state.setdefault("form_prior", date(2018, 12, 31))
+        st.session_state.setdefault("form_start", date(2015, 1, 1))
+        st.session_state.setdefault("form_end", date(2025, 12, 31))
+        st.session_state.setdefault("form_us", "US_11")
 
     with st.form("leadlag_form"):
         st.markdown("### ユニバース選択")
@@ -1130,8 +1182,9 @@ def _render_setup_tab():
             us_universe = st.selectbox(
                 "米国側",
                 us_options,
-                index=us_options.index(d_us) if d_us in us_options else 0,
+                index=us_options.index(st.session_state["form_us"]) if st.session_state["form_us"] in us_options else 0,
                 format_func=lambda x: {"US_11": "11セクター (SPDR)", "US_33": "33種 (11セクター+22インダストリー)"}[x],
+                key="form_us",
             )
         with col2:
             jp_universe = "JP_17"
@@ -1142,16 +1195,16 @@ def _render_setup_tab():
         with col1:
             start_date = st.date_input(
                 "開始日",
-                value=date.fromisoformat(d_start),
                 min_value=date(2005, 1, 1),
                 max_value=date(2026, 12, 31),
+                key="form_start",
             )
         with col2:
             end_date = st.date_input(
                 "終了日",
-                value=date.fromisoformat(d_end),
                 min_value=date(2010, 1, 1),
                 max_value=date(2026, 12, 31),
+                key="form_end",
             )
 
         st.markdown("### PCA パラメータ")
@@ -1159,25 +1212,29 @@ def _render_setup_tab():
         with col1:
             rolling_window = st.number_input(
                 "ウィンドウ長 (L)",
-                value=d_L, min_value=20, max_value=252,
+                min_value=20, max_value=252,
+                key="form_L",
                 help="相関行列を計算する直近の営業日数。60 = 約3ヶ月分。",
             )
         with col2:
             lambda_reg = st.slider(
                 "正則化強度",
-                min_value=0.0, max_value=1.0, value=d_lam, step=0.01,
+                min_value=0.0, max_value=1.0, step=0.01,
+                key="form_lambda",
                 help="経済理論の事前知識をどの程度信用するか。0.9 = 90%事前知識 + 10%データ。論文推奨値は0.9。",
             )
         with col3:
             n_components = st.number_input(
                 "主成分数 (K)",
-                value=d_K, min_value=1, max_value=10,
+                min_value=1, max_value=10,
+                key="form_K",
                 help="日米共通の変動パターン数。3 = グローバル景気・国別差・景気循環。",
             )
         with col4:
             quantile_q = st.slider(
                 "売買比率",
-                min_value=0.1, max_value=0.5, value=d_q, step=0.05,
+                min_value=0.1, max_value=0.5, step=0.05,
+                key="form_q",
                 help="17セクター中の上位/下位何%をロング/ショートするか。0.3 = 上下各5本。",
             )
 
@@ -1188,9 +1245,9 @@ def _render_setup_tab():
         )
         prior_end = st.date_input(
             "学習期間の終了日",
-            value=date.fromisoformat(d_prior),
             min_value=date(2010, 1, 1),
             max_value=date(2025, 12, 31),
+            key="form_prior",
         )
 
         st.markdown("### 比較戦略")
@@ -1208,7 +1265,8 @@ def _render_setup_tab():
         st.caption("シグナル強度に対してovernightギャップが閾値以上消化済みの銘柄をスキップ")
         gap_threshold = st.slider(
             "ギャップ消化率の閾値 (%)",
-            min_value=-100, max_value=100, value=d_gap, step=5,
+            min_value=-100, max_value=100, step=5,
+            key="form_gap",
             help="100%=フィルターなし (全エントリー)。10%=予測の10%消化でスキップ。0%=予測方向に少しでも動いたらスキップ。-20%=予測と逆に20%以上動いた銘柄のみエントリー",
         )
 
@@ -2279,6 +2337,9 @@ def _render_signals_tab():
         st.caption("上位K個の固有値の時系列。安定していれば日米共通の変動構造が持続していることを示す")
         eigvals = result.eigenvalue_history
         dates = result.strategies.get("PCA_SUB", next(iter(strategies.values()))).daily_returns.index
+        # 追加シグナルでdatesが1行多い場合がある
+        if len(dates) > len(eigvals):
+            dates = dates[:len(eigvals)]
 
         valid_mask = ~np.isnan(eigvals[:, 0])
         if valid_mask.sum() > 0:

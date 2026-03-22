@@ -39,7 +39,9 @@ def fetch_benchmark_returns(
         logger.warning("TOPIX ベンチマークデータを取得できませんでした")
         return pd.Series(dtype=float)
 
-    close = raw["Close"].squeeze()
+    close = raw["Close"]
+    if isinstance(close, pd.DataFrame):
+        close = close.iloc[:, 0]
     ret = close.pct_change().dropna()
     ret.index = pd.to_datetime(ret.index)
     ret.name = "TOPIX"
