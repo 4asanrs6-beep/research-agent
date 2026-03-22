@@ -7,3 +7,5 @@ jquants-api-client>=2.0.0
 python-dotenv>=1.0.0
 pyarrow>=14.0.0
 pyqlib>=0.9.5
+yfinance>=0.2.30
+statsmodels>=0.14.0

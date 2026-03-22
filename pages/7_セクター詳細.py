@@ -81,7 +81,10 @@ def load_stock_returns(
         df = raw.copy()
         df["code"] = df["code"].astype(str)
         df = df[df["code"].isin(sector_codes)]
-        return df[["code", "adj_close"]].dropna()
+        keep = ["code", "adj_close"]
+        if "adj_open" in df.columns:
+            keep.append("adj_open")
+        return df[keep].dropna(subset=["code", "adj_close"])
 
     def calc_ret(start_df: pd.DataFrame, end_df: pd.DataFrame) -> pd.Series:
         s = start_df.set_index("code")["adj_close"]
@@ -90,6 +93,16 @@ def load_stock_returns(
         if common.empty:
             return pd.Series(dtype=float)
         return (e[common] / s[common] - 1) * 100
+
+    def calc_intraday_ret(day_df: pd.DataFrame) -> pd.Series:
+        """当日始値→終値の騰落率 (Open-to-Close)"""
+        if "adj_open" not in day_df.columns:
+            return pd.Series(dtype=float)
+        df = day_df.set_index("code")
+        valid = df[["adj_open", "adj_close"]].dropna()
+        if valid.empty:
+            return pd.Series(dtype=float)
+        return (valid["adj_close"] / valid["adj_open"] - 1) * 100
 
     ref_date_str, ref_raw = _nearest_trading_day(end_date, end_date)
     if not ref_date_str:
@@ -101,6 +114,11 @@ def load_stock_returns(
     result.index.name = "コード"
     result["銘柄名"] = pd.Series(name_map)
     result["規模区分"] = pd.Series(scale_map)
+
+    # 始値比 (当日 Open→Close)
+    intra = calc_intraday_ret(ref_df)
+    if not intra.empty:
+        result["始値比"] = intra
 
     d1_str, raw1d = _nearest_trading_day(
         (ref_ts - timedelta(days=1)).strftime("%Y-%m-%d"), ref_date_str

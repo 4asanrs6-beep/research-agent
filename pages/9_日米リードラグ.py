@@ -1,0 +1,2982 @@
+"""日米リードラグ戦略ページ — 部分空間正則化PCAによるセクターETF戦略
+
+Reference:
+    中川ら (SIG-FIN-036, 2026)
+    "部分空間正則化付き主成分分析を用いた日米業種リードラグ投資戦略"
+"""
+
+import threading
+from datetime import date
+
+import numpy as np
+import pandas as pd
+import plotly.graph_objects as go
+import streamlit as st
+
+from config import JQUANTS_API_KEY, MARKET_DATA_DIR
+from core.styles import apply_reuters_style, apply_waiting_overlay
+from core.lead_lag.config import (
+    LeadLagConfig,
+    JP_TICKER_NAMES,
+    US_TICKER_NAMES,
+    JP_TICKERS,
+    US_TICKERS,
+    UNIVERSE_OPTIONS,
+    get_ticker_name,
+)
+
+st.set_page_config(page_title="日米リードラグ", page_icon="R", layout="wide")
+
+# 戦略の日本語表示名
+STRATEGY_LABELS = {
+    "PCA_SUB": "提案手法 (正則化PCA)",
+    "PCA_PLAIN": "通常PCA (正則化なし)",
+    "MOM": "モメンタム",
+    "DOUBLE": "ダブルソート",
+    "HYBRID": "HYBRID",
+    "K3K4_ENS": "K3/K4アンサンブル",
+    "GAP_-10": "GAP_-10%",
+    "GAP_0": "GAP_0%",
+    "GAP_5": "GAP_5%",
+    "GAP_10": "GAP_10%",
+    "GAP_20": "GAP_20%",
+    "GAP_30": "GAP_30%",
+    "K3K4_GAP": "K3K4+GAP_50%",
+    "GAP_CUSTOM": "GAP (手動設定)",
+}
+
+
+@st.cache_resource
+def _get_provider_and_cache():
+    from data.cache import DataCache
+    from data.jquants_provider import JQuantsProvider
+
+    cache = DataCache(MARKET_DATA_DIR)
+    provider = JQuantsProvider(api_key=JQUANTS_API_KEY, cache=cache) if JQUANTS_API_KEY else None
+    return provider, cache
+
+
+# ---------------------------------------------------------------------------
+# バックグラウンドスレッド
+# ---------------------------------------------------------------------------
+def _run_leadlag_thread(progress_dict: dict, provider, cache, config: LeadLagConfig):
+    try:
+        from core.lead_lag import run_backtest
+
+        def on_progress(msg, pct):
+            progress_dict["message"] = msg
+            progress_dict["pct"] = pct
+
+        result = run_backtest(
+            config=config,
+            jquants_provider=provider,
+            cache=cache,
+            progress_callback=on_progress,
+        )
+        progress_dict["_result"] = result
+        progress_dict["pct"] = 1.0
+        progress_dict["message"] = "完了"
+    except Exception as e:
+        import traceback
+
+        progress_dict["error"] = str(e)
+        progress_dict["detail"] = traceback.format_exc()
+        progress_dict["pct"] = 1.0
+
+
+# ---------------------------------------------------------------------------
+# メイン
+# ---------------------------------------------------------------------------
+def main():
+    apply_reuters_style()
+
+    st.markdown("# 日米セクター リードラグ戦略")
+    st.caption("米国セクターETFの当日リターンから、翌営業日の日本セクターETFの寄引リターンを予測 (中川ら, 2026)")
+
+    tab_trade, tab_setup, tab_auto, tab_results, tab_signals, tab_param_compare = st.tabs([
+        "本日の売買",
+        "設定・実行",
+        "自動探索",
+        "結果比較",
+        "シグナル分析",
+        "パラメータ比較",
+    ])
+
+    with tab_trade:
+        _render_daily_trade_tab()
+
+    with tab_setup:
+        _render_setup_tab()
+
+    with tab_auto:
+        _render_auto_search_tab()
+
+    with tab_results:
+        _render_results_tab()
+
+    with tab_signals:
+        _render_signals_tab()
+
+    with tab_param_compare:
+        _render_param_compare_tab()
+
+
+# ---------------------------------------------------------------------------
+# AI提案パラメータの取得・追加実行
+# ---------------------------------------------------------------------------
+def _build_suggest_prompt(history: list) -> str:
+    """既存結果 + パラメータ比較AI分析を踏まえて、次のパラメータをJSON形式で提案させる。"""
+    lines = []
+    for i, h in enumerate(history):
+        r = h["result"]
+        if "PCA_SUB" not in r.strategies:
+            continue
+        m = r.strategies["PCA_SUB"].metrics
+        cfg = r.config
+        lines.append(
+            f"#{i+1} L={cfg.rolling_window} λ={cfg.lambda_reg} K={cfg.n_components} q={cfg.quantile_q} "
+            f"学習期間~{cfg.prior_end_date} → "
+            f"年率{m['AR']:+.1f}%, シャープ比{m['R/R']:.2f}, MDD{m['MDD']:.1f}%, "
+            f"月次勝率{m.get('monthly_win_rate',0):.0f}%, 月次ブレ幅{m.get('monthly_std',0):.2f}%, "
+            f"最悪月{m.get('monthly_worst',0):+.1f}%"
+        )
+    results_text = "\n".join(lines)
+
+    # パラメータ比較タブのAI分析結果があればそれも渡す
+    prior_analysis = st.session_state.get("ll_param_ai", "")
+    prior_section = ""
+    if prior_analysis:
+        # 長すぎる場合は先頭4000文字に切る
+        truncated = prior_analysis[:4000]
+        prior_section = f"""
+## 前回のAI分析レポート (パラメータ比較タブで実施済み)
+以下はこれまでの結果を別のAIが詳細に分析した結果です。この分析の知見・提案・警告を踏まえて次の提案をしてください。
+
+{truncated}
+"""
+
+    return f"""あなたは定量投資戦略のパラメータ最適化の専門家です。
+以下は日米セクターETFリードラグ戦略（部分空間正則化PCA）を異なるパラメータで実行した結果です。
+
+## これまでの結果
+{results_text}
+{prior_section}
+## パラメータの意味
+- L (ウィンドウ長): 相関行列推定の日数。20〜252の整数
+- λ (正則化強度): 事前知識の信頼度。0.0〜1.0
+- K (主成分数): 共通因子の数。1〜10の整数
+- q (売買比率): ロング/ショートする割合。0.1〜0.5
+- prior_end (学習期間終了日): 事前共変動構造を推定する期間の終了日。"YYYY-MM-DD"形式。開始日以降〜終了日以前で設定。より最近の日付にすると最近の市場構造を反映する
+
+## 重視する指標
+- 毎月安定してプラスを出すこと（月次勝率、月次ブレ幅の小ささ）
+- 対TOPIX超過リターンの安定性（特に2023年以降のTOPIX強気局面でも勝てるか）
+- 最大下落率の抑制
+
+## あなたのタスク
+前回のAI分析レポートの知見を活かし、まだ試していない有望なパラメータの組み合わせを8つ提案してください。
+前回の分析で指摘された傾向を踏まえ、その延長線上でさらに良い設定を探索してください。
+
+重要: 学習期間 (prior_end) も探索してください。古い学習期間 (2014年等) では2023年以降のTOPIX強気局面に対応できていない可能性がある。
+学習期間を変えることで、最近の市場構造（半導体・AI主導の相場等）を反映し、対TOPIX超過が改善する可能性があります。
+
+**必ず以下のJSON形式のみで回答してください。説明文は不要です:**
+```json
+[
+  {{"label": "提案名", "L": 80, "lambda": 0.88, "K": 3, "q": 0.3, "prior_end": "2020-12-31", "reason": "理由"}},
+  ...
+]
+```"""
+
+
+def _run_ai_suggest_thread(progress_dict: dict, prompt: str):
+    """AIにパラメータ提案を依頼。"""
+    try:
+        from core.ai_client import create_ai_client
+        import json
+
+        progress_dict["message"] = "AI にパラメータを提案させています..."
+        progress_dict["pct"] = 0.3
+        client = create_ai_client()
+        # JSON出力を求めるのでデフォルトのシステムプロンプト使用
+        response = client.send_message(prompt)
+
+        # JSONを抽出
+        text = response.strip()
+        if "```json" in text:
+            text = text.split("```json")[1].split("```")[0].strip()
+        elif "```" in text:
+            text = text.split("```")[1].split("```")[0].strip()
+        # [ ] を探す
+        start = text.find("[")
+        end = text.rfind("]") + 1
+        if start >= 0 and end > start:
+            text = text[start:end]
+
+        suggestions = json.loads(text)
+        progress_dict["_result"] = suggestions
+        progress_dict["pct"] = 1.0
+        progress_dict["message"] = "完了"
+    except Exception as e:
+        import traceback
+        progress_dict["error"] = str(e)
+        progress_dict["detail"] = traceback.format_exc()
+        progress_dict["pct"] = 1.0
+
+
+def _render_ai_suggest_and_run():
+    """AI提案パラメータの取得 → 追加実行 UI。"""
+
+    # --- AI提案取得中 ---
+    suggest_thread = st.session_state.get("ll_ai_suggest_thread")
+    is_suggesting = suggest_thread is not None and suggest_thread.is_alive()
+
+    if is_suggesting:
+        prog = st.session_state.get("ll_ai_suggest_progress", {})
+        st.warning("AI がパラメータを分析・提案中...")
+        st.progress(prog.get("pct", 0), text=prog.get("message", ""))
+        import time
+        time.sleep(2)
+        st.rerun()
+        return
+
+    # 提案取得完了
+    if suggest_thread is not None and not suggest_thread.is_alive() and "ll_ai_suggestions" not in st.session_state:
+        prog = st.session_state.get("ll_ai_suggest_progress", {})
+        if "_result" in prog:
+            st.session_state["ll_ai_suggestions"] = prog.pop("_result")
+            st.session_state.pop("ll_ai_suggest_thread", None)
+            st.session_state.pop("ll_ai_suggest_progress", None)
+            st.rerun()
+        elif prog.get("error"):
+            st.error(f"AI提案エラー: {prog['error']}")
+            if st.button("OK", key="suggest_err_ok"):
+                st.session_state.pop("ll_ai_suggest_thread", None)
+                st.session_state.pop("ll_ai_suggest_progress", None)
+                st.rerun()
+            return
+
+    # --- 追加探索実行中 ---
+    extra_thread = st.session_state.get("ll_extra_thread")
+    is_extra_running = extra_thread is not None and extra_thread.is_alive()
+
+    if is_extra_running:
+        prog = st.session_state.get("ll_extra_progress", {})
+        import time
+        started_at = prog.get("_started_at")
+        elapsed = time.time() - started_at if started_at else 0
+        elapsed_min = int(elapsed // 60)
+        elapsed_sec = int(elapsed % 60)
+        st.warning(f"AI提案パラメータで追加探索中... ({elapsed_min}:{elapsed_sec:02d} 経過)")
+        st.progress(prog.get("pct", 0), text=prog.get("message", ""))
+        time.sleep(3)
+        st.rerun()
+        return
+
+    # 追加探索完了
+    if extra_thread is not None and not extra_thread.is_alive() and "ll_extra_done" not in st.session_state:
+        prog = st.session_state.get("ll_extra_progress", {})
+        if "_result" in prog:
+            all_results = prog.pop("_result")
+            history = st.session_state.get("ll_history", [])
+            for item in all_results:
+                result = item["result"]
+                cfg = result.config
+                param_key = f"L{cfg.rolling_window}_λ{cfg.lambda_reg}_K{cfg.n_components}_q{cfg.quantile_q}_G{cfg.gap_threshold}_P{cfg.prior_end_date}_{result.period_start}_{result.period_end}"
+                existing_keys = [h.get("_param_key") for h in history]
+                if param_key not in existing_keys:
+                    history.append({
+                        "_param_key": param_key,
+                        "label": f"L={cfg.rolling_window} λ={cfg.lambda_reg} K={cfg.n_components} q={cfg.quantile_q}" + (f" GAP{int(cfg.gap_threshold*100)}%" if cfg.gap_threshold < 1.0 else "") + f" ~{cfg.prior_end_date[:4]}",
+                        "period": f"{result.period_start}~{result.period_end}",
+                        "result": result,
+                    })
+            st.session_state["ll_extra_done"] = True
+            st.session_state.pop("ll_extra_thread", None)
+            st.session_state.pop("ll_extra_progress", None)
+            # 提案をクリアして次のラウンドを可能に
+            st.session_state.pop("ll_ai_suggestions", None)
+            st.rerun()
+        elif prog.get("error"):
+            st.error(f"追加探索エラー: {prog['error']}")
+            st.session_state.pop("ll_extra_thread", None)
+            st.session_state.pop("ll_extra_progress", None)
+            return
+
+    if "ll_extra_done" in st.session_state:
+        n = len(st.session_state.get("ll_history", []))
+        st.success(f"AI提案パラメータの追加探索が完了しました (履歴: {n}件)")
+        st.info("「パラメータ比較」タブで全結果を比較できます。さらにAI提案で探索を続けることもできます。")
+        st.session_state.pop("ll_extra_done", None)
+
+    # --- 提案がある場合: 表示 + 実行ボタン ---
+    suggestions = st.session_state.get("ll_ai_suggestions")
+    if suggestions:
+        st.markdown("### AI が提案するパラメータ")
+        sug_rows = []
+        for i, s in enumerate(suggestions):
+            row = {
+                "#": i + 1,
+                "提案名": s.get("label", f"提案{i+1}"),
+                "L": s.get("L", 60),
+                "λ": s.get("lambda", 0.9),
+                "K": s.get("K", 3),
+                "q": s.get("q", 0.3),
+            }
+            if "prior_end" in s:
+                row["学習期間"] = s["prior_end"]
+            row["理由"] = s.get("reason", "")
+            sug_rows.append(row)
+        st.dataframe(pd.DataFrame(sug_rows), hide_index=True)
+
+        if st.button("この提案パラメータで追加探索を実行", type="primary", key="run_ai_suggestions"):
+            # 提案をグリッド形式に変換 (prior_end含む)
+            grid = []
+            for i, s in enumerate(suggestions):
+                g = {"label": s.get("label", f"AI提案{i+1}"), "L": s["L"], "lambda": s["lambda"], "K": s["K"], "q": s["q"]}
+                if "prior_end" in s:
+                    g["prior_end"] = s["prior_end"]
+                grid.append(g)
+            # 期間は直近の履歴から取得
+            history = st.session_state.get("ll_history", [])
+            if history:
+                last_cfg = history[-1]["result"].config
+                start_d = last_cfg.start_date
+                end_d = last_cfg.end_date
+                prior_d = last_cfg.prior_end_date
+            else:
+                start_d, end_d, prior_d = "2015-01-01", "2025-12-31", "2018-12-31"
+
+            provider, cache = _get_provider_and_cache()
+            import time as _time
+            progress_dict = {"message": "開始中...", "pct": 0.0, "_started_at": _time.time()}
+            st.session_state["ll_extra_progress"] = progress_dict
+            thread = threading.Thread(
+                target=_run_auto_search_thread,
+                args=(progress_dict, provider, cache, start_d, end_d if end_d else "2025-12-31", prior_d, grid),
+                daemon=True,
+            )
+            thread.start()
+            st.session_state["ll_extra_thread"] = thread
+            st.rerun()
+        return
+
+    # --- 提案がない場合: 取得ボタン ---
+    history = st.session_state.get("ll_history", [])
+    if len(history) >= 2:
+        st.markdown("### AI による次の探索提案")
+        st.caption("これまでの結果を分析して、まだ試していない有望なパラメータをAIが提案します。")
+        if st.button("AI に次のパラメータを提案させる", type="primary", key="get_ai_suggestions"):
+            prompt = _build_suggest_prompt(history)
+            progress_dict = {"message": "開始中...", "pct": 0.0}
+            st.session_state["ll_ai_suggest_progress"] = progress_dict
+            thread = threading.Thread(
+                target=_run_ai_suggest_thread,
+                args=(progress_dict, prompt),
+                daemon=True,
+            )
+            thread.start()
+            st.session_state["ll_ai_suggest_thread"] = thread
+            st.rerun()
+
+
+# ---------------------------------------------------------------------------
+# 自動探索: パラメータグリッド定義
+# ---------------------------------------------------------------------------
+AUTO_SEARCH_GRID = [
+    # --- パラメータ軸の探索 ---
+    {"label": "基本 (論文デフォルト)",         "L": 60,  "lambda": 0.9,  "K": 3, "q": 0.3},
+    {"label": "短期ウィンドウ",                "L": 30,  "lambda": 0.9,  "K": 3, "q": 0.3},
+    {"label": "長期ウィンドウ",                "L": 100, "lambda": 0.9,  "K": 3, "q": 0.3},
+    {"label": "超長期ウィンドウ",              "L": 120, "lambda": 0.9,  "K": 3, "q": 0.3},
+    {"label": "正則化弱め",                    "L": 60,  "lambda": 0.7,  "K": 3, "q": 0.3},
+    {"label": "正則化強め",                    "L": 60,  "lambda": 0.95, "K": 3, "q": 0.3},
+    {"label": "集中投資 (上下25%)",            "L": 60,  "lambda": 0.9,  "K": 3, "q": 0.25},
+    {"label": "分散投資 (上下40%)",            "L": 60,  "lambda": 0.9,  "K": 3, "q": 0.4},
+    {"label": "長期+正則化弱め",               "L": 100, "lambda": 0.85, "K": 3, "q": 0.3},
+    {"label": "長期+集中",                     "L": 100, "lambda": 0.9,  "K": 3, "q": 0.25},
+    # --- 学習期間の探索 ---
+    {"label": "学習2020年末",                  "L": 100, "lambda": 0.85, "K": 3, "q": 0.25, "prior_end": "2020-12-31"},
+    {"label": "学習2022年末",                  "L": 100, "lambda": 0.85, "K": 3, "q": 0.25, "prior_end": "2022-12-31"},
+    {"label": "学習2023年半ば",               "L": 100, "lambda": 0.85, "K": 3, "q": 0.25, "prior_end": "2023-06-30"},
+    {"label": "学習2024年末",                 "L": 100, "lambda": 0.85, "K": 3, "q": 0.25, "prior_end": "2024-12-31"},
+    # --- λ微調整 (AI分析推奨域) ---
+    {"label": "λ=0.83 (最適候補)",             "L": 100, "lambda": 0.83, "K": 3, "q": 0.25, "prior_end": "2023-06-30"},
+    {"label": "λ=0.82",                        "L": 100, "lambda": 0.82, "K": 3, "q": 0.25},
+    {"label": "λ=0.81 (下限探索)",             "L": 100, "lambda": 0.81, "K": 3, "q": 0.25, "prior_end": "2023-06-30"},
+    {"label": "λ=0.80 (下限探索)",             "L": 100, "lambda": 0.80, "K": 3, "q": 0.25, "prior_end": "2023-06-30"},
+    # --- K=4探索 (2026年対策) ---
+    {"label": "K=4 λ=0.84 ~2023",             "L": 100, "lambda": 0.84, "K": 4, "q": 0.25, "prior_end": "2023-06-30"},
+    {"label": "K=4 λ=0.83 ~2023",             "L": 100, "lambda": 0.83, "K": 4, "q": 0.25, "prior_end": "2023-06-30"},
+    {"label": "K=4 λ=0.83 ~2024",             "L": 100, "lambda": 0.83, "K": 4, "q": 0.25, "prior_end": "2024-06-30"},
+    # --- q×閾値の組み合わせ (売買比率が大きいほど閾値厳しくするとSR向上の仮説検証) ---
+    {"label": "q=0.4 GAP10%",  "L": 100, "lambda": 0.85, "K": 3, "q": 0.4,  "gap": 0.1},
+    {"label": "q=0.4 GAP20%",  "L": 100, "lambda": 0.85, "K": 3, "q": 0.4,  "gap": 0.2},
+    {"label": "q=0.4 GAP0%",   "L": 100, "lambda": 0.85, "K": 3, "q": 0.4,  "gap": 0.0},
+    {"label": "q=0.4 GAP-20%", "L": 100, "lambda": 0.85, "K": 3, "q": 0.4,  "gap": -0.2},
+    {"label": "q=0.5 GAP10%",  "L": 100, "lambda": 0.85, "K": 3, "q": 0.5,  "gap": 0.1},
+    {"label": "q=0.5 GAP0%",   "L": 100, "lambda": 0.85, "K": 3, "q": 0.5,  "gap": 0.0},
+    {"label": "q=0.3 GAP10%",  "L": 100, "lambda": 0.85, "K": 3, "q": 0.3,  "gap": 0.1},
+    {"label": "q=0.3 GAP0%",   "L": 100, "lambda": 0.85, "K": 3, "q": 0.3,  "gap": 0.0},
+    {"label": "q=0.25 GAP10%", "L": 100, "lambda": 0.83, "K": 3, "q": 0.25, "gap": 0.1, "prior_end": "2023-06-30"},
+    {"label": "q=0.25 GAP0%",  "L": 100, "lambda": 0.83, "K": 3, "q": 0.25, "gap": 0.0, "prior_end": "2023-06-30"},
+    # --- K=4 × 閾値 ---
+    {"label": "K=4 q=0.3 GAP10%",  "L": 100, "lambda": 0.83, "K": 4, "q": 0.3,  "gap": 0.1, "prior_end": "2023-06-30"},
+    {"label": "K=4 q=0.4 GAP10%",  "L": 100, "lambda": 0.83, "K": 4, "q": 0.4,  "gap": 0.1, "prior_end": "2023-06-30"},
+]
+
+
+def _run_auto_search_thread(progress_dict: dict, provider, cache, start_date: str, end_date: str, prior_end: str, grid: list):
+    """自動探索: 複数パラメータを順次実行する。"""
+    try:
+        from core.lead_lag import run_backtest
+
+        results = []
+        total = len(grid)
+        for i, params in enumerate(grid):
+            progress_dict["message"] = f"[{i+1}/{total}] {params['label']} (L={params['L']}, λ={params['lambda']})"
+            progress_dict["pct"] = i / total
+
+            p_prior = params.get("prior_end", prior_end)
+            p_gap = params.get("gap", 1.0)  # 1.0 = フィルターなし
+            config = LeadLagConfig(
+                start_date=start_date,
+                end_date=end_date,
+                prior_end_date=p_prior,
+                rolling_window=params["L"],
+                n_components=params["K"],
+                lambda_reg=params["lambda"],
+                quantile_q=params["q"],
+                gap_threshold=p_gap,
+                run_pca_sub=True,
+                run_pca_plain=False,
+                run_mom=False,
+                run_double=False,
+            )
+
+            result = run_backtest(
+                config=config,
+                jquants_provider=provider,
+                cache=cache,
+            )
+            results.append({
+                "params": params,
+                "result": result,
+            })
+
+        progress_dict["_result"] = results
+        progress_dict["pct"] = 1.0
+        progress_dict["message"] = "完了"
+    except Exception as e:
+        import traceback
+        progress_dict["error"] = str(e)
+        progress_dict["detail"] = traceback.format_exc()
+        progress_dict["pct"] = 1.0
+
+
+# ---------------------------------------------------------------------------
+# タブ: 自動探索
+# ---------------------------------------------------------------------------
+def _render_auto_search_tab():
+    st.markdown("## 自動パラメータ探索")
+    st.caption(
+        "期間を指定するだけで、12パターンのパラメータを自動で実行し、"
+        "最適な組み合わせをAIが分析します。"
+    )
+
+    # 実行中チェック
+    auto_thread = st.session_state.get("ll_auto_thread")
+    is_running = auto_thread is not None and auto_thread.is_alive()
+
+    if is_running:
+        prog = st.session_state.get("ll_auto_progress", {})
+        pct = prog.get("pct", 0)
+        msg = prog.get("message", "実行中...")
+
+        import time
+        started_at = prog.get("_started_at")
+        elapsed = time.time() - started_at if started_at else 0
+        elapsed_min = int(elapsed // 60)
+        elapsed_sec = int(elapsed % 60)
+
+        st.warning(f"自動探索 実行中... ({elapsed_min}:{elapsed_sec:02d} 経過)")
+        st.progress(pct, text=msg)
+
+        if pct > 0.01 and pct < 0.99:
+            remaining = elapsed / pct * (1 - pct)
+            remaining_min = int(remaining // 60)
+            remaining_sec = int(remaining % 60)
+            st.caption(f"残り約 {remaining_min}:{remaining_sec:02d}")
+
+        time.sleep(3)
+        st.rerun()
+        return
+
+    # 完了後: 結果を履歴に登録
+    if auto_thread is not None and not auto_thread.is_alive() and "ll_auto_done" not in st.session_state:
+        prog = st.session_state.get("ll_auto_progress", {})
+        if "_result" in prog:
+            all_results = prog.pop("_result")
+            if "ll_history" not in st.session_state:
+                st.session_state["ll_history"] = []
+            history = st.session_state["ll_history"]
+
+            for item in all_results:
+                params = item["params"]
+                result = item["result"]
+                cfg = result.config
+                suffix = ""
+                pass  # 拡張戦略は自動計算
+                param_key = f"L{cfg.rolling_window}_λ{cfg.lambda_reg}_K{cfg.n_components}_q{cfg.quantile_q}_G{cfg.gap_threshold}_P{cfg.prior_end_date}{suffix}_{result.period_start}_{result.period_end}"
+                label = f"L={cfg.rolling_window} λ={cfg.lambda_reg} K={cfg.n_components} q={cfg.quantile_q}" + (f" GAP{int(cfg.gap_threshold*100)}%" if cfg.gap_threshold < 1.0 else "") + f" ~{cfg.prior_end_date[:4]}"
+                pass
+                existing_keys = [h.get("_param_key") for h in history]
+                if param_key not in existing_keys:
+                    history.append({
+                        "_param_key": param_key,
+                        "label": label,
+                        "period": f"{result.period_start}~{result.period_end}",
+                        "result": result,
+                    })
+
+            # シャープ比最高の結果を現在の結果としてセット
+            if all_results:
+                def _get_sharpe(item):
+                    s = item["result"].strategies
+                    # アンサンブルや動的qの結果も考慮
+                    best_sr = 0
+                    for key in ["PCA_SUB", "ENSEMBLE", "DYNAMIC_Q"]:
+                        if key in s:
+                            best_sr = max(best_sr, s[key].metrics.get("R/R", 0))
+                    return best_sr
+                    return 0
+                best = max(all_results, key=_get_sharpe)
+                st.session_state["ll_result"] = best["result"]
+
+            st.session_state["ll_auto_done"] = True
+            st.session_state.pop("ll_auto_thread", None)
+            st.session_state.pop("ll_auto_progress", None)
+            st.rerun()
+
+        elif prog.get("error"):
+            st.error(f"自動探索エラー: {prog['error']}")
+            detail = prog.get("detail", "")
+            if detail:
+                with st.expander("詳細"):
+                    st.code(detail)
+            if st.button("OK", key="auto_error_ok"):
+                st.session_state.pop("ll_auto_thread", None)
+                st.session_state.pop("ll_auto_progress", None)
+                st.rerun()
+            return
+
+    if "ll_auto_done" in st.session_state:
+        n = len(st.session_state.get("ll_history", []))
+        st.success(f"自動探索完了 - {n} パターンの結果が「パラメータ比較」タブに保存されました。")
+
+        # --- AI提案による追加探索 ---
+        _render_ai_suggest_and_run()
+
+        st.markdown("---")
+        if st.button("最初からやり直す", key="auto_restart"):
+            st.session_state.pop("ll_auto_done", None)
+            st.session_state.pop("ll_ai_suggestions", None)
+            st.session_state.pop("ll_ai_suggest_thread", None)
+            st.session_state.pop("ll_ai_suggest_progress", None)
+            st.rerun()
+        return
+
+    # --- 入力フォーム ---
+    with st.form("auto_search_form"):
+        st.markdown("### 分析期間")
+        col1, col2 = st.columns(2)
+        with col1:
+            start_date = st.date_input(
+                "開始日", value=date(2015, 1, 1),
+                min_value=date(2005, 1, 1), max_value=date(2026, 12, 31),
+                key="auto_start",
+            )
+        with col2:
+            end_date = st.date_input(
+                "終了日", value=date(2025, 12, 31),
+                min_value=date(2010, 1, 1), max_value=date(2026, 12, 31),
+                key="auto_end",
+            )
+
+        st.markdown("### 事前知識の学習期間")
+        st.caption("開始日からこの日付までのデータで日米の共変動パターンを学習します。")
+        prior_end = st.date_input(
+            "学習期間の終了日", value=date(2018, 12, 31),
+            min_value=date(2010, 1, 1), max_value=date(2025, 12, 31),
+            key="auto_prior",
+        )
+
+        submitted = st.form_submit_button(f"自動探索を開始 ({len(AUTO_SEARCH_GRID)}パターン)", type="primary")
+
+    if submitted:
+        provider, cache = _get_provider_and_cache()
+
+        import time as _time
+        progress_dict = {"message": "開始中...", "pct": 0.0, "_started_at": _time.time()}
+        st.session_state["ll_auto_progress"] = progress_dict
+
+        thread = threading.Thread(
+            target=_run_auto_search_thread,
+            args=(progress_dict, provider, cache, str(start_date), str(end_date), str(prior_end), AUTO_SEARCH_GRID),
+            daemon=True,
+        )
+        thread.start()
+        st.session_state["ll_auto_thread"] = thread
+        st.session_state.pop("ll_auto_done", None)
+        st.rerun()
+
+    # --- 探索パラメータ一覧 ---
+    with st.expander(f"探索するパラメータ一覧 ({len(AUTO_SEARCH_GRID)}パターン)"):
+        grid_df = pd.DataFrame([
+            {
+                "#": i + 1,
+                "パターン名": p["label"],
+                "ウィンドウ長 (L)": p["L"],
+                "正則化 (λ)": p["lambda"],
+                "主成分数 (K)": p["K"],
+                "売買比率 (q)": p["q"],
+                "学習期間終了": p.get("prior_end", "(フォーム指定)"),
+            }
+            for i, p in enumerate(AUTO_SEARCH_GRID)
+        ])
+        st.dataframe(grid_df, hide_index=True)
+        st.caption(
+            "各パラメータの意味: "
+            "**L** = 相関計算の日数 (大きいほど安定、小さいほど直近重視) / "
+            "**λ** = 経済理論をどの程度信用するか / "
+            "**K** = 日米共通パターンの数 / "
+            "**q** = 上位/下位何%を売買するか"
+        )
+
+
+# ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# プリセット (設定の保存/読み込み)
+# ---------------------------------------------------------------------------
+import json
+from pathlib import Path
+
+PRESETS_PATH = Path("storage/leadlag_presets.json")
+
+
+def _load_presets() -> dict:
+    if PRESETS_PATH.exists():
+        try:
+            return json.loads(PRESETS_PATH.read_text(encoding="utf-8"))
+        except Exception:
+            return {}
+    return {}
+
+
+def _save_presets(presets: dict):
+    PRESETS_PATH.parent.mkdir(parents=True, exist_ok=True)
+    PRESETS_PATH.write_text(json.dumps(presets, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def _render_presets():
+    presets = _load_presets()
+
+    with st.expander("設定の保存/読み込み"):
+        # 読み込み
+        if presets:
+            col1, col2 = st.columns([3, 1])
+            with col1:
+                selected = st.selectbox(
+                    "保存済み設定",
+                    list(presets.keys()),
+                    key="preset_select",
+                )
+            with col2:
+                if st.button("読み込む", key="load_preset"):
+                    p = presets[selected]
+                    st.session_state["preset_loaded"] = p
+                    st.rerun()
+                if st.button("削除", key="delete_preset"):
+                    del presets[selected]
+                    _save_presets(presets)
+                    st.rerun()
+        else:
+            st.caption("保存済みの設定はありません")
+
+        # 保存
+        result = st.session_state.get("ll_result")
+        if result:
+            cfg = result.config
+            col1, col2 = st.columns([3, 1])
+            with col1:
+                preset_name = st.text_input(
+                    "名前を付けて保存",
+                    value=f"L={cfg.rolling_window} λ={cfg.lambda_reg} K={cfg.n_components} q={cfg.quantile_q}",
+                    key="preset_name",
+                )
+            with col2:
+                if st.button("保存", key="save_preset"):
+                    gap_pct = int(cfg.gap_threshold * 100) if cfg.gap_threshold < 1.0 else 100
+                    presets[preset_name] = {
+                        "L": cfg.rolling_window,
+                        "lambda": cfg.lambda_reg,
+                        "K": cfg.n_components,
+                        "q": cfg.quantile_q,
+                        "gap": gap_pct,
+                        "prior_end": cfg.prior_end_date,
+                        "start": cfg.start_date,
+                        "end": cfg.end_date,
+                        "us_universe": cfg.us_universe,
+                    }
+                    _save_presets(presets)
+                    st.success(f"「{preset_name}」を保存しました")
+
+
+# ---------------------------------------------------------------------------
+# タブ: 本日の売買
+# ---------------------------------------------------------------------------
+def _render_daily_trade_tab():
+    result = st.session_state.get("ll_result")
+    if result is None:
+        st.info("「設定・実行」タブでバックテストを実行してください。結果に基づいて売買シグナルを表示します。")
+        return
+
+    strategies = result.strategies
+    config = result.config
+    if "PCA_SUB" not in strategies or strategies["PCA_SUB"].signals is None:
+        st.warning("PCA_SUBの結果がありません。")
+        return
+
+    sig_df = strategies["PCA_SUB"].signals.dropna(how="all")
+    us_ret = result.us_cc_returns
+    close_df = result.jp_close_prices
+    open_df = result.jp_open_prices
+    gap_df = result.jp_overnight_gaps
+
+    if len(sig_df) == 0:
+        return
+
+    st.markdown("## 売買シグナル")
+
+    # --- パラメータサマリー ---
+    gap_pct = int(config.gap_threshold * 100) if config.gap_threshold < 1.0 else None
+    param_text = f"L={config.rolling_window}  λ={config.lambda_reg}  K={config.n_components}  q={config.quantile_q}"
+    if gap_pct is not None:
+        param_text += f"  GAP={gap_pct}%"
+    st.caption(f"設定: {param_text}  |  期間: {result.period_start}〜{result.period_end}")
+
+    # --- 日付選択 ---
+    available_dates = sig_df.index.tolist()
+    selected_input = st.date_input(
+        "日付を選択",
+        value=available_dates[-1].date() if hasattr(available_dates[-1], 'date') else available_dates[-1],
+        min_value=available_dates[0].date() if hasattr(available_dates[0], 'date') else available_dates[0],
+        max_value=available_dates[-1].date() if hasattr(available_dates[-1], 'date') else available_dates[-1],
+        key="trade_date_input",
+    )
+    # 選択した日付に最も近い営業日を探す
+    selected_ts = pd.Timestamp(selected_input)
+    diffs = [(abs((d - selected_ts).days), d) for d in available_dates]
+    selected_date = min(diffs, key=lambda x: x[0])[1]
+    if selected_ts != selected_date:
+        st.caption(f"※ {selected_input} は非営業日のため {selected_date.strftime('%Y-%m-%d')} を表示")
+
+    sig = sig_df.loc[selected_date]
+    q = config.quantile_q
+    n_long = max(1, int(np.ceil(len(sig.dropna()) * q)))
+    sorted_sig = sig.dropna().sort_values(ascending=False)
+    is_latest = (selected_date == available_dates[-1])
+
+    # --- 前日の米国セクター ---
+    us_dates_before = us_ret.index[us_ret.index <= selected_date]
+    if len(us_dates_before) > 0:
+        us_day_ret = us_ret.loc[us_dates_before[-1]]
+        st.markdown(f"### 前日の米国セクター騰落率 ({us_dates_before[-1].strftime('%Y-%m-%d')})")
+        us_rows = []
+        for t in us_day_ret.index:
+            us_rows.append({
+                "セクター": get_ticker_name(t),
+                "騰落率 (%)": round(us_day_ret[t] * 100, 2),
+            })
+        us_display = pd.DataFrame(us_rows).sort_values("騰落率 (%)", ascending=False)
+        st.dataframe(
+            us_display.style.format({"騰落率 (%)": "{:+.1f}"}).map(
+                lambda v: "color: #2E7D32" if isinstance(v, (int, float)) and v > 0
+                else "color: #C62828" if isinstance(v, (int, float)) and v < 0 else "",
+                subset=["騰落率 (%)"],
+            ),
+            hide_index=True, height=min(420, len(us_rows) * 35 + 40),
+        )
+
+    # --- 売買シグナルテーブル ---
+    has_gap = config.gap_threshold < 1.0
+    gap_row = gap_df.loc[selected_date] if gap_df is not None and selected_date in gap_df.index else None
+    has_price = close_df is not None and open_df is not None
+
+    st.markdown(f"### 日本セクターETF 売買判断 ({selected_date.strftime('%Y-%m-%d')})")
+
+    trade_rows = []
+    for rank, (ticker, sig_val) in enumerate(sorted_sig.items()):
+        sector = get_ticker_name(ticker)
+        if rank < n_long:
+            position = "ロング"
+        elif rank >= len(sorted_sig) - n_long:
+            position = "ショート"
+        else:
+            position = "-"
+
+        # 価格
+        prev_close = None
+        today_open = None
+        today_close = None
+        if has_price and selected_date in close_df.index:
+            date_idx = close_df.index.get_loc(selected_date)
+            if date_idx > 0 and ticker in close_df.columns:
+                prev_close = close_df.iloc[date_idx - 1][ticker]
+            if ticker in open_df.columns:
+                today_open = open_df.loc[selected_date, ticker]
+            if ticker in close_df.columns:
+                today_close = close_df.loc[selected_date, ticker]
+
+        pc = int(prev_close) if prev_close is not None and not np.isnan(prev_close) else None
+        op = int(today_open) if today_open is not None and not np.isnan(today_open) else None
+        cl = int(today_close) if today_close is not None and not np.isnan(today_close) else None
+
+        row = {
+            "セクター": sector,
+            "コード": ticker,
+            "判定": position,
+            "シグナル": round(sig_val, 2),
+        }
+
+        if pc:
+            row["前日終値"] = f"{pc:,}"
+
+        # 指値目安
+        if has_gap and pc and abs(sig_val) > 1e-10 and position in ("ロング", "ショート"):
+            if position == "ロング":
+                limit = int(pc * (1 + abs(sig_val) * config.gap_threshold))
+                row["指値目安"] = f"{limit:,}以下で買い"
+            else:
+                limit = int(pc * (1 - abs(sig_val) * config.gap_threshold))
+                row["指値目安"] = f"{limit:,}以上で売り"
+        elif position in ("ロング", "ショート"):
+            row["指値目安"] = "成行"
+
+        # 過去日なら実績も表示
+        if op:
+            row["寄付き"] = f"{op:,}"
+        if cl:
+            row["終値"] = f"{cl:,}"
+        if op and cl and op > 0:
+            row["当日騰落(%)"] = round((cl / op - 1) * 100, 1)
+
+        # GAP判定
+        if has_gap and gap_row is not None and ticker in gap_row.index and position in ("ロング", "ショート"):
+            gap_val = gap_row[ticker]
+            if not np.isnan(gap_val) and abs(sig_val) > 1e-10:
+                if position == "ロング":
+                    can_trade = gap_val <= abs(sig_val) * config.gap_threshold
+                else:
+                    can_trade = gap_val >= -abs(sig_val) * config.gap_threshold
+                row["GAP判定"] = "エントリー" if can_trade else "スキップ"
+
+        trade_rows.append(row)
+
+    trade_df = pd.DataFrame(trade_rows)
+
+    # スタイリング
+    style_cols = ["判定"]
+    if "GAP判定" in trade_df.columns:
+        style_cols.append("GAP判定")
+
+    def _style(v):
+        s = str(v)
+        if "ロング" in s or "エントリー" in s:
+            return "color: #2E7D32; font-weight: bold"
+        if "ショート" in s:
+            return "color: #C62828; font-weight: bold"
+        if "スキップ" in s:
+            return "color: #999; text-decoration: line-through"
+        return ""
+
+    fmt = {"シグナル": "{:+.2f}"}
+    if "当日騰落(%)" in trade_df.columns:
+        fmt["当日騰落(%)"] = "{:+.1f}"
+
+    st.dataframe(
+        trade_df.style.map(_style, subset=style_cols).format(fmt, na_rep="-"),
+        hide_index=True,
+        height=min(660, len(trade_df) * 35 + 40),
+    )
+
+    # --- 当日リターンサマリー ---
+    if not is_latest or (op and cl):
+        st.markdown("### 当日の戦略リターン")
+        ret_cols = []
+        for strat_name in ["PCA_SUB", "GAP_CUSTOM"]:
+            if strat_name in strategies:
+                ret = strategies[strat_name].daily_returns
+                if selected_date in ret.index and not np.isnan(ret.loc[selected_date]):
+                    label = "フィルターなし" if strat_name == "PCA_SUB" else f"GAP_{gap_pct}%"
+                    ret_cols.append((label, ret.loc[selected_date] * 100))
+        if ret_cols:
+            cols = st.columns(len(ret_cols))
+            for col, (label, val) in zip(cols, ret_cols):
+                with col:
+                    st.metric(label, f"{val:+.2f}%")
+
+    # --- パフォーマンスサマリー ---
+    st.markdown("---")
+    st.markdown("### パフォーマンスサマリー")
+    # TOPIX年率
+    bm_ar = None
+    if result.benchmark_returns is not None and len(result.benchmark_returns) > 0:
+        bm_valid = result.benchmark_returns.dropna()
+        if len(bm_valid) > 0:
+            bm_ar = bm_valid.mean() * 252 * 100
+
+    summary_keys = ["PCA_SUB"]
+    if "GAP_CUSTOM" in strategies:
+        summary_keys.append("GAP_CUSTOM")
+    summary_rows = []
+    for key in summary_keys:
+        if key not in strategies:
+            continue
+        m = strategies[key].metrics
+        label = "フィルターなし" if key == "PCA_SUB" else f"GAP_{gap_pct}%"
+        row = {
+            "戦略": label,
+            "年率リターン (%)": round(m["AR"], 1),
+            "シャープ比": round(m["R/R"], 2),
+            "最大下落率 (%)": round(m["MDD"], 1),
+            "エントリー率 (%)": round(m.get("entry_rate", 100), 0),
+            "月次勝率 (%)": round(m.get("monthly_win_rate", 0), 0),
+            "最悪月 (%)": round(m.get("monthly_worst", 0), 1),
+        }
+        if bm_ar is not None:
+            row["対TOPIX超過 (%)"] = round(m["AR"] - bm_ar, 1)
+        summary_rows.append(row)
+    if summary_rows:
+        fmt = {
+            "年率リターン (%)": "{:+.1f}",
+            "シャープ比": "{:.2f}",
+            "最大下落率 (%)": "{:.1f}",
+            "エントリー率 (%)": "{:.0f}",
+            "月次勝率 (%)": "{:.0f}",
+            "最悪月 (%)": "{:+.1f}",
+        }
+        if "対TOPIX超過 (%)" in summary_rows[0]:
+            fmt["対TOPIX超過 (%)"] = "{:+.1f}"
+        st.dataframe(
+            pd.DataFrame(summary_rows).style.format(fmt),
+            hide_index=True,
+        )
+        if bm_ar is not None:
+            st.caption(f"TOPIX年率: {bm_ar:+.1f}% (同期間)")
+
+
+# ---------------------------------------------------------------------------
+# タブ1: 設定・実行
+# ---------------------------------------------------------------------------
+def _render_setup_tab():
+    # 実行中チェック
+    ll_thread = st.session_state.get("ll_thread")
+    is_running = ll_thread is not None and ll_thread.is_alive()
+
+    if is_running:
+        prog = st.session_state.get("ll_progress", {})
+        pct = prog.get("pct", 0)
+        msg = prog.get("message", "実行中...")
+
+        import time
+
+        started_at = prog.get("_started_at")
+        elapsed = time.time() - started_at if started_at else 0
+        elapsed_min = int(elapsed // 60)
+        elapsed_sec = int(elapsed % 60)
+
+        # --- 明確な実行中 UI ---
+        st.warning(f"バックテスト実行中... ({elapsed_min}:{elapsed_sec:02d} 経過)")
+        st.progress(pct, text=msg)
+
+        # ステップ説明
+        step_labels = {
+            "US ETF": "Step 1/5: 米国ETFデータ取得 (yfinance)",
+            "JP ETF": "Step 2/5: 日本ETFデータ取得 (J-Quants / yfinance)",
+            "整列": "Step 3/5: 日米データの取引日整列",
+            "PCA_SUB": "Step 4/5: PCA シグナル計算",
+            "PCA_PLAIN": "Step 4/5: PCA シグナル計算",
+            "MOM": "Step 5/5: ベースライン戦略計算",
+            "DOUBLE": "Step 5/5: ベースライン戦略計算",
+            "事前": "Step 3/5: 事前部分空間・相関行列の推定",
+            "ポートフォリオ": "Step 4/5: ポートフォリオ構築",
+            "完了": "完了",
+        }
+        step_desc = msg
+        for key, label in step_labels.items():
+            if key in msg:
+                step_desc = label
+                break
+        st.info(step_desc)
+
+        if pct > 0.01 and pct < 0.99:
+            remaining = elapsed / pct * (1 - pct)
+            remaining_min = int(remaining // 60)
+            remaining_sec = int(remaining % 60)
+            st.caption(f"残り約 {remaining_min}:{remaining_sec:02d}")
+
+        time.sleep(2)
+        st.rerun()
+        return
+
+    # スレッド完了後
+    if ll_thread is not None and not ll_thread.is_alive() and "ll_result" not in st.session_state:
+        prog = st.session_state.get("ll_progress", {})
+        if "_result" in prog:
+            st.session_state["ll_result"] = prog.pop("_result")
+        elif prog.get("error"):
+            st.error(f"実行エラー: {prog['error']}")
+            detail = prog.get("detail", "")
+            if detail:
+                with st.expander("詳細"):
+                    st.code(detail)
+            if st.button("OK", key="ll_error_ok"):
+                st.session_state.pop("ll_thread", None)
+                st.session_state.pop("ll_progress", None)
+                st.rerun()
+            return
+
+    if "ll_result" in st.session_state:
+        result = st.session_state["ll_result"]
+        st.success("実行完了 - 「結果比較」「シグナル分析」タブで結果を確認できます。")
+
+        # 履歴に自動保存
+        if "ll_history" not in st.session_state:
+            st.session_state["ll_history"] = []
+        history = st.session_state["ll_history"]
+        # 同一パラメータの重複チェック
+        cfg = result.config
+        param_key = f"L{cfg.rolling_window}_λ{cfg.lambda_reg}_K{cfg.n_components}_q{cfg.quantile_q}_G{cfg.gap_threshold}_P{cfg.prior_end_date}_{result.period_start}_{result.period_end}"
+        existing_keys = [h.get("_param_key") for h in history]
+        if param_key not in existing_keys:
+            history.append({
+                "_param_key": param_key,
+                "label": f"L={cfg.rolling_window} λ={cfg.lambda_reg} K={cfg.n_components} q={cfg.quantile_q}" + (f" GAP{int(cfg.gap_threshold*100)}%" if cfg.gap_threshold < 1.0 else "") + f" ~{cfg.prior_end_date[:4]}",
+                "period": f"{result.period_start}~{result.period_end}",
+                "result": result,
+            })
+            st.caption(f"パラメータ比較タブに保存しました (履歴: {len(history)}件)")
+
+        # プリセット保存
+        presets = _load_presets()
+        gap_pct_save = int(cfg.gap_threshold * 100) if cfg.gap_threshold < 1.0 else 100
+        default_name = f"L={cfg.rolling_window} λ={cfg.lambda_reg} K={cfg.n_components} q={cfg.quantile_q}"
+        if gap_pct_save < 100:
+            default_name += f" GAP{gap_pct_save}%"
+        col1, col2 = st.columns([3, 1])
+        with col1:
+            preset_name = st.text_input("名前を付けて保存", value=default_name, key="save_preset_name")
+        with col2:
+            if st.button("保存", key="save_preset_btn"):
+                presets[preset_name] = {
+                    "L": cfg.rolling_window, "lambda": cfg.lambda_reg,
+                    "K": cfg.n_components, "q": cfg.quantile_q,
+                    "gap": gap_pct_save, "prior_end": cfg.prior_end_date,
+                    "start": cfg.start_date, "end": cfg.end_date,
+                    "us_universe": cfg.us_universe,
+                }
+                _save_presets(presets)
+                st.success(f"「{preset_name}」を保存しました")
+
+        if st.button("新しい実験を開始"):
+            st.session_state.pop("ll_result", None)
+            st.session_state.pop("ll_thread", None)
+            st.session_state.pop("ll_progress", None)
+            st.session_state.pop("ll_interpretation", None)
+            st.rerun()
+        return
+
+    # --- プリセット保存/読み込み ---
+    _render_presets()
+
+    # --- パラメータ入力 ---
+    st.markdown("## パラメータ設定")
+    st.info(
+        "**仮説**: 米国市場で時点tに確定した業種別情報が、"
+        "日本市場の翌営業日t+1の日中リターン (Open-to-Close) に波及する"
+    )
+
+    # プリセットのデフォルト値
+    p = st.session_state.pop("preset_loaded", None)
+    d_L = p["L"] if p else 60
+    d_lam = p["lambda"] if p else 0.9
+    d_K = p["K"] if p else 3
+    d_q = p["q"] if p else 0.3
+    d_gap = p["gap"] if p else 100
+    d_prior = p.get("prior_end", "2018-12-31") if p else "2018-12-31"
+    d_start = p.get("start", "2015-01-01") if p else "2015-01-01"
+    d_end = p.get("end", "2025-12-31") if p else "2025-12-31"
+    d_us = p.get("us_universe", "US_11") if p else "US_11"
+
+    if p:
+        st.success(f"プリセットを読み込みました")
+
+    with st.form("leadlag_form"):
+        st.markdown("### ユニバース選択")
+        col1, col2 = st.columns(2)
+        with col1:
+            us_options = ["US_11", "US_33"]
+            us_universe = st.selectbox(
+                "米国側",
+                us_options,
+                index=us_options.index(d_us) if d_us in us_options else 0,
+                format_func=lambda x: {"US_11": "11セクター (SPDR)", "US_33": "33種 (11セクター+22インダストリー)"}[x],
+            )
+        with col2:
+            jp_universe = "JP_17"
+            st.info("日本側: TOPIX-17 (17業種)")
+
+        st.markdown("### 分析期間")
+        col1, col2 = st.columns(2)
+        with col1:
+            start_date = st.date_input(
+                "開始日",
+                value=date.fromisoformat(d_start),
+                min_value=date(2005, 1, 1),
+                max_value=date(2026, 12, 31),
+            )
+        with col2:
+            end_date = st.date_input(
+                "終了日",
+                value=date.fromisoformat(d_end),
+                min_value=date(2010, 1, 1),
+                max_value=date(2026, 12, 31),
+            )
+
+        st.markdown("### PCA パラメータ")
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            rolling_window = st.number_input(
+                "ウィンドウ長 (L)",
+                value=d_L, min_value=20, max_value=252,
+                help="相関行列を計算する直近の営業日数。60 = 約3ヶ月分。",
+            )
+        with col2:
+            lambda_reg = st.slider(
+                "正則化強度",
+                min_value=0.0, max_value=1.0, value=d_lam, step=0.01,
+                help="経済理論の事前知識をどの程度信用するか。0.9 = 90%事前知識 + 10%データ。論文推奨値は0.9。",
+            )
+        with col3:
+            n_components = st.number_input(
+                "主成分数 (K)",
+                value=d_K, min_value=1, max_value=10,
+                help="日米共通の変動パターン数。3 = グローバル景気・国別差・景気循環。",
+            )
+        with col4:
+            quantile_q = st.slider(
+                "売買比率",
+                min_value=0.1, max_value=0.5, value=d_q, step=0.05,
+                help="17セクター中の上位/下位何%をロング/ショートするか。0.3 = 上下各5本。",
+            )
+
+        st.markdown("### 事前知識の学習期間")
+        st.caption(
+            "開始日から下記の日付までのデータで、日米セクター間の長期的な共変動パターン（グローバル景気連動など）を学習します。"
+            "残りの期間がテスト期間になります。分析期間の前半〜中盤に設定してください。"
+        )
+        prior_end = st.date_input(
+            "学習期間の終了日",
+            value=date.fromisoformat(d_prior),
+            min_value=date(2010, 1, 1),
+            max_value=date(2025, 12, 31),
+        )
+
+        st.markdown("### 比較戦略")
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            run_pca_sub = st.checkbox("提案手法 (正則化PCA)", value=True, disabled=True)
+        with col2:
+            run_pca_plain = st.checkbox("通常PCA (正則化なし)", value=True)
+        with col3:
+            run_mom = st.checkbox("モメンタム", value=True)
+        with col4:
+            run_double = st.checkbox("ダブルソート", value=True)
+
+        st.markdown("### ギャップフィルター")
+        st.caption("シグナル強度に対してovernightギャップが閾値以上消化済みの銘柄をスキップ")
+        gap_threshold = st.slider(
+            "ギャップ消化率の閾値 (%)",
+            min_value=-100, max_value=100, value=d_gap, step=5,
+            help="100%=フィルターなし (全エントリー)。10%=予測の10%消化でスキップ。0%=予測方向に少しでも動いたらスキップ。-20%=予測と逆に20%以上動いた銘柄のみエントリー",
+        )
+
+        st.caption("拡張戦略 (HYBRID, K3/K4アンサンブル) は自動的に計算されます")
+
+        submitted = st.form_submit_button("バックテストを実行", type="primary")
+
+    if submitted:
+        config = LeadLagConfig(
+            start_date=str(start_date),
+            end_date=str(end_date),
+            prior_end_date=str(prior_end),
+            us_universe=us_universe,
+            jp_universe=jp_universe,
+            rolling_window=rolling_window,
+            n_components=n_components,
+            lambda_reg=lambda_reg,
+            quantile_q=quantile_q,
+            gap_threshold=gap_threshold / 100.0,
+            run_pca_sub=True,
+            run_pca_plain=run_pca_plain,
+            run_mom=run_mom,
+            run_double=run_double,
+        )
+
+        provider, cache = _get_provider_and_cache()
+
+        import time as _time
+
+        progress_dict = {"message": "開始中...", "pct": 0.0, "_started_at": _time.time()}
+        st.session_state["ll_progress"] = progress_dict
+
+        thread = threading.Thread(
+            target=_run_leadlag_thread,
+            args=(progress_dict, provider, cache, config),
+            daemon=True,
+        )
+        thread.start()
+        st.session_state["ll_thread"] = thread
+        st.rerun()
+
+    # --- ETF一覧表示 ---
+    with st.expander("対象ETF一覧"):
+        col1, col2 = st.columns(2)
+        with col1:
+            st.markdown("**米国 S&P 500 セクターETF (11本)**")
+            us_df = pd.DataFrame([
+                {"ティッカー": t, "セクター": US_TICKER_NAMES.get(t, "")}
+                for t in US_TICKERS
+            ])
+            st.dataframe(us_df, hide_index=True, height=420)
+        with col2:
+            st.markdown("**日本 TOPIX-17 セクターETF (17本)**")
+            jp_df = pd.DataFrame([
+                {"コード": t, "セクター": JP_TICKER_NAMES.get(t, "")}
+                for t in JP_TICKERS
+            ])
+            st.dataframe(jp_df, hide_index=True, height=620)
+
+
+# ---------------------------------------------------------------------------
+# タブ2: 結果比較
+# ---------------------------------------------------------------------------
+def _render_results_tab():
+    result = st.session_state.get("ll_result")
+    if result is None:
+        st.info("「設定・実行」タブでバックテストを実行してください。")
+        return
+
+    st.markdown("## 戦略パフォーマンス比較")
+    st.caption(f"分析期間: {result.period_start} ~ {result.period_end} ({result.n_common_days} 営業日)")
+
+    strategies = result.strategies
+    if not strategies:
+        st.warning("戦略結果がありません。")
+        return
+
+    # --- 対TOPIX超過リターン計算 (全箇所で使用) ---
+    has_bm = result.benchmark_returns is not None and len(result.benchmark_returns) > 0
+    excess_metrics = {}
+    bm_ar = None
+    if has_bm:
+        bm_valid = result.benchmark_returns.dropna()
+        bm_ar = bm_valid.mean() * 252 * 100 if len(bm_valid) > 0 else None
+        for name, strat in strategies.items():
+            strat_ret = strat.daily_returns.dropna()
+            common_idx = strat_ret.index.intersection(bm_valid.index)
+            if len(common_idx) > 0:
+                from core.lead_lag.strategy import compute_metrics as _cm
+                excess_daily = strat_ret.loc[common_idx] - bm_valid.loc[common_idx]
+                excess_metrics[name] = _cm(excess_daily.values, common_idx)
+
+    # --- KPI メトリクス (提案手法のハイライト) ---
+    if "PCA_SUB" in strategies:
+        m = strategies["PCA_SUB"].metrics
+        em = excess_metrics.get("PCA_SUB", {})
+        st.markdown("**提案手法 (正則化PCA) — 絶対パフォーマンス:**")
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            st.metric("年率リターン", f"{m['AR']:+.1f}%")
+        with col2:
+            st.metric("シャープ比", f"{m['R/R']:.2f}")
+        with col3:
+            st.metric("月次勝率", f"{m.get('monthly_win_rate', 0):.0f}%")
+        with col4:
+            st.metric("最大下落率", f"{m['MDD']:.1f}%")
+
+        if em:
+            st.markdown("**提案手法 — 対TOPIX:**")
+            col1, col2, col3, col4 = st.columns(4)
+            with col1:
+                st.metric("超過リターン", f"{em.get('AR', 0):+.1f}%")
+            with col2:
+                st.metric("超過シャープ比", f"{em.get('R/R', 0):.2f}")
+            with col3:
+                st.metric("対TOPIX月次勝率", f"{em.get('monthly_win_rate', 0):.0f}%")
+            with col4:
+                st.metric("対TOPIX最悪月", f"{em.get('monthly_worst', 0):+.1f}%")
+
+    # --- ギャップフィルター KPI ---
+    if "GAP_CUSTOM" in strategies:
+        gm = strategies["GAP_CUSTOM"].metrics
+        threshold_pct = int(result.config.gap_threshold * 100)
+        st.markdown(f"**ギャップフィルター ({threshold_pct}%消化でスキップ):**")
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            st.metric("年率リターン", f"{gm['AR']:+.1f}%")
+        with col2:
+            st.metric("シャープ比", f"{gm['R/R']:.2f}")
+        with col3:
+            st.metric("エントリー率", f"{gm.get('entry_rate', 100):.0f}%")
+        with col4:
+            st.metric("月次勝率", f"{gm.get('monthly_win_rate', 0):.0f}%")
+
+    # --- パフォーマンス比較表 ---
+    st.markdown("### 全戦略の比較 — 絶対パフォーマンス")
+    rows = []
+    show_keys = ["PCA_SUB", "GAP_CUSTOM", "PCA_PLAIN", "MOM", "DOUBLE"]
+    for name in show_keys:
+        if name in strategies:
+            m = strategies[name].metrics
+            label = STRATEGY_LABELS.get(name, name)
+            if name == "GAP_CUSTOM":
+                threshold_pct = int(result.config.gap_threshold * 100)
+                label = f"ギャップフィルター ({threshold_pct}%)"
+            row = {
+                "戦略": label,
+                "年率リターン (%)": round(m["AR"], 2),
+                "シャープ比": round(m["R/R"], 2),
+                "最大下落率 (%)": round(m["MDD"], 2),
+                "エントリー率 (%)": round(m.get("entry_rate", 100), 0),
+                "月次勝率 (%)": round(m.get("monthly_win_rate", 0), 0),
+                "月次平均 (%)": round(m.get("monthly_mean", 0), 2),
+                "月次ブレ幅 (%)": round(m.get("monthly_std", 0), 2),
+                "最悪月 (%)": round(m.get("monthly_worst", 0), 1),
+            }
+            rows.append(row)
+
+    if rows:
+        df_perf = pd.DataFrame(rows)
+        fmt = {
+            "年率リターン (%)": "{:+.1f}",
+            "シャープ比": "{:.2f}",
+            "最大下落率 (%)": "{:.1f}",
+            "エントリー率 (%)": "{:.0f}",
+            "月次勝率 (%)": "{:.0f}",
+            "月次平均 (%)": "{:+.2f}",
+            "月次ブレ幅 (%)": "{:.2f}",
+            "最悪月 (%)": "{:+.1f}",
+        }
+        if "対TOPIX超過 (%)" in df_perf.columns:
+            fmt["対TOPIX超過 (%)"] = "{:+.1f}"
+        st.dataframe(
+            df_perf.style.apply(_highlight_best, axis=0).format(fmt),
+            hide_index=True,
+        )
+
+        if bm_ar is not None:
+            st.caption(f"TOPIX 年率リターン: {bm_ar:+.1f}% (同期間)")
+
+    # --- 対TOPIX比較表 ---
+    if excess_metrics:
+        st.markdown("### 全戦略の比較 — 対TOPIX (超過リターンベース)")
+        st.caption(
+            "戦略リターン - TOPIXリターン を日次で計算した超過リターンの指標。"
+            "TOPIXを上回った月の割合や、TOPIXに対する最悪月がわかる"
+        )
+        ex_rows = []
+        ex_keys = ["PCA_SUB", "GAP_CUSTOM", "PCA_PLAIN", "MOM", "DOUBLE"]
+        # GAP_CUSTOMの超過メトリクスを計算
+        if "GAP_CUSTOM" in strategies and "GAP_CUSTOM" not in excess_metrics:
+            from core.lead_lag.strategy import compute_metrics as _cm
+            gc_ret = strategies["GAP_CUSTOM"].daily_returns.dropna()
+            gc_common = gc_ret.index.intersection(bm_valid.index) if has_bm else pd.DatetimeIndex([])
+            if len(gc_common) > 0:
+                gc_excess = gc_ret.loc[gc_common] - bm_valid.loc[gc_common]
+                excess_metrics["GAP_CUSTOM"] = _cm(gc_excess.values, gc_common)
+        for name in ex_keys:
+            if name not in excess_metrics:
+                continue
+            em = excess_metrics[name]
+            label = STRATEGY_LABELS.get(name, name)
+            if name == "GAP_CUSTOM":
+                threshold_pct = int(result.config.gap_threshold * 100)
+                label = f"GAP_{threshold_pct}%"
+            ex_rows.append({
+                "戦略": label,
+                "超過リターン (%)": round(em.get("AR", 0), 1),
+                "超過シャープ比": round(em.get("R/R", 0), 2),
+                "対TOPIX月次勝率 (%)": round(em.get("monthly_win_rate", 0), 0),
+                "超過月次平均 (%)": round(em.get("monthly_mean", 0), 2),
+                "超過月次ブレ幅 (%)": round(em.get("monthly_std", 0), 2),
+                "対TOPIX最悪月 (%)": round(em.get("monthly_worst", 0), 1),
+            })
+        if ex_rows:
+            df_ex = pd.DataFrame(ex_rows)
+            st.dataframe(
+                df_ex.style.apply(_highlight_best, axis=0).format({
+                    "超過リターン (%)": "{:+.1f}",
+                    "超過シャープ比": "{:.2f}",
+                    "対TOPIX月次勝率 (%)": "{:.0f}",
+                    "超過月次平均 (%)": "{:+.2f}",
+                    "超過月次ブレ幅 (%)": "{:.2f}",
+                    "対TOPIX最悪月 (%)": "{:+.1f}",
+                }),
+                hide_index=True,
+            )
+
+    # --- 累積リターンチャート ---
+    st.markdown("### 累積リターン推移")
+    st.caption("1円を投資した場合の資産額の推移")
+    fig = go.Figure()
+
+    colors = {
+        "PCA_SUB": "#FF8000",
+        "GAP_CUSTOM": "#E91E63",
+        "PCA_PLAIN": "#888888",
+        "MOM": "#1565C0",
+        "DOUBLE": "#2E7D32",
+    }
+    dashes = {
+        "PCA_SUB": "solid",
+        "GAP_CUSTOM": "solid",
+        "PCA_PLAIN": "dot",
+        "MOM": "dash",
+        "DOUBLE": "dashdot",
+    }
+
+    for name in ["PCA_SUB", "GAP_CUSTOM", "DOUBLE", "PCA_PLAIN", "MOM"]:
+        if name not in strategies:
+            continue
+        s = strategies[name]
+        ret = s.daily_returns.dropna()
+        cum = (1 + ret).cumprod()
+        fig.add_trace(go.Scatter(
+            x=cum.index,
+            y=cum.values,
+            name=STRATEGY_LABELS.get(name, name),
+            line=dict(color=colors.get(name, "#333"), dash=dashes.get(name, "solid"), width=2),
+        ))
+
+    # TOPIX ベンチマーク
+    if result.benchmark_returns is not None and len(result.benchmark_returns) > 0:
+        bm = result.benchmark_returns.dropna()
+        bm_cum = (1 + bm).cumprod()
+        fig.add_trace(go.Scatter(
+            x=bm_cum.index,
+            y=bm_cum.values,
+            name="TOPIX (ベンチマーク)",
+            line=dict(color="#999999", dash="dot", width=1.5),
+        ))
+
+    fig.update_layout(
+        height=500,
+        xaxis_title="日付",
+        yaxis_title="累積リターン (1起点)",
+        template="plotly_white",
+        legend=dict(x=0.02, y=0.98),
+        margin=dict(l=60, r=20, t=30, b=40),
+    )
+    st.plotly_chart(fig, width="stretch")
+
+    # --- 年別リターン ---
+    st.markdown("### 年別リターン (%)")
+    st.caption("各年の通年リターン。緑=プラス、赤=マイナス。TOPIX列は同期間の指数リターン")
+    if "PCA_SUB" in strategies:
+        _render_annual_returns(strategies, result.benchmark_returns)
+
+    # --- 月次リターン ---
+    st.markdown("### 月次リターン (%)")
+    if "PCA_SUB" in strategies:
+        _render_monthly_heatmap(strategies, result.benchmark_returns)
+
+    # --- 直近の売買サンプル ---
+    st.markdown("### 直近の売買サンプル")
+    _render_trade_samples(result)
+
+    # --- AI 解釈 ---
+    st.markdown("---")
+    _render_ai_interpretation(result)
+
+
+def _highlight_best(s):
+    """パフォーマンス表の最良値をハイライト"""
+    higher_better = {
+        "年率リターン (%)", "シャープ比", "最大下落率 (%)",
+        "月次勝率 (%)", "月次平均 (%)", "対TOPIX超過 (%)",
+        "超過リターン (%)", "超過シャープ比", "対TOPIX月次勝率 (%)",
+        "超過月次平均 (%)",
+    }
+    lower_better = {"月次ブレ幅 (%)", "超過月次ブレ幅 (%)"}
+    max_better = {"最悪月 (%)", "対TOPIX最悪月 (%)"}
+    if s.name not in higher_better | lower_better | max_better:
+        return [""] * len(s)
+    try:
+        vals = s.astype(float)
+    except (ValueError, TypeError):
+        return [""] * len(s)
+    if s.name in higher_better:
+        best = vals == vals.max()
+    elif s.name in lower_better:
+        best = vals == vals.min()
+    else:
+        best = vals == vals.max()
+    return ["font-weight: bold; color: #FF8000" if v else "" for v in best]
+
+
+def _render_annual_returns(strategies, benchmark_returns=None):
+    """年別リターンの表を表示 (TOPIX + 対TOPIX超過)"""
+    annual_data = {}
+    for name, strat in strategies.items():
+        ret = strat.daily_returns.dropna()
+        if len(ret) == 0:
+            continue
+        yearly = ret.groupby(ret.index.year).apply(lambda x: ((1 + x).prod() - 1) * 100)
+        annual_data[STRATEGY_LABELS.get(name, name)] = yearly
+
+    # TOPIX + 対TOPIX超過
+    bm_yearly = None
+    if benchmark_returns is not None and len(benchmark_returns) > 0:
+        bm = benchmark_returns.dropna()
+        bm_yearly = bm.groupby(bm.index.year).apply(lambda x: ((1 + x).prod() - 1) * 100)
+        annual_data["TOPIX"] = bm_yearly
+
+    if annual_data:
+        df_annual = pd.DataFrame(annual_data)
+        df_annual.index.name = "年"
+
+        # 対TOPIX超過列を戦略ごとに追加
+        if bm_yearly is not None:
+            for name, strat in strategies.items():
+                label = STRATEGY_LABELS.get(name, name)
+                if label in df_annual.columns:
+                    excess_col = f"{label} 対TOPIX"
+                    df_annual[excess_col] = df_annual[label] - df_annual["TOPIX"]
+
+        st.dataframe(
+            df_annual.style.format("{:+.1f}", na_rep="-").map(
+                lambda v: "color: #2E7D32" if isinstance(v, (int, float)) and v > 0
+                else "color: #C62828" if isinstance(v, (int, float)) and v < 0 else ""
+            ),
+        )
+
+
+def _render_trade_samples(result, n_days: int = 10):
+    """直近n日の売買詳細を表示する。"""
+    strategies = result.strategies
+    if "PCA_SUB" not in strategies or strategies["PCA_SUB"].signals is None:
+        return
+    if result.us_cc_returns is None:
+        return
+
+    sig_df = strategies["PCA_SUB"].signals.dropna(how="all")
+    us_ret = result.us_cc_returns
+    gap_df = result.jp_overnight_gaps
+    close_df = result.jp_close_prices
+    open_df = result.jp_open_prices
+    if len(sig_df) == 0:
+        return
+
+    last_dates = sig_df.index[-n_days:]
+    config = result.config
+    q = config.quantile_q
+    has_gap = config.gap_threshold > 0 and gap_df is not None
+
+    gap_pct = int(config.gap_threshold * 100)
+    st.caption(
+        f"分析期間の最後{n_days}日間の売買判断。"
+        + (f"ギャップ閾値: {gap_pct}% (シグナルの{gap_pct}%以上がギャップで消化→スキップ)" if has_gap else "ギャップフィルター: なし")
+    )
+
+    for date in last_dates:
+        sig = sig_df.loc[date]
+        n_long = max(1, int(np.ceil(len(sig.dropna()) * q)))
+
+        us_dates_before = us_ret.index[us_ret.index <= date]
+        us_day_ret = us_ret.loc[us_dates_before[-1]] if len(us_dates_before) > 0 else None
+
+        # ギャップデータ
+        gap_row = None
+        if gap_df is not None and date in gap_df.index:
+            gap_row = gap_df.loc[date]
+
+        sorted_sig = sig.dropna().sort_values(ascending=False)
+
+        # 当日のリターンサマリー
+        ret_summary = ""
+        for strat_name in ["PCA_SUB", "GAP_CUSTOM"]:
+            if strat_name in strategies:
+                ret = strategies[strat_name].daily_returns
+                if date in ret.index and not np.isnan(ret.loc[date]):
+                    label = "フィルターなし" if strat_name == "PCA_SUB" else f"GAP_{gap_pct}%"
+                    ret_summary += f" | {label}: {ret.loc[date]*100:+.2f}%"
+
+        with st.expander(f"{date.strftime('%Y-%m-%d')}{ret_summary}"):
+            # 米国ETF騰落率
+            if us_day_ret is not None:
+                st.markdown("**前日の米国セクター騰落率:**")
+                us_rows = []
+                for t in us_day_ret.index:
+                    us_rows.append({
+                        "セクター": US_TICKER_NAMES.get(t, t),
+                        "騰落率 (%)": round(us_day_ret[t] * 100, 2),
+                    })
+                us_display = pd.DataFrame(us_rows).sort_values("騰落率 (%)", ascending=False)
+                st.dataframe(
+                    us_display.style.format({"騰落率 (%)": "{:+.2f}"}).map(
+                        lambda v: "color: #2E7D32" if isinstance(v, (int, float)) and v > 0
+                        else "color: #C62828" if isinstance(v, (int, float)) and v < 0 else "",
+                        subset=["騰落率 (%)"],
+                    ),
+                    hide_index=True, height=200,
+                )
+
+            # 日本ETF売買判断
+            st.markdown("**日本セクターETF — シグナル・ギャップ・売買判断:**")
+            trade_rows = []
+            for rank, (ticker, sig_val) in enumerate(sorted_sig.items()):
+                sector = JP_TICKER_NAMES.get(ticker, ticker)
+
+                # ロング/ショート判定 (フィルターなし)
+                if rank < n_long:
+                    base_position = "ロング"
+                elif rank >= len(sorted_sig) - n_long:
+                    base_position = "ショート"
+                else:
+                    base_position = "-"
+
+                # 価格情報
+                prev_close = None
+                today_open = None
+                today_close = None
+                # 前日終値
+                if close_df is not None and ticker in close_df.columns:
+                    date_idx = close_df.index.get_loc(date) if date in close_df.index else None
+                    if date_idx is not None and date_idx > 0:
+                        prev_close = close_df.iloc[date_idx - 1][ticker]
+                # 当日始値・終値
+                if open_df is not None and date in open_df.index and ticker in open_df.columns:
+                    today_open = open_df.loc[date, ticker]
+                if close_df is not None and date in close_df.index and ticker in close_df.columns:
+                    today_close = close_df.loc[date, ticker]
+
+                # 各値を安全に取得
+                pc = int(prev_close) if prev_close is not None and not np.isnan(prev_close) else None
+                op = int(today_open) if today_open is not None and not np.isnan(today_open) else None
+                cl = int(today_close) if today_close is not None and not np.isnan(today_close) else None
+                oc_ret = round((today_close / today_open - 1) * 100, 2) if op and cl and today_open > 0 else None
+
+                row = {
+                    "セクター": sector,
+                    "判定": base_position,
+                    "シグナル": round(sig_val, 4),
+                    "前日終値": pc,
+                }
+
+                # ギャップフィルター列 (閾値設定時のみ)
+                if has_gap:
+                    gap_val = gap_row[ticker] if gap_row is not None and ticker in gap_row.index else np.nan
+                    gap_pct_val = round(gap_val * 100, 2) if not np.isnan(gap_val) else None
+
+                    # 指値目安 (ロング=この価格以下で買い、ショート=この価格以上で売り)
+                    limit_price = None
+                    if pc and abs(sig_val) > 1e-10 and base_position in ("ロング", "ショート"):
+                        if base_position == "ロング":
+                            limit_price = int(pc * (1 + abs(sig_val) * config.gap_threshold))
+                        else:
+                            limit_price = int(pc * (1 - abs(sig_val) * config.gap_threshold))
+
+                    # 消化率・判定
+                    absorbed = 0
+                    can_trade = True
+                    if not np.isnan(gap_val) and abs(sig_val) > 1e-10 and base_position in ("ロング", "ショート"):
+                        if base_position == "ロング":
+                            absorbed = max(0, gap_val / abs(sig_val) * 100) if gap_val > 0 else 0
+                            can_trade = gap_val <= abs(sig_val) * config.gap_threshold
+                        else:
+                            absorbed = max(0, -gap_val / abs(sig_val) * 100) if gap_val < 0 else 0
+                            can_trade = gap_val >= -abs(sig_val) * config.gap_threshold
+
+                    limit_label = "以下で買い" if base_position == "ロング" else "以上で売り" if base_position == "ショート" else ""
+                    row["指値目安"] = f"{limit_price:,}{limit_label}" if limit_price else "-"
+                    row["寄付き"] = f"{op:,}" if op else "-"
+                    row["前日比(%)"] = gap_pct_val
+                    row["織込済(%)"] = round(absorbed)
+                    row["GAP判定"] = "エントリー" if can_trade else "スキップ"
+                    row["終値"] = f"{cl:,}" if cl else "-"
+                    row["当日騰落(%)"] = oc_ret
+                else:
+                    row["寄付き"] = f"{op:,}" if op else "-"
+                    row["終値"] = f"{cl:,}" if cl else "-"
+                    row["当日騰落(%)"] = oc_ret
+
+                trade_rows.append(row)
+
+            trade_df = pd.DataFrame(trade_rows)
+
+            # スタイリング
+            style_cols = ["判定"]
+            if "GAP判定" in trade_df.columns:
+                style_cols.append("GAP判定")
+
+            def _style_trade(v):
+                s = str(v)
+                if "ロング" in s or "エントリー" in s:
+                    return "color: #2E7D32; font-weight: bold"
+                if "ショート" in s:
+                    return "color: #C62828; font-weight: bold"
+                if "スキップ" in s:
+                    return "color: #999; text-decoration: line-through"
+                return ""
+
+            fmt = {"シグナル": "{:+.2f}"}
+            if "当日騰落(%)" in trade_df.columns:
+                fmt["当日騰落(%)"] = "{:+.1f}"
+            if "前日比(%)" in trade_df.columns:
+                fmt["前日比(%)"] = "{:+.1f}"
+            if "織込済(%)" in trade_df.columns:
+                fmt["織込済(%)"] = "{:.0f}"
+
+            st.dataframe(
+                trade_df.style.map(_style_trade, subset=style_cols).format(fmt, na_rep="-"),
+                hide_index=True,
+            )
+
+
+def _calc_monthly_returns(daily_returns: pd.Series) -> pd.DataFrame:
+    """日次リターンから年×月のヒートマップ用DataFrameを作成する。"""
+    ret = daily_returns.dropna()
+    if len(ret) == 0:
+        return pd.DataFrame()
+    monthly = ret.groupby([ret.index.year, ret.index.month]).apply(
+        lambda x: ((1 + x).prod() - 1) * 100
+    )
+    monthly.index = pd.MultiIndex.from_tuples(monthly.index, names=["年", "月"])
+    pivot = monthly.unstack(level="月")
+    pivot.columns = [f"{m}月" for m in pivot.columns]
+    # 年間合計列を追加
+    annual = ret.groupby(ret.index.year).apply(lambda x: ((1 + x).prod() - 1) * 100)
+    pivot["年間"] = annual
+    return pivot
+
+
+def _render_monthly_heatmap(strategies, benchmark_returns=None):
+    """月次リターンのヒートマップ + テーブルを表示する。"""
+    # 戦略選択 (TOPIX, 対TOPIX も追加)
+    strat_names = [n for n in ["PCA_SUB", "GAP_CUSTOM", "PCA_PLAIN", "MOM", "DOUBLE"] if n in strategies]
+    choices = strat_names.copy()
+    has_bm = benchmark_returns is not None and len(benchmark_returns) > 0
+    if has_bm:
+        choices.append("TOPIX")
+        for n in strat_names:
+            choices.append(f"{n}_vs_TOPIX")
+    if not choices:
+        return
+
+    def _format_choice(x):
+        if x == "TOPIX":
+            return "TOPIX (ベンチマーク)"
+        if x.endswith("_vs_TOPIX"):
+            base = x.replace("_vs_TOPIX", "")
+            return f"{STRATEGY_LABELS.get(base, base)} 対TOPIX超過"
+        return STRATEGY_LABELS.get(x, x)
+
+    selected = st.selectbox(
+        "表示する戦略",
+        choices,
+        format_func=_format_choice,
+        key="monthly_strat_select",
+    )
+
+    if selected == "TOPIX":
+        ret = benchmark_returns
+    elif selected.endswith("_vs_TOPIX"):
+        base = selected.replace("_vs_TOPIX", "")
+        strat_ret = strategies[base].daily_returns.dropna()
+        bm_ret = benchmark_returns.dropna()
+        common_idx = strat_ret.index.intersection(bm_ret.index)
+        ret = strat_ret.loc[common_idx] - bm_ret.loc[common_idx]
+    else:
+        ret = strategies[selected].daily_returns
+    pivot = _calc_monthly_returns(ret)
+    if pivot.empty:
+        return
+
+    # --- ヒートマップ (Plotly) ---
+    month_cols = [c for c in pivot.columns if c != "年間"]
+    z_data = pivot[month_cols].values
+
+    fig = go.Figure(data=go.Heatmap(
+        z=z_data,
+        x=[c for c in month_cols],
+        y=[str(y) for y in pivot.index],
+        colorscale=[
+            [0.0, "#C62828"],
+            [0.5, "#FFFFFF"],
+            [1.0, "#2E7D32"],
+        ],
+        zmid=0,
+        text=[[f"{v:+.1f}%" if not np.isnan(v) else "" for v in row] for row in z_data],
+        texttemplate="%{text}",
+        textfont=dict(size=11),
+        colorbar=dict(title="リターン(%)"),
+        hovertemplate="年: %{y}<br>月: %{x}<br>リターン: %{z:+.1f}%<extra></extra>",
+    ))
+    fig.update_layout(
+        height=max(250, len(pivot) * 35 + 80),
+        xaxis_title="",
+        yaxis_title="",
+        yaxis=dict(autorange="reversed"),
+        template="plotly_white",
+        margin=dict(l=50, r=20, t=10, b=40),
+    )
+    st.plotly_chart(fig, width="stretch")
+
+    # --- テーブル (年間列付き) ---
+    with st.expander("月次リターン テーブル"):
+        st.dataframe(
+            pivot.style.format("{:+.1f}", na_rep="-").map(
+                lambda v: "color: #2E7D32; font-weight: 600" if isinstance(v, (int, float)) and v > 0
+                else "color: #C62828; font-weight: 600" if isinstance(v, (int, float)) and v < 0
+                else ""
+            ),
+        )
+
+    # --- 月別の平均・勝率 ---
+    monthly_ret = ret.dropna()
+    if len(monthly_ret) > 0:
+        by_month = monthly_ret.groupby(monthly_ret.index.month)
+        stats_rows = []
+        for m in range(1, 13):
+            if m not in by_month.groups:
+                continue
+            group = by_month.get_group(m)
+            monthly_agg = group.groupby([group.index.year, group.index.month]).apply(
+                lambda x: ((1 + x).prod() - 1) * 100
+            )
+            stats_rows.append({
+                "月": f"{m}月",
+                "平均リターン (%)": round(monthly_agg.mean(), 1),
+                "勝率 (%)": round((monthly_agg > 0).mean() * 100, 0),
+                "最大 (%)": round(monthly_agg.max(), 1),
+                "最小 (%)": round(monthly_agg.min(), 1),
+                "回数": len(monthly_agg),
+            })
+        if stats_rows:
+            st.markdown("**月別の傾向 (全期間平均)**")
+            st.caption("勝率 = その月がプラスだった年の割合")
+            df_stats = pd.DataFrame(stats_rows)
+            st.dataframe(
+                df_stats.style.format({
+                    "平均リターン (%)": "{:+.1f}",
+                    "勝率 (%)": "{:.0f}",
+                    "最大 (%)": "{:+.1f}",
+                    "最小 (%)": "{:+.1f}",
+                }).map(
+                    lambda v: "color: #2E7D32; font-weight: 600" if isinstance(v, (int, float)) and v > 0
+                    else "color: #C62828; font-weight: 600" if isinstance(v, (int, float)) and v < 0
+                    else "",
+                    subset=["平均リターン (%)"],
+                ),
+                hide_index=True,
+            )
+
+
+# ---------------------------------------------------------------------------
+# AI 解釈
+# ---------------------------------------------------------------------------
+def _build_interpretation_prompt(result) -> str:
+    """バックテスト結果からAI解釈用プロンプトを構築する。"""
+    strategies = result.strategies
+    config = result.config
+
+    # パフォーマンス表
+    perf_lines = ["| 戦略 | 年率リターン(%) | 年率リスク(%) | シャープ比 | 最大下落率(%) |", "|---|---|---|---|---|"]
+    for name in ["PCA_SUB", "PCA_PLAIN", "MOM", "DOUBLE"]:
+        if name in strategies:
+            m = strategies[name].metrics
+            label = STRATEGY_LABELS.get(name, name)
+            perf_lines.append(f"| {label} | {m['AR']:.2f} | {m['RISK']:.2f} | {m['R/R']:.2f} | {m['MDD']:.2f} |")
+    perf_table = "\n".join(perf_lines)
+
+    # 年別リターン
+    annual_lines = []
+    for name in ["PCA_SUB", "PCA_PLAIN", "MOM", "DOUBLE"]:
+        if name not in strategies:
+            continue
+        ret = strategies[name].daily_returns.dropna()
+        if len(ret) == 0:
+            continue
+        label = STRATEGY_LABELS.get(name, name)
+        yearly = ret.groupby(ret.index.year).apply(lambda x: ((1 + x).prod() - 1) * 100)
+        for year, val in yearly.items():
+            annual_lines.append(f"- {label} {year}年: {val:+.2f}%")
+    annual_text = "\n".join(annual_lines) if annual_lines else "(データなし)"
+
+    # 直近シグナル
+    signal_text = "(データなし)"
+    if "PCA_SUB" in strategies and strategies["PCA_SUB"].signals is not None:
+        sig = strategies["PCA_SUB"].signals.dropna(how="all")
+        if len(sig) > 0:
+            latest = sig.iloc[-1].sort_values(ascending=False)
+            sig_lines = [f"日付: {sig.index[-1].strftime('%Y-%m-%d')}"]
+            for ticker, val in latest.items():
+                sector = JP_TICKER_NAMES.get(ticker, ticker)
+                direction = "ロング (買い)" if val > 0 else "ショート (売り)"
+                sig_lines.append(f"- {sector} ({ticker}): シグナル={val:+.4f} -> {direction}")
+            signal_text = "\n".join(sig_lines)
+
+    # --- TOPIX年別・月別リターン ---
+    topix_annual_text = "(データなし)"
+    topix_monthly_text = "(データなし)"
+    excess_text = "(データなし)"
+    if result.benchmark_returns is not None and len(result.benchmark_returns) > 0:
+        bm = result.benchmark_returns.dropna()
+        # 年別
+        bm_yearly = bm.groupby(bm.index.year).apply(lambda x: ((1 + x).prod() - 1) * 100)
+        topix_annual_lines = [f"- TOPIX {y}年: {v:+.1f}%" for y, v in bm_yearly.items()]
+        topix_annual_text = "\n".join(topix_annual_lines)
+        # 月別平均
+        by_month = bm.groupby(bm.index.month)
+        topix_monthly_lines = []
+        for m_num in range(1, 13):
+            if m_num not in by_month.groups:
+                continue
+            group = by_month.get_group(m_num)
+            m_agg = group.groupby([group.index.year, group.index.month]).apply(
+                lambda x: ((1 + x).prod() - 1) * 100
+            )
+            topix_monthly_lines.append(f"- TOPIX {m_num}月: 平均{m_agg.mean():+.1f}%, 勝率{(m_agg > 0).mean()*100:.0f}%")
+        topix_monthly_text = "\n".join(topix_monthly_lines) if topix_monthly_lines else "(データなし)"
+        # 対TOPIX超過 (提案手法)
+        if "PCA_SUB" in strategies:
+            strat_ret = strategies["PCA_SUB"].daily_returns.dropna()
+            common_idx = strat_ret.index.intersection(bm.index)
+            if len(common_idx) > 0:
+                from core.lead_lag.strategy import compute_metrics as _cm
+                excess_daily = strat_ret.loc[common_idx] - bm.loc[common_idx]
+                em = _cm(excess_daily.values, common_idx)
+                excess_yearly = excess_daily.groupby(excess_daily.index.year).apply(
+                    lambda x: ((1 + x).prod() - 1) * 100
+                )
+                ex_lines = [
+                    f"対TOPIX超過 年率: {em['AR']:+.1f}%, 超過シャープ比: {em['R/R']:.2f}",
+                    f"対TOPIX月次勝率: {em.get('monthly_win_rate',0):.0f}%, 超過月次平均: {em.get('monthly_mean',0):+.2f}%, 超過月次ブレ幅: {em.get('monthly_std',0):.2f}%",
+                    f"対TOPIX最悪月: {em.get('monthly_worst',0):+.1f}%",
+                    "年別 対TOPIX超過:",
+                ]
+                for y, v in excess_yearly.items():
+                    bm_y = bm_yearly.get(y, 0)
+                    ex_lines.append(f"  {y}年: 戦略{v+bm_y:+.1f}% - TOPIX{bm_y:+.1f}% = 超過{v:+.1f}%")
+                excess_text = "\n".join(ex_lines)
+
+    prompt = f"""あなたは定量投資戦略の専門アナリストです。
+以下の日米セクターETFリードラグ戦略のバックテスト結果を分析し、
+投資判断に有用な洞察を日本語で提供してください。
+
+## 戦略概要
+- 手法: 部分空間正則化PCA (中川ら, SIG-FIN-036, 2026)
+- 仮説: 米国セクターETFの当日リターンが、日本セクターETFの翌日寄引リターン (Open-to-Close) を予測する
+- パラメータ: ウィンドウ長L={config.rolling_window}, 正則化強度λ={config.lambda_reg}, 主成分数K={config.n_components}, 売買比率q={config.quantile_q}
+- 期間: {result.period_start} ~ {result.period_end} ({result.n_common_days}営業日)
+- 米国側: S&P 500 セクターETF {len(result.us_tickers)}本
+- 日本側: TOPIX-17 セクターETF {len(result.jp_tickers)}本
+
+## パフォーマンス比較 (絶対リターン)
+{perf_table}
+
+## TOPIX (ベンチマーク) の年別リターン
+{topix_annual_text}
+
+## TOPIX 月別平均リターン・勝率
+{topix_monthly_text}
+
+## 提案手法の対TOPIX超過パフォーマンス
+{excess_text}
+
+## 年別リターン (各戦略)
+{annual_text}
+
+## 直近シグナル
+{signal_text}
+
+以下の観点で分析してください:
+1. **戦略の有効性**: 提案手法の正則化の効果、通常PCAやモメンタムとの差
+2. **リスク特性**: シャープ比、最大下落率の水準
+3. **対TOPIX分析 (重要)**: TOPIXが上昇した年/月と下落した年/月のそれぞれで、戦略が安定してTOPIXを上回れているか。TOPIXが強い局面と弱い局面で戦略のパフォーマンスに偏りがないか。対TOPIX月次勝率やブレ幅から、毎月安定してTOPIXに勝てているかを評価
+4. **月次安定性 (重要)**: 絶対リターンと対TOPIX超過の両方で、毎月安定してプラスを出せているか。月次勝率、ブレ幅、最悪月の観点から評価
+5. **直近シグナルの解釈**: 現在のロング/ショートの経済的意味
+6. **実運用上の注意点**: 取引コスト、流動性リスク、モデルの限界
+7. **パラメータ改善の提案**: 具体的なL, λ, K, qの組み合わせを3つ提案
+8. **新しいデータや条件の提案**: 指数のボラティリティ、為替、カレンダー効果などの追加データ活用案"""
+
+    return prompt
+
+
+def _run_interpretation_thread(progress_dict: dict, prompt: str):
+    """バックグラウンドでClaude CLIを呼び出す。"""
+    try:
+        from core.ai_client import create_ai_client
+
+        progress_dict["message"] = "Claude に問い合わせ中..."
+        progress_dict["pct"] = 0.3
+        client = create_ai_client()
+        response = client.send_message(prompt, system_prompt="")
+        progress_dict["_result"] = response
+        progress_dict["pct"] = 1.0
+        progress_dict["message"] = "完了"
+    except Exception as e:
+        import traceback
+
+        progress_dict["error"] = str(e)
+        progress_dict["detail"] = traceback.format_exc()
+        progress_dict["pct"] = 1.0
+
+
+def _render_ai_interpretation(result):
+    """AI解釈セクションのレンダリング。"""
+    st.markdown("### AI による結果分析")
+
+    # 実行中チェック
+    interp_thread = st.session_state.get("ll_interp_thread")
+    is_running = interp_thread is not None and interp_thread.is_alive()
+
+    if is_running:
+        prog = st.session_state.get("ll_interp_progress", {})
+        msg = prog.get("message", "解釈中...")
+        pct = prog.get("pct", 0)
+        st.warning("AI が結果を分析中です... (数十秒かかります)")
+        st.progress(pct, text=msg)
+
+        import time
+        time.sleep(2)
+        st.rerun()
+        return
+
+    # スレッド完了後
+    if interp_thread is not None and not interp_thread.is_alive():
+        prog = st.session_state.get("ll_interp_progress", {})
+        if "_result" in prog and "ll_interpretation" not in st.session_state:
+            st.session_state["ll_interpretation"] = prog["_result"]
+            st.session_state.pop("ll_interp_thread", None)
+            st.session_state.pop("ll_interp_progress", None)
+            st.rerun()
+            return
+        elif prog.get("error"):
+            st.error(f"AI解釈エラー: {prog['error']}")
+            detail = prog.get("detail", "")
+            if detail:
+                with st.expander("詳細"):
+                    st.code(detail)
+            if st.button("OK", key="interp_error_ok"):
+                st.session_state.pop("ll_interp_thread", None)
+                st.session_state.pop("ll_interp_progress", None)
+                st.rerun()
+            return
+
+    # 既存の解釈結果を表示
+    if "ll_interpretation" in st.session_state:
+        st.markdown(st.session_state["ll_interpretation"])
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("再分析する", key="reinterpret"):
+                st.session_state.pop("ll_interpretation", None)
+                st.rerun()
+        with col2:
+            with st.expander("テキストをコピー"):
+                st.text_area("", st.session_state["ll_interpretation"], height=400, key="copy_interpretation")
+        return
+
+    # 実行ボタン
+    st.caption("バックテスト結果をClaude に渡して、戦略の有効性・リスク・直近シグナルの意味を分析します。")
+    if st.button("AI で結果を分析する", type="primary", key="run_interpretation"):
+        prompt = _build_interpretation_prompt(result)
+        progress_dict = {"message": "開始中...", "pct": 0.0}
+        st.session_state["ll_interp_progress"] = progress_dict
+
+        import threading as _threading
+
+        thread = _threading.Thread(
+            target=_run_interpretation_thread,
+            args=(progress_dict, prompt),
+            daemon=True,
+        )
+        thread.start()
+        st.session_state["ll_interp_thread"] = thread
+        st.rerun()
+
+
+# ---------------------------------------------------------------------------
+# 仕組みの可視化
+# ---------------------------------------------------------------------------
+def _render_mechanism_explanation(result):
+    """直近日の米国セクター変動 → 日本セクター予測の流れを可視化する。"""
+    strategies = result.strategies
+    if "PCA_SUB" not in strategies or strategies["PCA_SUB"].signals is None:
+        return
+    if result.us_cc_returns is None:
+        return
+
+    sig = strategies["PCA_SUB"].signals.dropna(how="all")
+    us_ret = result.us_cc_returns
+    if len(sig) == 0 or len(us_ret) == 0:
+        return
+
+    st.markdown("## 提案手法の仕組み (直近日の例)")
+
+    st.markdown("""
+この戦略は以下の3ステップで動きます:
+
+**Step 1.** 前日の米国11セクターETFの騰落率を取得する\n
+**Step 2.** PCAで「日米に共通する変動パターン」を抽出し、米国の動きをそのパターンに分解する\n
+**Step 3.** 同じパターンを使って「日本の各セクターがどう動くか」を予測し、上位をロング・下位をショートする
+""")
+
+    # 直近日を取得
+    latest_date = sig.index[-1]
+    latest_sig = sig.iloc[-1]
+
+    # 対応する米国リターン (直近)
+    us_dates_before = us_ret.index[us_ret.index <= latest_date]
+    if len(us_dates_before) == 0:
+        return
+    latest_us_date = us_dates_before[-1]
+    latest_us_ret = us_ret.loc[latest_us_date]
+
+    st.markdown(f"#### 直近の例 ({latest_us_date.strftime('%Y-%m-%d')})")
+
+    # --- Step 1: 米国セクターの騰落率 ---
+    col_left, col_right = st.columns(2)
+
+    with col_left:
+        st.markdown("**Step 1: 前日の米国セクター騰落率**")
+        us_display = pd.DataFrame({
+            "セクター": [US_TICKER_NAMES.get(t, t) for t in latest_us_ret.index],
+            "騰落率 (%)": [round(v * 100, 2) for v in latest_us_ret.values],
+        }).sort_values("騰落率 (%)", ascending=False)
+
+        st.dataframe(
+            us_display.style.map(
+                lambda v: "color: #2E7D32; font-weight: 600" if isinstance(v, (int, float)) and v > 0
+                else "color: #C62828; font-weight: 600" if isinstance(v, (int, float)) and v < 0
+                else "",
+                subset=["騰落率 (%)"],
+            ).format({"騰落率 (%)": "{:+.2f}"}),
+            hide_index=True,
+            height=430,
+        )
+
+    # --- Step 3: 日本セクターの予測 ---
+    with col_right:
+        st.markdown("**Step 3: 翌日の日本セクター予測 → 売買判断**")
+        q = result.config.quantile_q
+        n_long = max(1, int(np.ceil(len(latest_sig) * q)))
+
+        sorted_sig = latest_sig.sort_values(ascending=False)
+        jp_display_rows = []
+        for i, (ticker, val) in enumerate(sorted_sig.items()):
+            if i < n_long:
+                pos = "ロング (買い)"
+            elif i >= len(sorted_sig) - n_long:
+                pos = "ショート (売り)"
+            else:
+                pos = "-"
+            jp_display_rows.append({
+                "セクター": JP_TICKER_NAMES.get(ticker, ticker),
+                "予測スコア": round(val, 4),
+                "売買": pos,
+            })
+        jp_display = pd.DataFrame(jp_display_rows)
+
+        st.dataframe(
+            jp_display.style.map(
+                lambda v: "color: #2E7D32; font-weight: bold"
+                if "ロング" in str(v) else "color: #C62828; font-weight: bold"
+                if "ショート" in str(v) else "",
+                subset=["売買"],
+            ).format({"予測スコア": "{:+.4f}"}),
+            hide_index=True,
+            height=630,
+        )
+
+    # --- Step 2 の説明 (簡潔に) ---
+    st.markdown("""
+> **Step 2 (内部処理)**: 過去60日間の日米セクターの相関構造から、
+> 「グローバル景気」「日米の差」「景気敏感 vs 防衛的」の3つの共通パターンを抽出。
+> 米国側の騰落率をこの3パターンに分解し、同じパターンの日本側への影響度で予測スコアを算出しています。
+> 正則化 (λ=0.9) により、短期のノイズに振り回されず安定した予測が可能になっています。
+""")
+
+
+# ---------------------------------------------------------------------------
+# タブ3: シグナル分析
+# ---------------------------------------------------------------------------
+def _render_signals_tab():
+    result = st.session_state.get("ll_result")
+    if result is None:
+        st.info("「設定・実行」タブでバックテストを実行してください。")
+        return
+
+    strategies = result.strategies
+
+    # --- 仕組みの可視化: 直近日の米国→日本の伝播 ---
+    _render_mechanism_explanation(result)
+
+    st.markdown("---")
+
+    # --- シグナルヒートマップ ---
+    if "PCA_SUB" in strategies and strategies["PCA_SUB"].signals is not None:
+        st.markdown("## シグナル ヒートマップ")
+        st.caption("各日の日本セクターETFへの予測シグナル。赤=ロング (上昇予測)、青=ショート (下落予測)")
+
+        sig = strategies["PCA_SUB"].signals.dropna(how="all")
+
+        # 表示期間の選択
+        n_months = st.selectbox(
+            "表示期間",
+            [3, 6, 12, 24, 0],
+            format_func=lambda x: f"直近{x}ヶ月" if x > 0 else "全期間",
+            index=2,
+        )
+        if n_months > 0:
+            cutoff = sig.index[-1] - pd.DateOffset(months=n_months)
+            sig = sig[sig.index >= cutoff]
+
+        col_names = [JP_TICKER_NAMES.get(c, c) for c in sig.columns]
+
+        fig = go.Figure(data=go.Heatmap(
+            z=sig.values.T,
+            x=sig.index,
+            y=col_names,
+            colorscale="RdBu_r",
+            zmid=0,
+            colorbar=dict(title="シグナル"),
+        ))
+        fig.update_layout(
+            height=600,
+            xaxis_title="日付",
+            yaxis_title="セクター",
+            template="plotly_white",
+            margin=dict(l=150, r=20, t=30, b=40),
+        )
+        st.plotly_chart(fig, width="stretch")
+
+    # --- 固有値推移 ---
+    if result.eigenvalue_history is not None:
+        st.markdown("## 主成分の固有値推移")
+        st.caption("上位K個の固有値の時系列。安定していれば日米共通の変動構造が持続していることを示す")
+        eigvals = result.eigenvalue_history
+        dates = result.strategies.get("PCA_SUB", next(iter(strategies.values()))).daily_returns.index
+
+        valid_mask = ~np.isnan(eigvals[:, 0])
+        if valid_mask.sum() > 0:
+            fig = go.Figure()
+            for k in range(eigvals.shape[1]):
+                fig.add_trace(go.Scatter(
+                    x=dates[valid_mask],
+                    y=eigvals[valid_mask, k],
+                    name=f"第{k+1}主成分",
+                    line=dict(width=1.5),
+                ))
+            fig.update_layout(
+                height=350,
+                xaxis_title="日付",
+                yaxis_title="固有値",
+                template="plotly_white",
+                legend=dict(x=0.02, y=0.98),
+                margin=dict(l=60, r=20, t=30, b=40),
+            )
+            st.plotly_chart(fig, width="stretch")
+
+    # --- 直近シグナル ---
+    if "PCA_SUB" in strategies and strategies["PCA_SUB"].signals is not None:
+        st.markdown("## 直近のシグナル一覧")
+        sig = strategies["PCA_SUB"].signals.dropna(how="all")
+        if len(sig) > 0:
+            latest = sig.iloc[-1].sort_values(ascending=False)
+            n_long = max(1, int(np.ceil(len(latest) * result.config.quantile_q)))
+
+            latest_df = pd.DataFrame({
+                "セクター": [JP_TICKER_NAMES.get(t, t) for t in latest.index],
+                "コード": latest.index,
+                "シグナル強度": latest.values,
+                "ポジション": [
+                    "ロング (買い)" if i < n_long
+                    else "ショート (売り)" if i >= len(latest) - n_long
+                    else "-"
+                    for i in range(len(latest))
+                ],
+            })
+
+            st.dataframe(
+                latest_df.style.map(
+                    lambda v: "color: #2E7D32; font-weight: bold"
+                    if "ロング" in str(v) else "color: #C62828; font-weight: bold"
+                    if "ショート" in str(v) else "",
+                    subset=["ポジション"],
+                ).format({"シグナル強度": "{:+.4f}"}),
+                hide_index=True,
+            )
+            st.caption(f"基準日: {sig.index[-1].strftime('%Y-%m-%d')}")
+
+
+# ---------------------------------------------------------------------------
+# タブ4: パラメータ比較
+# ---------------------------------------------------------------------------
+def _render_param_compare_tab():
+    history = st.session_state.get("ll_history", [])
+
+    st.markdown("## パラメータ比較")
+    st.caption(
+        "異なるパラメータで実行した結果を並べて比較できます。"
+        "「設定・実行」タブでパラメータを変えて複数回実行してください。"
+    )
+
+    if len(history) == 0:
+        st.info("まだ実行履歴がありません。「設定・実行」タブでバックテストを実行すると、自動的にここに保存されます。")
+        return
+
+    if len(history) == 1:
+        st.warning("比較するには2つ以上の実行結果が必要です。パラメータを変えてもう一度実行してください。")
+
+    # --- パフォーマンス比較表 (提案手法同士) ---
+    st.markdown("### パラメータ別パフォーマンス")
+    rows = []
+    for i, h in enumerate(history):
+        r = h["result"]
+        cfg = r.config
+        has_custom_gap = cfg.gap_threshold < 1.0
+
+        for key, strat in r.strategies.items():
+            # GAP閾値付き設定の場合: PCA_SUB (ベースライン) と GAP_CUSTOM のみ表示
+            # 他の戦略 (HYBRID等) は同じパラメータのGAP無し設定と重複するので除外
+            if has_custom_gap and key not in ("PCA_SUB", "GAP_CUSTOM"):
+                continue
+
+            m = strat.metrics
+            strat_label = STRATEGY_LABELS.get(key, key)
+            if key == "GAP_CUSTOM":
+                gap_pct = int(cfg.gap_threshold * 100)
+                strat_label = f"GAP_{gap_pct}%"
+
+            row = {
+                "#": i + 1,
+                "パラメータ": h["label"],
+                "戦略": strat_label,
+                "年率リターン (%)": round(m["AR"], 1),
+                "シャープ比": round(m["R/R"], 2),
+                "最大下落率 (%)": round(m["MDD"], 1),
+            }
+            # エントリー率はGAP系のみ表示
+            if key in ("GAP_CUSTOM", "GAP_0", "GAP_10", "GAP_20", "GAP_30", "GAP_50", "GAP_70", "K3K4_GAP"):
+                row["エントリー率 (%)"] = round(m.get("entry_rate", 100), 0)
+
+            row["月次勝率 (%)"] = round(m.get("monthly_win_rate", 0), 0)
+            row["最悪月 (%)"] = round(m.get("monthly_worst", 0), 1)
+            rows.append(row)
+
+    if rows:
+        df_compare = pd.DataFrame(rows)
+        st.dataframe(
+            df_compare.style.apply(_highlight_best_compare, axis=0).format({
+                "年率リターン (%)": "{:+.1f}",
+                "シャープ比": "{:.2f}",
+                "最大下落率 (%)": "{:.1f}",
+                "エントリー率 (%)": "{:.0f}",
+                "月次勝率 (%)": "{:.0f}",
+                "月次ブレ幅 (%)": "{:.2f}",
+                "最悪月 (%)": "{:+.1f}",
+            }),
+            hide_index=True,
+            height=min(800, len(df_compare) * 35 + 40),
+        )
+
+    # --- 累積リターンの重ね描き ---
+    if len(history) >= 2:
+        st.markdown("### 累積リターンの比較")
+        fig = go.Figure()
+
+        palette = ["#FF8000", "#1565C0", "#2E7D32", "#9C27B0", "#E91E63",
+                    "#00BCD4", "#795548", "#607D8B"]
+        for i, h in enumerate(history):
+            r = h["result"]
+            if "PCA_SUB" not in r.strategies:
+                continue
+            ret = r.strategies["PCA_SUB"].daily_returns.dropna()
+            cum = (1 + ret).cumprod()
+            fig.add_trace(go.Scatter(
+                x=cum.index,
+                y=cum.values,
+                name=f"#{i+1} {h['label']}",
+                line=dict(color=palette[i % len(palette)], width=2),
+            ))
+
+        fig.update_layout(
+            height=500,
+            xaxis_title="日付",
+            yaxis_title="累積リターン (1起点)",
+            template="plotly_white",
+            legend=dict(x=0.02, y=0.98),
+            margin=dict(l=60, r=20, t=30, b=40),
+        )
+        st.plotly_chart(fig, width="stretch")
+
+    # --- 年別リターンの比較 ---
+    if len(history) >= 2:
+        st.markdown("### 年別リターン比較 (%)")
+        annual_data = {}
+        for i, h in enumerate(history):
+            r = h["result"]
+            if "PCA_SUB" not in r.strategies:
+                continue
+            ret = r.strategies["PCA_SUB"].daily_returns.dropna()
+            if len(ret) == 0:
+                continue
+            yearly = ret.groupby(ret.index.year).apply(lambda x: ((1 + x).prod() - 1) * 100)
+            annual_data[f"#{i+1} {h['label']}"] = yearly
+
+        if annual_data:
+            df_annual = pd.DataFrame(annual_data)
+            df_annual.index.name = "年"
+            st.dataframe(
+                df_annual.style.format("{:+.1f}").map(
+                    lambda v: "color: #2E7D32" if v > 0 else "color: #C62828" if v < 0 else ""
+                ),
+            )
+
+    # --- 月次リターン比較 ---
+    if len(history) >= 2:
+        st.markdown("### 月別平均リターン比較 (%)")
+        st.caption("各月の平均リターンをパラメータ設定ごとに比較")
+        monthly_avg_data = {}
+        for i, h in enumerate(history):
+            r = h["result"]
+            if "PCA_SUB" not in r.strategies:
+                continue
+            ret = r.strategies["PCA_SUB"].daily_returns.dropna()
+            if len(ret) == 0:
+                continue
+            by_month = ret.groupby(ret.index.month)
+            avgs = {}
+            for m_num in range(1, 13):
+                if m_num not in by_month.groups:
+                    continue
+                group = by_month.get_group(m_num)
+                m_agg = group.groupby([group.index.year, group.index.month]).apply(
+                    lambda x: ((1 + x).prod() - 1) * 100
+                )
+                avgs[f"{m_num}月"] = round(m_agg.mean(), 1)
+            monthly_avg_data[f"#{i+1} {h['label']}"] = avgs
+
+        if monthly_avg_data:
+            df_monthly = pd.DataFrame(monthly_avg_data).T
+            df_monthly.index.name = "パラメータ"
+            st.dataframe(
+                df_monthly.style.format("{:+.1f}", na_rep="-").map(
+                    lambda v: "color: #2E7D32" if isinstance(v, (int, float)) and v > 0
+                    else "color: #C62828" if isinstance(v, (int, float)) and v < 0
+                    else ""
+                ),
+            )
+
+    # --- AI によるパラメータ比較分析 ---
+    if len(history) >= 2:
+        st.markdown("---")
+        _render_param_compare_ai(history)
+
+    # --- AI分析を基に追加探索 (このタブ内で完結) ---
+    if len(history) >= 2 and "ll_param_ai" in st.session_state:
+        st.markdown("---")
+        _render_explore_from_analysis(history)
+
+    # --- 履歴クリア ---
+    st.markdown("---")
+    if st.button("履歴をすべてクリア", key="clear_history"):
+        st.session_state["ll_history"] = []
+        st.session_state.pop("ll_param_ai", None)
+        st.session_state.pop("ll_param_suggestions", None)
+        st.rerun()
+
+
+def _build_param_compare_prompt(history: list) -> str:
+    """パラメータ比較用のAI分析プロンプトを構築する。新機能 (DYNAMIC_K, REGIME, BLEND等) を含む。"""
+    # 全戦略の名前リスト
+    all_strat_keys = ["PCA_SUB", "HYBRID", "K3K4_ENS", "GAP_-10", "GAP_0", "GAP_5", "GAP_10", "GAP_20", "GAP_30", "K3K4_GAP"]
+
+    # --- パラメータ一覧 ---
+    param_changes = []
+    for i, h in enumerate(history):
+        cfg = h["result"].config
+        ext_str = ""
+        param_changes.append(
+            f"- #{i+1}: L={cfg.rolling_window}, λ={cfg.lambda_reg}, K={cfg.n_components}, "
+            f"q={cfg.quantile_q}, 学習~{cfg.prior_end_date}{ext_str}"
+        )
+    param_text = "\n".join(param_changes)
+
+    # --- PCA_SUB 比較表 ---
+    table_lines = [
+        "| # | パラメータ | 年率R(%) | SR | MDD(%) | 月次勝率(%) | 月次平均(%) | 月次ブレ幅(%) | 最悪月(%) |",
+        "|---|---|---|---|---|---|---|---|---|",
+    ]
+    for i, h in enumerate(history):
+        r = h["result"]
+        if "PCA_SUB" not in r.strategies:
+            continue
+        m = r.strategies["PCA_SUB"].metrics
+        table_lines.append(
+            f"| {i+1} | {h['label']} | {m['AR']:.1f} | {m['R/R']:.2f} | {m['MDD']:.1f} "
+            f"| {m.get('monthly_win_rate', 0):.0f} | {m.get('monthly_mean', 0):+.2f} "
+            f"| {m.get('monthly_std', 0):.2f} | {m.get('monthly_worst', 0):+.1f} |"
+        )
+    table_text = "\n".join(table_lines)
+
+    # --- 拡張戦略の結果 (DYNAMIC_K, REGIME, BLEND等) ---
+    ext_lines = ["各パラメータ設定で自動計算された拡張戦略の結果:"]
+    ext_lines.append("| # | 戦略 | 年率R(%) | SR | MDD(%) | エントリー率(%) | 月次勝率(%) | 月次ブレ幅(%) | 最悪月(%) |")
+    ext_lines.append("|---|---|---|---|---|---|---|---|---|")
+    has_ext = False
+    for i, h in enumerate(history):
+        r = h["result"]
+        cfg = r.config
+        has_custom_gap = cfg.gap_threshold < 1.0
+        for key in all_strat_keys:
+            if key == "PCA_SUB":
+                continue
+            if key not in r.strategies:
+                continue
+            # GAP閾値付き設定ではGAP_CUSTOMのみ。他は重複
+            if has_custom_gap and key != "GAP_CUSTOM":
+                continue
+            has_ext = True
+            m = r.strategies[key].metrics
+            label = STRATEGY_LABELS.get(key, key)
+            if key == "GAP_CUSTOM":
+                label = f"GAP_{int(cfg.gap_threshold*100)}%"
+            ext_lines.append(
+                f"| {i+1} | {label} | {m['AR']:.1f} | {m['R/R']:.2f} | {m['MDD']:.1f} "
+                f"| {m.get('entry_rate', 100):.0f} "
+                f"| {m.get('monthly_win_rate', 0):.0f} | {m.get('monthly_std', 0):.2f} "
+                f"| {m.get('monthly_worst', 0):+.1f} |"
+            )
+    ext_text = "\n".join(ext_lines) if has_ext else "(拡張戦略なし)"
+
+    # --- 年別リターン (PCA_SUBのみ、簡潔に) ---
+    annual_lines = []
+    for i, h in enumerate(history):
+        r = h["result"]
+        if "PCA_SUB" not in r.strategies:
+            continue
+        ret = r.strategies["PCA_SUB"].daily_returns.dropna()
+        if len(ret) == 0:
+            continue
+        yearly = ret.groupby(ret.index.year).apply(lambda x: ((1 + x).prod() - 1) * 100)
+        for year, val in yearly.items():
+            annual_lines.append(f"- #{i+1} {year}年: {val:+.1f}%")
+    annual_text = "\n".join(annual_lines) if annual_lines else "(データなし)"
+
+    # --- 拡張戦略の年別リターン (BLEND, REGIME等 - 代表設定のみ) ---
+    ext_annual_lines = []
+    # 最初の設定だけでも拡張戦略の年別を出す
+    for i, h in enumerate(history[:3]):  # 上位3件
+        r = h["result"]
+        for key in ["BLEND_50", "REGIME", "DYNAMIC_K"]:
+            if key not in r.strategies:
+                continue
+            ret = r.strategies[key].daily_returns.dropna()
+            if len(ret) == 0:
+                continue
+            label = STRATEGY_LABELS.get(key, key)
+            yearly = ret.groupby(ret.index.year).apply(lambda x: ((1 + x).prod() - 1) * 100)
+            for year, val in yearly.items():
+                ext_annual_lines.append(f"- #{i+1} {label} {year}年: {val:+.1f}%")
+    ext_annual_text = "\n".join(ext_annual_lines) if ext_annual_lines else "(データなし)"
+
+    # --- TOPIX ---
+    topix_text = "(データなし)"
+    excess_compare_text = "(データなし)"
+    bm = None
+    for h in history:
+        if h["result"].benchmark_returns is not None and len(h["result"].benchmark_returns) > 0:
+            bm = h["result"].benchmark_returns.dropna()
+            break
+    if bm is not None and len(bm) > 0:
+        bm_yearly = bm.groupby(bm.index.year).apply(lambda x: ((1 + x).prod() - 1) * 100)
+        topix_text = "\n".join([f"- TOPIX {y}年: {v:+.1f}%" for y, v in bm_yearly.items()])
+
+        from core.lead_lag.strategy import compute_metrics as _cm
+        ex_table_lines = [
+            "| # | 戦略 | 超過R(%) | 超過SR | 対TOPIX月次勝率(%) | 超過ブレ幅(%) |",
+            "|---|---|---|---|---|---|",
+        ]
+        for i, h in enumerate(history):
+            r = h["result"]
+            for key in ["PCA_SUB", "BLEND_50", "BLEND_70", "REGIME", "DYNAMIC_K"]:
+                if key not in r.strategies:
+                    continue
+                strat_ret = r.strategies[key].daily_returns.dropna()
+                common_idx = strat_ret.index.intersection(bm.index)
+                if len(common_idx) == 0:
+                    continue
+                excess_daily = strat_ret.loc[common_idx] - bm.loc[common_idx]
+                em = _cm(excess_daily.values, common_idx)
+                label = STRATEGY_LABELS.get(key, key)
+                ex_table_lines.append(
+                    f"| {i+1} | {label} | {em['AR']:+.1f} | {em['R/R']:.2f} "
+                    f"| {em.get('monthly_win_rate',0):.0f} | {em.get('monthly_std',0):.2f} |"
+                )
+        excess_compare_text = "\n".join(ex_table_lines)
+
+    prompt = f"""あなたは定量投資戦略の専門アナリストです。
+日米セクターETFリードラグ戦略を、異なるパラメータ設定で{len(history)}回実行した結果を比較分析してください。
+
+## 戦略の概要
+米国セクターETFの当日リターンから、翌営業日の日本セクターETFの寄引リターンを予測するロング・ショート戦略。
+
+## 拡張戦略の一覧
+- **HYBRID**: VIX高騰 OR 円高急伸でポジション縮小。SR微改善、MDD改善
+- **K3K4_ENS**: K=3とK=4をVIXで動的加重。K=4は2026年で唯一プラス
+- **GAP_10/30/50%**: シグナル相対ギャップフィルター。シグナルの10/30/50%がovernightギャップで消化済みならスキップ。閾値が小さいほど厳しい(=エントリー率低下、SR向上)。qが大きいほどギャップフィルターとの相性が良い
+- **K3K4_GAP**: K3K4_ENSシグナル + GAP_50%
+- **GAP_CUSTOM**: 手動設定の閾値でのギャップフィルター
+
+## 各実行のパラメータ
+{param_text}
+
+## PCA_SUB パフォーマンス比較
+{table_text}
+
+## 拡張戦略の結果
+{ext_text}
+
+## 対TOPIX超過パフォーマンス比較 (PCA_SUB + 拡張戦略)
+{excess_compare_text}
+
+## TOPIX 年別リターン
+{topix_text}
+
+## PCA_SUB 年別リターン
+{annual_text}
+
+## 拡張戦略 年別リターン (代表設定)
+{ext_annual_text}
+
+以下の観点で分析してください:
+
+1. **拡張戦略の効果分析 (最重要)**: DYNAMIC_K, REGIME, BLEND_50/70 の各戦略がPCA_SUBに対してどう改善しているか。特に:
+   - BLENDが2023年以降のTOPIX強気局面での対TOPIX劣後をどの程度補完できているか
+   - REGIMEが2026年のマイナスをどの程度抑制できているか
+   - DYNAMIC_Kがパフォーマンスの安定性に寄与しているか
+   - 拡張戦略間で最も有望なのはどれか
+
+2. **総合最優秀設定**: PCA_SUBと拡張戦略を含めた全体の中で、最優秀の「パラメータ + 戦略タイプ」の組み合わせ
+
+3. **月次安定性**: 絶対リターンと対TOPIX超過の両方で毎月安定しているか
+
+4. **対TOPIX分析**: 拡張戦略がTOPIX超過の安定性をどう変えたか
+
+5. **次の探索提案**: パラメータと拡張戦略の組み合わせで、次に試すべきものを2-3個提案
+
+6. **ギャップフィルターの分析 (重要)**: GAP_50/K3K4_GAPの効果を分析してください。特に:
+   - シグナル相対閾値 (absorption_rate=50%) は適切か。もっと厳しく(30%)すべきか緩く(70%)すべきか
+   - ギャップフィルターによる取引頻度の低下とリターン向上のトレードオフ
+   - 「オーバーナイトリバーサル」アノマリーとの重複取り: 純粋なリードラグ効果なのか、ギャップリバーサルも乗せているのか
+   - SR/リターンが過大評価されている可能性はあるか (実運用でのスリッページ等)
+
+7. **2026年パフォーマンス改善**: 拡張戦略が2026年の劣化をどの程度緩和できているか
+
+8. **実運用推奨**: パラメータ + 戦略タイプのベストな組み合わせを1つ推奨"""
+
+    return prompt
+
+
+def _run_param_ai_thread(progress_dict: dict, prompt: str):
+    """パラメータ比較AI分析をバックグラウンドで実行。"""
+    try:
+        from core.ai_client import create_ai_client
+
+        progress_dict["message"] = "Claude にパラメータ比較を分析させています..."
+        progress_dict["pct"] = 0.3
+        client = create_ai_client()
+        response = client.send_message(prompt, system_prompt="")
+        progress_dict["_result"] = response
+        progress_dict["pct"] = 1.0
+        progress_dict["message"] = "完了"
+    except Exception as e:
+        import traceback
+
+        progress_dict["error"] = str(e)
+        progress_dict["detail"] = traceback.format_exc()
+        progress_dict["pct"] = 1.0
+
+
+def _render_explore_from_analysis(history: list):
+    """AI分析結果を基にした追加探索セクション (パラメータ比較タブ内)。"""
+    st.markdown("### AI 分析を基に追加探索")
+    st.caption("上の分析結果を踏まえて、AIが新たなパラメータを提案し、そのまま実行できます。")
+
+    # --- AI提案取得中 ---
+    sug_thread = st.session_state.get("ll_param_sug_thread")
+    is_suggesting = sug_thread is not None and sug_thread.is_alive()
+
+    if is_suggesting:
+        prog = st.session_state.get("ll_param_sug_progress", {})
+        st.warning("AI が分析結果を基にパラメータを提案中...")
+        st.progress(prog.get("pct", 0), text=prog.get("message", ""))
+        import time
+        time.sleep(2)
+        st.rerun()
+        return
+
+    # 取得完了
+    if sug_thread is not None and not sug_thread.is_alive():
+        prog = st.session_state.get("ll_param_sug_progress", {})
+        if "_result" in prog and "ll_param_suggestions" not in st.session_state:
+            st.session_state["ll_param_suggestions"] = prog.pop("_result")
+            st.session_state.pop("ll_param_sug_thread", None)
+            st.session_state.pop("ll_param_sug_progress", None)
+            st.rerun()
+        elif prog.get("error"):
+            st.error(f"AI提案エラー: {prog['error']}")
+            if st.button("OK", key="param_sug_err"):
+                st.session_state.pop("ll_param_sug_thread", None)
+                st.session_state.pop("ll_param_sug_progress", None)
+                st.rerun()
+            return
+
+    # --- 追加探索実行中 ---
+    run_thread = st.session_state.get("ll_param_run_thread")
+    is_running = run_thread is not None and run_thread.is_alive()
+
+    if is_running:
+        prog = st.session_state.get("ll_param_run_progress", {})
+        import time
+        started_at = prog.get("_started_at")
+        elapsed = time.time() - started_at if started_at else 0
+        elapsed_min = int(elapsed // 60)
+        elapsed_sec = int(elapsed % 60)
+        st.warning(f"提案パラメータで追加探索中... ({elapsed_min}:{elapsed_sec:02d} 経過)")
+        st.progress(prog.get("pct", 0), text=prog.get("message", ""))
+        time.sleep(3)
+        st.rerun()
+        return
+
+    # 実行完了
+    if run_thread is not None and not run_thread.is_alive():
+        prog = st.session_state.get("ll_param_run_progress", {})
+        if "_result" in prog:
+            all_results = prog.pop("_result")
+            for item in all_results:
+                result = item["result"]
+                cfg = result.config
+                suffix = ""
+                pass  # 拡張戦略は自動計算
+                param_key = f"L{cfg.rolling_window}_λ{cfg.lambda_reg}_K{cfg.n_components}_q{cfg.quantile_q}_G{cfg.gap_threshold}_P{cfg.prior_end_date}{suffix}_{result.period_start}_{result.period_end}"
+                label = f"L={cfg.rolling_window} λ={cfg.lambda_reg} K={cfg.n_components} q={cfg.quantile_q}" + (f" GAP{int(cfg.gap_threshold*100)}%" if cfg.gap_threshold < 1.0 else "") + f" ~{cfg.prior_end_date[:4]}"
+                pass
+                existing_keys = [h.get("_param_key") for h in history]
+                if param_key not in existing_keys:
+                    history.append({
+                        "_param_key": param_key,
+                        "label": label,
+                        "period": f"{result.period_start}~{result.period_end}",
+                        "result": result,
+                    })
+            st.session_state.pop("ll_param_run_thread", None)
+            st.session_state.pop("ll_param_run_progress", None)
+            st.session_state.pop("ll_param_suggestions", None)
+            st.session_state.pop("ll_param_ai", None)  # AI分析も再実行を促す
+            st.success(f"追加探索完了 (履歴: {len(history)}件)。上のAI分析を再実行して新しい結果を含めた分析ができます。")
+            st.rerun()
+        elif prog.get("error"):
+            st.error(f"探索エラー: {prog['error']}")
+            st.session_state.pop("ll_param_run_thread", None)
+            st.session_state.pop("ll_param_run_progress", None)
+        return
+
+    # --- 提案がある場合: 表示 + 実行ボタン ---
+    suggestions = st.session_state.get("ll_param_suggestions")
+    if suggestions:
+        st.markdown(f"**AI が提案する追加探索パラメータ ({len(suggestions)}件):**")
+        sug_rows = []
+        for i, s in enumerate(suggestions):
+            row = {
+                "#": i + 1,
+                "提案名": s.get("label", f"提案{i+1}"),
+                "L": s.get("L", 100),
+                "λ": s.get("lambda", 0.85),
+                "K": s.get("K", 3),
+                "q": s.get("q", 0.25),
+            }
+            if "prior_end" in s:
+                row["学習期間"] = s["prior_end"]
+            row["理由"] = s.get("reason", "")
+            sug_rows.append(row)
+        st.dataframe(pd.DataFrame(sug_rows), hide_index=True)
+
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("この提案で追加探索を実行", type="primary", key="run_param_suggestions"):
+                grid = []
+                for i, s in enumerate(suggestions):
+                    g = {
+                        "label": s.get("label", f"AI提案{i+1}"),
+                        "L": s["L"], "lambda": s["lambda"], "K": s["K"], "q": s["q"],
+                    }
+                    if "prior_end" in s:
+                        g["prior_end"] = s["prior_end"]
+                    grid.append(g)
+
+                # 期間は直近の履歴から
+                last_cfg = history[-1]["result"].config
+                start_d = last_cfg.start_date
+                end_d = last_cfg.end_date or "2025-12-31"
+                prior_d = last_cfg.prior_end_date
+
+                provider, cache = _get_provider_and_cache()
+                import time as _time
+                progress_dict = {"message": "開始中...", "pct": 0.0, "_started_at": _time.time()}
+                st.session_state["ll_param_run_progress"] = progress_dict
+                thread = threading.Thread(
+                    target=_run_auto_search_thread,
+                    args=(progress_dict, provider, cache, start_d, end_d, prior_d, grid),
+                    daemon=True,
+                )
+                thread.start()
+                st.session_state["ll_param_run_thread"] = thread
+                st.rerun()
+        with col2:
+            if st.button("提案を破棄", key="discard_param_suggestions"):
+                st.session_state.pop("ll_param_suggestions", None)
+                st.rerun()
+        return
+
+    # --- 提案取得ボタン ---
+    if st.button("この分析を基に追加探索パラメータを生成", type="primary", key="gen_param_suggestions"):
+        prompt = _build_suggest_prompt(history)
+        progress_dict = {"message": "開始中...", "pct": 0.0}
+        st.session_state["ll_param_sug_progress"] = progress_dict
+        thread = threading.Thread(
+            target=_run_ai_suggest_thread,
+            args=(progress_dict, prompt),
+            daemon=True,
+        )
+        thread.start()
+        st.session_state["ll_param_sug_thread"] = thread
+        st.rerun()
+
+
+def _render_param_compare_ai(history: list):
+    """パラメータ比較のAI分析セクション。"""
+    st.markdown("### AI によるパラメータ比較分析")
+
+    # 実行中チェック
+    ai_thread = st.session_state.get("ll_param_ai_thread")
+    is_running = ai_thread is not None and ai_thread.is_alive()
+
+    if is_running:
+        prog = st.session_state.get("ll_param_ai_progress", {})
+        msg = prog.get("message", "分析中...")
+        pct = prog.get("pct", 0)
+        st.warning("AI がパラメータ比較を分析中です... (数十秒かかります)")
+        st.progress(pct, text=msg)
+
+        import time
+        time.sleep(2)
+        st.rerun()
+        return
+
+    # スレッド完了後
+    if ai_thread is not None and not ai_thread.is_alive():
+        prog = st.session_state.get("ll_param_ai_progress", {})
+        if "_result" in prog:
+            st.session_state["ll_param_ai"] = prog["_result"]
+            st.session_state.pop("ll_param_ai_thread", None)
+            st.session_state.pop("ll_param_ai_progress", None)
+            st.rerun()
+            return
+        elif prog.get("error"):
+            st.error(f"AI分析エラー: {prog['error']}")
+            detail = prog.get("detail", "")
+            if detail:
+                with st.expander("詳細"):
+                    st.code(detail)
+            if st.button("OK", key="param_ai_error_ok"):
+                st.session_state.pop("ll_param_ai_thread", None)
+                st.session_state.pop("ll_param_ai_progress", None)
+                st.rerun()
+            return
+        else:
+            # スレッド終了したが結果もエラーもない (異常)
+            st.session_state.pop("ll_param_ai_thread", None)
+            st.session_state.pop("ll_param_ai_progress", None)
+
+    # 既存の結果を表示
+    if "ll_param_ai" in st.session_state:
+        st.markdown(st.session_state["ll_param_ai"])
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("再分析する", key="param_ai_rerun"):
+                st.session_state.pop("ll_param_ai", None)
+                st.rerun()
+        with col2:
+            with st.expander("テキストをコピー"):
+                st.text_area("", st.session_state["ll_param_ai"], height=400, key="copy_param_ai")
+        return
+
+    # 実行ボタン
+    st.caption(
+        f"現在 {len(history)} 件のパラメータ設定を比較できます。"
+        "AI にどのパラメータが最適か、次に何を試すべきかを分析させます。"
+    )
+    if st.button("AI でパラメータ比較を分析する", type="primary", key="run_param_ai"):
+        prompt = _build_param_compare_prompt(history)
+        progress_dict = {"message": "開始中...", "pct": 0.0}
+        st.session_state["ll_param_ai_progress"] = progress_dict
+
+        import threading as _threading
+
+        thread = _threading.Thread(
+            target=_run_param_ai_thread,
+            args=(progress_dict, prompt),
+            daemon=True,
+        )
+        thread.start()
+        st.session_state["ll_param_ai_thread"] = thread
+        st.rerun()
+
+
+def _highlight_best_compare(s):
+    """比較表の最良値をハイライト"""
+    higher_better = {"年率リターン (%)", "シャープ比", "最大下落率 (%)", "月次勝率 (%)", "月次平均 (%)"}
+    lower_better = {"月次ブレ幅 (%)"}
+    max_better = {"最悪月 (%)"}
+    if s.name not in higher_better | lower_better | max_better:
+        return [""] * len(s)
+    try:
+        vals = s.astype(float)
+    except (ValueError, TypeError):
+        return [""] * len(s)
+    if s.name in higher_better:
+        best = vals == vals.max()
+    elif s.name in lower_better:
+        best = vals == vals.min()
+    else:
+        best = vals == vals.max()
+    return ["font-weight: bold; color: #FF8000" if v else "" for v in best]
+
+
+# ---------------------------------------------------------------------------
+main()

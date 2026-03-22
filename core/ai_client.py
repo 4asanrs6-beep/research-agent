@@ -54,14 +54,20 @@ class ClaudeCodeClient(BaseAiClient):
         else:
             self.model = model
 
-    def send_message(self, prompt: str) -> str:
+    def send_message(self, prompt: str, system_prompt: str | None = None) -> str:
         """Claude Code CLI にプロンプトを送信して応答を得る
+
+        Args:
+            prompt: ユーザープロンプト
+            system_prompt: システムプロンプト (Noneの場合はデフォルトのコード出力指示)
+                           空文字列("")を渡すとシステムプロンプトなしで送信
 
         Windows でのパイプバッファ・デッドロックを完全に回避するため、
         stdin / stdout / stderr をすべて一時ファイル経由にする。
         タイムアウト時は自動リトライ（最大2回）。
         Windows ではプロセスツリーごと kill して孤児プロセスを防ぐ。
         """
+        self._system_prompt_override = system_prompt
         max_attempts = 2
         per_attempt_timeout = self.timeout  # 各試行のタイムアウト
 
@@ -109,12 +115,20 @@ class ClaudeCodeClient(BaseAiClient):
 
         try:
             # システム指示をプロンプト先頭に統合
-            # （--system-prompt の日本語がWindowsコマンドラインで問題を起こす場合の回避）
-            full_prompt = (
-                "【指示】要求されたコンテンツ（Pythonコード、JSON等）のみを出力してください。"
-                "説明文は不要です。\n\n"
-                + prompt
-            )
+            sys_override = getattr(self, '_system_prompt_override', None)
+            if sys_override is None:
+                # デフォルト: コード出力指示
+                full_prompt = (
+                    "【指示】要求されたコンテンツ（Pythonコード、JSON等）のみを出力してください。"
+                    "説明文は不要です。\n\n"
+                    + prompt
+                )
+            elif sys_override == "":
+                # 空文字: システムプロンプトなし
+                full_prompt = prompt
+            else:
+                # カスタムシステムプロンプト
+                full_prompt = sys_override + "\n\n" + prompt
             with open(stdin_path, "w", encoding="utf-8") as f:
                 f.write(full_prompt)
 

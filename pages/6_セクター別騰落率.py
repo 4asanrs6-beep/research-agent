@@ -62,7 +62,10 @@ def load_sector_returns_table(
         df = df[df["sector"].isin(SECTOR_17_LIST)]
         if market_segments_tuple:
             df = df[df["market_name"].isin(set(market_segments_tuple))]
-        return df[["code", "adj_close", "sector"]].dropna()
+        keep = ["code", "adj_close", "sector"]
+        if "adj_open" in df.columns:
+            keep.append("adj_open")
+        return df[keep].dropna(subset=["code", "adj_close", "sector"])
 
     def calc_return(start_df: pd.DataFrame, end_df: pd.DataFrame) -> pd.Series:
         s = start_df.set_index("code")["adj_close"]
@@ -79,6 +82,21 @@ def load_sector_returns_table(
             .mean()
         )
 
+    def calc_intraday_return(day_df: pd.DataFrame) -> pd.Series:
+        """当日始値→終値の騰落率 (Open-to-Close)"""
+        if "adj_open" not in day_df.columns:
+            return pd.Series(dtype=float)
+        df = day_df.set_index("code")
+        valid = df[["adj_open", "adj_close", "sector"]].dropna()
+        if valid.empty:
+            return pd.Series(dtype=float)
+        ret = (valid["adj_close"] / valid["adj_open"] - 1) * 100
+        return (
+            pd.DataFrame({"ret": ret, "sector": valid["sector"]})
+            .groupby("sector")["ret"]
+            .mean()
+        )
+
     ref_date_str, ref_raw = _nearest_trading_day(end_date, end_date)
     if not ref_date_str:
         return pd.DataFrame(), ""
@@ -87,6 +105,11 @@ def load_sector_returns_table(
 
     result = pd.DataFrame(index=SECTOR_17_LIST)
     result.index.name = "セクター"
+
+    # 始値比 (当日 Open→Close)
+    intra = calc_intraday_return(ref_df)
+    if not intra.empty:
+        result["始値比"] = intra.reindex(SECTOR_17_LIST)
 
     d1_str, raw1d = _nearest_trading_day(
         (ref_ts - timedelta(days=1)).strftime("%Y-%m-%d"), ref_date_str
