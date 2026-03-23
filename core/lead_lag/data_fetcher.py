@@ -237,6 +237,7 @@ def build_aligned_dataset(
     jp_data: pd.DataFrame,
     us_tickers: list[str],
     jp_tickers: list[str],
+    accumulate_us_returns: bool = False,
 ) -> AlignedData:
     """日米データを共通取引日に整列し、リターンを計算する。
 
@@ -277,10 +278,36 @@ def build_aligned_dataset(
     merged = merged[
         (merged["jp_date"] - merged["us_date"]).dt.days <= 7
     ]
+    # 同じ US 日が複数の JP 日に紐付く場合、最初の1回だけ残す
+    # → US 休場翌日の JP 営業日は古い US データの使い回しを防ぐ
+    merged = merged.drop_duplicates(subset=["us_date"], keep="first")
 
     # 整列済みリターンを構成
-    us_aligned = us_cc.loc[merged["us_date"].values].copy()
-    us_aligned.index = merged["jp_date"].values
+    if accumulate_us_returns:
+        # JP休場中のUSリターンを累積: 各JP日に紐付くUS日までの
+        # 「前回使用したUS日の翌日〜今回のUS日」の累積リターンを計算
+        us_aligned_rows = []
+        prev_us_date = None
+        for _, row in merged.iterrows():
+            us_date = row["us_date"]
+            if prev_us_date is not None:
+                # 前回US日の翌日から今回US日までのリターンを累積
+                mask = (us_cc.index > prev_us_date) & (us_cc.index <= us_date)
+                us_window = us_cc.loc[mask]
+                if len(us_window) > 1:
+                    # 累積リターン: (1+r1)*(1+r2)*...-1
+                    cumret = (1 + us_window).prod() - 1
+                    us_aligned_rows.append(cumret)
+                else:
+                    us_aligned_rows.append(us_cc.loc[us_date])
+            else:
+                us_aligned_rows.append(us_cc.loc[us_date])
+            prev_us_date = us_date
+        us_aligned = pd.DataFrame(us_aligned_rows)
+        us_aligned.index = merged["jp_date"].values
+    else:
+        us_aligned = us_cc.loc[merged["us_date"].values].copy()
+        us_aligned.index = merged["jp_date"].values
 
     jp_cc_aligned = jp_cc.loc[jp_cc.index.isin(merged["jp_date"])]
     jp_oc_aligned = jp_oc.loc[jp_oc.index.isin(merged["jp_date"])]

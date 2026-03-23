@@ -57,7 +57,10 @@ def run_backtest(
 
     # --- Step 2: 整列 ---
     _progress("日米データを整列中...", 0.08)
-    aligned = build_aligned_dataset(us_data, jp_data, config.us_tickers, config.jp_tickers)
+    aligned = build_aligned_dataset(
+        us_data, jp_data, config.us_tickers, config.jp_tickers,
+        accumulate_us_returns=config.accumulate_us_returns,
+    )
 
     if len(aligned.common_dates) < config.rolling_window + 10:
         raise ValueError(

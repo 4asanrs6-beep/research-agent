@@ -95,6 +95,21 @@ class LeadLagConfig:
     # ギャップフィルター閾値 (0=フィルターなし、0.1=10%消化でスキップ)
     gap_threshold: float = 0.0
 
+    # JP休場中の米国リターンを累積してシグナル入力にする
+    accumulate_us_returns: bool = False
+
+    # ネットエクスポージャー上限 (フィルター前ロング数に対する比率)
+    # 0.0 = 完全L/Sバランス, 0.5 = 50%まで偏り許容, 1.0 = 制限なし
+    net_exposure_limit: float = 1.0
+
+    # ネットエクスポージャー調整モード
+    # "trim" = 多い側を削減, "fill" = 少ない側にGAPフィルター除外銘柄を復活
+    net_exposure_mode: str = "trim"
+
+    # ネットエクスポージャー絶対値スキップ閾値
+    # |L-S| >= この値のとき、その日は売買しない (0 = 制限なし)
+    net_exposure_skip: int = 0
+
     # 実行対象戦略
     run_mom: bool = True
     run_pca_plain: bool = True

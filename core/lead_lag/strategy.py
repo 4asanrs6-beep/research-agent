@@ -23,6 +23,8 @@ class StrategyResult:
     daily_returns: pd.Series
     metrics: dict
     signals: pd.DataFrame | None = None  # シグナル行列 (PCA系のみ)
+    daily_long_count: pd.Series | None = None  # 日次ロング数
+    daily_short_count: pd.Series | None = None  # 日次ショート数
 
 
 @dataclass
@@ -302,6 +304,9 @@ def build_portfolio_gap_filter(
     jp_overnight_gaps: np.ndarray,
     q: float,
     absorption_rate: float = 0.5,
+    net_exposure_limit: float = 1.0,
+    net_exposure_mode: str = "trim",
+    net_exposure_skip: int = 0,
 ) -> np.ndarray:
     """シグナル強度に対してギャップが大きすぎる銘柄をスキップするポートフォリオ。
 
@@ -315,6 +320,8 @@ def build_portfolio_gap_filter(
     """
     T, N = signals.shape
     strategy_returns = np.full(T, np.nan)
+    daily_long_count = np.full(T, np.nan)
+    daily_short_count = np.full(T, np.nan)
     total_candidates = 0
     total_entered = 0
 
@@ -368,8 +375,51 @@ def build_portfolio_gap_filter(
                 if gap[i] >= -abs(sig[i]) * absorption_rate:
                     short_idx.append(i)
 
+            # ネットエクスポージャー制限: L/Sの差をフィルター前ロング数×比率以内に抑える
+            if net_exposure_limit < 1.0:
+                max_diff = max(1, int(np.ceil(n_long * net_exposure_limit)))
+                n_l, n_s = len(long_idx), len(short_idx)
+
+                if net_exposure_mode == "fill":
+                    # fillモード: 少ない側にGAPフィルター除外銘柄を復活
+                    long_excluded = [i for i in long_candidates if i not in long_idx]
+                    short_excluded = [i for i in short_candidates if i not in short_idx]
+
+                    if n_l - n_s > max_diff and short_excluded:
+                        # ショートが少ない → 除外ショートをシグナル強い順に復活
+                        short_excluded.sort(key=lambda i: abs(sig[i]), reverse=True)
+                        n_to_fill = min(len(short_excluded), n_l - n_s - max_diff)
+                        short_idx.extend(short_excluded[:n_to_fill])
+                    elif n_s - n_l > max_diff and long_excluded:
+                        # ロングが少ない → 除外ロングをシグナル強い順に復活
+                        long_excluded.sort(key=lambda i: abs(sig[i]), reverse=True)
+                        n_to_fill = min(len(long_excluded), n_s - n_l - max_diff)
+                        long_idx.extend(long_excluded[:n_to_fill])
+                else:
+                    # trimモード: 多い側を削減
+                    if n_l - n_s > max_diff:
+                        long_sigs = [(i, abs(sig[i])) for i in long_idx]
+                        long_sigs.sort(key=lambda x: x[1], reverse=True)
+                        long_idx = [i for i, _ in long_sigs[:n_s + max_diff]]
+                    elif n_s - n_l > max_diff:
+                        short_sigs = [(i, abs(sig[i])) for i in short_idx]
+                        short_sigs.sort(key=lambda x: x[1], reverse=True)
+                        short_idx = [i for i, _ in short_sigs[:n_l + max_diff]]
+
             total_candidates += n_candidates_day
+
+            # ネットエクスポージャー絶対値スキップ
+            if net_exposure_skip > 0 and abs(len(long_idx) - len(short_idx)) >= net_exposure_skip:
+                # 日次L/S数は記録するが売買しない
+                daily_long_count[t + 1] = len(long_idx)
+                daily_short_count[t + 1] = len(short_idx)
+                continue
+
             total_entered += len(long_idx) + len(short_idx)
+
+            # 日次L/S数を記録 (t+1日の売買)
+            daily_long_count[t + 1] = len(long_idx)
+            daily_short_count[t + 1] = len(short_idx)
 
             if not long_idx and not short_idx:
                 continue
@@ -385,7 +435,7 @@ def build_portfolio_gap_filter(
                 strategy_returns[t + 1] = np.nansum(weights * ret)
 
     entry_rate = total_entered / total_candidates * 100 if total_candidates > 0 else 100.0
-    return strategy_returns, entry_rate
+    return strategy_returns, entry_rate, daily_long_count, daily_short_count
 
 
 
@@ -834,15 +884,20 @@ def run_all_strategies(
         # カスタムギャップフィルター (手動設定時)
         if config.gap_threshold < 1.0 and jp_overnight_gaps is not None:
             _progress(f"ギャップフィルター ({int(config.gap_threshold*100)}%) 適用中...", 0.38)
-            ret_gap_custom, entry_custom = build_portfolio_gap_filter(
+            ret_gap_custom, entry_custom, dl_custom, ds_custom = build_portfolio_gap_filter(
                 signals_sub, jp_oc, jp_overnight_gaps, config.quantile_q,
                 absorption_rate=config.gap_threshold,
+                net_exposure_limit=config.net_exposure_limit,
+                net_exposure_mode=config.net_exposure_mode,
+                net_exposure_skip=config.net_exposure_skip,
             )
             result.strategies["GAP_CUSTOM"] = StrategyResult(
                 name="GAP_CUSTOM",
                 daily_returns=pd.Series(ret_gap_custom, index=dates, name="GAP_CUSTOM"),
                 metrics=compute_metrics(ret_gap_custom, dates, entry_rate=entry_custom),
                 signals=pd.DataFrame(signals_sub, index=dates, columns=jp_tickers),
+                daily_long_count=pd.Series(dl_custom, index=dates, name="long_count"),
+                daily_short_count=pd.Series(ds_custom, index=dates, name="short_count"),
             )
 
     # --- PCA_PLAIN (正則化なし) ---
@@ -950,27 +1005,37 @@ def run_all_strategies(
     # --- ギャップフィルター感応度テスト (主要3水準) ---
     if config.run_pca_sub and jp_overnight_gaps is not None:
         for rate, label in [(-0.1, "GAP_-10"), (0.0, "GAP_0"), (0.05, "GAP_5"), (0.1, "GAP_10"), (0.2, "GAP_20"), (0.3, "GAP_30")]:
-            ret_gap, gap_entry_rate = build_portfolio_gap_filter(
+            ret_gap, gap_entry_rate, dl_gap, ds_gap = build_portfolio_gap_filter(
                 signals_sub, jp_oc, jp_overnight_gaps, config.quantile_q,
                 absorption_rate=rate,
+                net_exposure_limit=config.net_exposure_limit,
+                net_exposure_mode=config.net_exposure_mode,
+                net_exposure_skip=config.net_exposure_skip,
             )
             result.strategies[label] = StrategyResult(
                 name=label,
                 daily_returns=pd.Series(ret_gap, index=dates, name=label),
                 metrics=compute_metrics(ret_gap, dates, entry_rate=gap_entry_rate),
+                daily_long_count=pd.Series(dl_gap, index=dates, name="long_count"),
+                daily_short_count=pd.Series(ds_gap, index=dates, name="short_count"),
             )
 
         # ベスト閾値 (50%) でK3K4_ENSにも適用
         if "K3K4_ENS" in result.strategies:
             _progress("K3K4+ギャップフィルター適用中...", 0.98)
-            ret_k3k4_gap, k3k4_gap_entry = build_portfolio_gap_filter(
+            ret_k3k4_gap, k3k4_gap_entry, dl_k3k4, ds_k3k4 = build_portfolio_gap_filter(
                 k3k4_sig, jp_oc, jp_overnight_gaps, config.quantile_q,
                 absorption_rate=0.5,
+                net_exposure_limit=config.net_exposure_limit,
+                net_exposure_mode=config.net_exposure_mode,
+                net_exposure_skip=config.net_exposure_skip,
             )
             result.strategies["K3K4_GAP"] = StrategyResult(
                 name="K3K4_GAP",
                 daily_returns=pd.Series(ret_k3k4_gap, index=dates, name="K3K4_GAP"),
                 metrics=compute_metrics(ret_k3k4_gap, dates, entry_rate=k3k4_gap_entry),
+                daily_long_count=pd.Series(dl_k3k4, index=dates, name="long_count"),
+                daily_short_count=pd.Series(ds_k3k4, index=dates, name="short_count"),
             )
 
     _progress("完了", 1.0)

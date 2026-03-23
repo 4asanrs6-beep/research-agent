@@ -390,46 +390,61 @@ def _render_ai_suggest_and_run():
 # ---------------------------------------------------------------------------
 # 自動探索: パラメータグリッド定義
 # ---------------------------------------------------------------------------
+# ベース: L=110 λ=0.85 K=3 q=0.5 GAP5% NE50%復活 累積
+_BASE = {"L": 110, "lambda": 0.85, "K": 3, "q": 0.5, "gap": 0.05, "net_exposure": 0.5, "ne_mode": "fill", "accumulate": True}
+
+def _grid(label, **overrides):
+    """ベースパラメータを上書きしてグリッド項目を生成。"""
+    entry = {**_BASE, "label": label}
+    entry.update(overrides)
+    return entry
+
 AUTO_SEARCH_GRID = [
-    # --- パラメータ軸の探索 ---
-    {"label": "基本 (論文デフォルト)",         "L": 60,  "lambda": 0.9,  "K": 3, "q": 0.3},
-    {"label": "短期ウィンドウ",                "L": 30,  "lambda": 0.9,  "K": 3, "q": 0.3},
-    {"label": "長期ウィンドウ",                "L": 100, "lambda": 0.9,  "K": 3, "q": 0.3},
-    {"label": "超長期ウィンドウ",              "L": 120, "lambda": 0.9,  "K": 3, "q": 0.3},
-    {"label": "正則化弱め",                    "L": 60,  "lambda": 0.7,  "K": 3, "q": 0.3},
-    {"label": "正則化強め",                    "L": 60,  "lambda": 0.95, "K": 3, "q": 0.3},
-    {"label": "集中投資 (上下25%)",            "L": 60,  "lambda": 0.9,  "K": 3, "q": 0.25},
-    {"label": "分散投資 (上下40%)",            "L": 60,  "lambda": 0.9,  "K": 3, "q": 0.4},
-    {"label": "長期+正則化弱め",               "L": 100, "lambda": 0.85, "K": 3, "q": 0.3},
-    {"label": "長期+集中",                     "L": 100, "lambda": 0.9,  "K": 3, "q": 0.25},
-    # --- 学習期間の探索 ---
-    {"label": "学習2020年末",                  "L": 100, "lambda": 0.85, "K": 3, "q": 0.25, "prior_end": "2020-12-31"},
-    {"label": "学習2022年末",                  "L": 100, "lambda": 0.85, "K": 3, "q": 0.25, "prior_end": "2022-12-31"},
-    {"label": "学習2023年半ば",               "L": 100, "lambda": 0.85, "K": 3, "q": 0.25, "prior_end": "2023-06-30"},
-    {"label": "学習2024年末",                 "L": 100, "lambda": 0.85, "K": 3, "q": 0.25, "prior_end": "2024-12-31"},
-    # --- λ微調整 (AI分析推奨域) ---
-    {"label": "λ=0.83 (最適候補)",             "L": 100, "lambda": 0.83, "K": 3, "q": 0.25, "prior_end": "2023-06-30"},
-    {"label": "λ=0.82",                        "L": 100, "lambda": 0.82, "K": 3, "q": 0.25},
-    {"label": "λ=0.81 (下限探索)",             "L": 100, "lambda": 0.81, "K": 3, "q": 0.25, "prior_end": "2023-06-30"},
-    {"label": "λ=0.80 (下限探索)",             "L": 100, "lambda": 0.80, "K": 3, "q": 0.25, "prior_end": "2023-06-30"},
-    # --- K=4探索 (2026年対策) ---
-    {"label": "K=4 λ=0.84 ~2023",             "L": 100, "lambda": 0.84, "K": 4, "q": 0.25, "prior_end": "2023-06-30"},
-    {"label": "K=4 λ=0.83 ~2023",             "L": 100, "lambda": 0.83, "K": 4, "q": 0.25, "prior_end": "2023-06-30"},
-    {"label": "K=4 λ=0.83 ~2024",             "L": 100, "lambda": 0.83, "K": 4, "q": 0.25, "prior_end": "2024-06-30"},
-    # --- q×閾値の組み合わせ (売買比率が大きいほど閾値厳しくするとSR向上の仮説検証) ---
-    {"label": "q=0.4 GAP10%",  "L": 100, "lambda": 0.85, "K": 3, "q": 0.4,  "gap": 0.1},
-    {"label": "q=0.4 GAP20%",  "L": 100, "lambda": 0.85, "K": 3, "q": 0.4,  "gap": 0.2},
-    {"label": "q=0.4 GAP0%",   "L": 100, "lambda": 0.85, "K": 3, "q": 0.4,  "gap": 0.0},
-    {"label": "q=0.4 GAP-20%", "L": 100, "lambda": 0.85, "K": 3, "q": 0.4,  "gap": -0.2},
-    {"label": "q=0.5 GAP10%",  "L": 100, "lambda": 0.85, "K": 3, "q": 0.5,  "gap": 0.1},
-    {"label": "q=0.5 GAP0%",   "L": 100, "lambda": 0.85, "K": 3, "q": 0.5,  "gap": 0.0},
-    {"label": "q=0.3 GAP10%",  "L": 100, "lambda": 0.85, "K": 3, "q": 0.3,  "gap": 0.1},
-    {"label": "q=0.3 GAP0%",   "L": 100, "lambda": 0.85, "K": 3, "q": 0.3,  "gap": 0.0},
-    {"label": "q=0.25 GAP10%", "L": 100, "lambda": 0.83, "K": 3, "q": 0.25, "gap": 0.1, "prior_end": "2023-06-30"},
-    {"label": "q=0.25 GAP0%",  "L": 100, "lambda": 0.83, "K": 3, "q": 0.25, "gap": 0.0, "prior_end": "2023-06-30"},
-    # --- K=4 × 閾値 ---
-    {"label": "K=4 q=0.3 GAP10%",  "L": 100, "lambda": 0.83, "K": 4, "q": 0.3,  "gap": 0.1, "prior_end": "2023-06-30"},
-    {"label": "K=4 q=0.4 GAP10%",  "L": 100, "lambda": 0.83, "K": 4, "q": 0.4,  "gap": 0.1, "prior_end": "2023-06-30"},
+    # --- 0. ベースライン ---
+    _grid("ベース (最適)"),
+    # --- 1. ウィンドウ長 L ---
+    _grid("L=80",   L=80),
+    _grid("L=90",   L=90),
+    _grid("L=100",  L=100),
+    _grid("L=120",  L=120),
+    _grid("L=130",  L=130),
+    # --- 2. 正則化強度 λ ---
+    _grid("λ=0.80", **{"lambda": 0.80}),
+    _grid("λ=0.83", **{"lambda": 0.83}),
+    _grid("λ=0.87", **{"lambda": 0.87}),
+    _grid("λ=0.90", **{"lambda": 0.90}),
+    # --- 3. 主成分数 K ---
+    _grid("K=2",    K=2),
+    _grid("K=4",    K=4),
+    _grid("K=5",    K=5),
+    # --- 4. 売買比率 q ---
+    _grid("q=0.3",  q=0.3),
+    _grid("q=0.4",  q=0.4),
+    _grid("q=0.45", q=0.45),
+    # --- 5. GAPフィルター閾値 ---
+    _grid("GAP-10%", gap=-0.1),
+    _grid("GAP0%",   gap=0.0),
+    _grid("GAP10%",  gap=0.1),
+    _grid("GAP20%",  gap=0.2),
+    # --- 6. ネットエクスポージャー ---
+    _grid("NE0%復活 (完全バランス)",  net_exposure=0.0),
+    _grid("NE25%復活",                net_exposure=0.25),
+    _grid("NE100% (制限なし)",        net_exposure=1.0, ne_mode="trim"),
+    _grid("NE50%削減",                ne_mode="trim"),
+    _grid("NE0%削減",                 net_exposure=0.0, ne_mode="trim"),
+    # --- 7. |NE|スキップ ---
+    _grid("|NE|≧9 skip",             ne_skip=9, net_exposure=1.0, ne_mode="trim"),
+    _grid("|NE|≧8 skip",             ne_skip=8, net_exposure=1.0, ne_mode="trim"),
+    _grid("|NE|≧7 skip",             ne_skip=7, net_exposure=1.0, ne_mode="trim"),
+    # --- 8. 累積の有無 ---
+    _grid("累積なし",                 accumulate=False),
+    # --- 9. 学習期間 ---
+    _grid("学習~2020",  prior_end="2020-12-31"),
+    _grid("学習~2022",  prior_end="2022-12-31"),
+    _grid("学習~2024",  prior_end="2024-06-30"),
+    # --- 10. 複合 ---
+    _grid("L=100 λ=0.83 K=4",        L=100, **{"lambda": 0.83}, K=4),
+    _grid("L=120 GAP0% |NE|≧9skip",  L=120, gap=0.0, ne_skip=9, net_exposure=1.0, ne_mode="trim"),
 ]
 
 
@@ -446,6 +461,10 @@ def _run_auto_search_thread(progress_dict: dict, provider, cache, start_date: st
 
             p_prior = params.get("prior_end", prior_end)
             p_gap = params.get("gap", 1.0)  # 1.0 = フィルターなし
+            p_ne = params.get("net_exposure", 1.0)
+            p_ne_mode = params.get("ne_mode", "trim")
+            p_ne_skip = params.get("ne_skip", 0)
+            p_accum = params.get("accumulate", False)
             config = LeadLagConfig(
                 start_date=start_date,
                 end_date=end_date,
@@ -455,6 +474,10 @@ def _run_auto_search_thread(progress_dict: dict, provider, cache, start_date: st
                 lambda_reg=params["lambda"],
                 quantile_q=params["q"],
                 gap_threshold=p_gap,
+                net_exposure_limit=p_ne,
+                net_exposure_mode=p_ne_mode,
+                net_exposure_skip=p_ne_skip,
+                accumulate_us_returns=p_accum,
                 run_pca_sub=True,
                 run_pca_plain=False,
                 run_mom=False,
@@ -939,10 +962,85 @@ def _render_daily_trade_tab():
 
     trade_df = pd.DataFrame(trade_rows)
 
+    # ネットエクスポージャー上限判定
+    if config.net_exposure_limit < 1.0:
+        gap_col = "GAP判定"
+        has_gap_col = gap_col in trade_df.columns
+
+        # GAPフィルター後のエントリー数を数える
+        if has_gap_col:
+            long_mask = (trade_df["判定"] == "ロング") & (trade_df[gap_col] == "エントリー")
+            short_mask = (trade_df["判定"] == "ショート") & (trade_df[gap_col] == "エントリー")
+        else:
+            long_mask = trade_df["判定"] == "ロング"
+            short_mask = trade_df["判定"] == "ショート"
+
+        n_long_entry = long_mask.sum()
+        n_short_entry = short_mask.sum()
+        max_diff = max(1, int(np.ceil(n_long * config.net_exposure_limit)))
+
+        ne_results = ["-"] * len(trade_df)
+        mode_label = "復活" if config.net_exposure_mode == "fill" else "削減"
+
+        if config.net_exposure_mode == "fill":
+            # fillモード: 少ない側にGAPスキップ銘柄を復活
+            if has_gap_col:
+                long_skipped = (trade_df["判定"] == "ロング") & (trade_df[gap_col] == "スキップ")
+                short_skipped = (trade_df["判定"] == "ショート") & (trade_df[gap_col] == "スキップ")
+            else:
+                long_skipped = pd.Series([False] * len(trade_df))
+                short_skipped = pd.Series([False] * len(trade_df))
+
+            if n_long_entry - n_short_entry > max_diff and short_skipped.sum() > 0:
+                # ショートが少ない → スキップされたショートをシグナル強い順に復活
+                skipped_indices = trade_df[short_skipped].sort_values("シグナル", ascending=True).index
+                n_to_fill = min(len(skipped_indices), n_long_entry - n_short_entry - max_diff)
+                for idx in skipped_indices[:n_to_fill]:
+                    ne_results[idx] = "NE復活"
+            elif n_short_entry - n_long_entry > max_diff and long_skipped.sum() > 0:
+                # ロングが少ない → スキップされたロングをシグナル強い順に復活
+                skipped_indices = trade_df[long_skipped].sort_values("シグナル", ascending=False).index
+                n_to_fill = min(len(skipped_indices), n_short_entry - n_long_entry - max_diff)
+                for idx in skipped_indices[:n_to_fill]:
+                    ne_results[idx] = "NE復活"
+        else:
+            # trimモード: 多い側を削減
+            if n_long_entry - n_short_entry > max_diff:
+                long_indices = trade_df[long_mask].sort_values("シグナル", ascending=True).index
+                n_to_skip = n_long_entry - (n_short_entry + max_diff)
+                for idx in long_indices[:n_to_skip]:
+                    ne_results[idx] = "NE超過"
+            elif n_short_entry - n_long_entry > max_diff:
+                short_indices = trade_df[short_mask].sort_values("シグナル", ascending=False).index
+                n_to_skip = n_short_entry - (n_long_entry + max_diff)
+                for idx in short_indices[:n_to_skip]:
+                    ne_results[idx] = "NE超過"
+
+        trade_df["NE判定"] = ne_results
+        ne_pct = int(config.net_exposure_limit * 100)
+        st.caption(f"ネットエクスポージャー上限: {ne_pct}% [{mode_label}] (L{n_long_entry} vs S{n_short_entry}, 許容差{max_diff})")
+
+    # ネットエクスポージャー絶対値スキップ判定
+    if config.net_exposure_skip > 0:
+        gap_col = "GAP判定"
+        has_gap_col = gap_col in trade_df.columns
+        if has_gap_col:
+            n_l = ((trade_df["判定"] == "ロング") & (trade_df[gap_col] == "エントリー")).sum()
+            n_s = ((trade_df["判定"] == "ショート") & (trade_df[gap_col] == "エントリー")).sum()
+        else:
+            n_l = (trade_df["判定"] == "ロング").sum()
+            n_s = (trade_df["判定"] == "ショート").sum()
+
+        net_abs = abs(n_l - n_s)
+        if net_abs >= config.net_exposure_skip:
+            st.warning(f"|ネット| = {net_abs} ≧ {config.net_exposure_skip} → **本日は全銘柄見送り**")
+
     # スタイリング
     style_cols = ["判定"]
     if "GAP判定" in trade_df.columns:
         style_cols.append("GAP判定")
+    if "NE判定" in trade_df.columns:
+        style_cols.append("NE判定")
 
     def _style(v):
         s = str(v)
@@ -950,8 +1048,10 @@ def _render_daily_trade_tab():
             return "color: #2E7D32; font-weight: bold"
         if "ショート" in s:
             return "color: #C62828; font-weight: bold"
-        if "スキップ" in s:
+        if "スキップ" in s or "NE超過" in s:
             return "color: #999; text-decoration: line-through"
+        if "NE復活" in s:
+            return "color: #E65100; font-weight: bold"
         return ""
 
     fmt = {"シグナル": "{:+.2f}"}
@@ -1112,12 +1212,23 @@ def _render_setup_tab():
         history = st.session_state["ll_history"]
         # 同一パラメータの重複チェック
         cfg = result.config
-        param_key = f"L{cfg.rolling_window}_λ{cfg.lambda_reg}_K{cfg.n_components}_q{cfg.quantile_q}_G{cfg.gap_threshold}_P{cfg.prior_end_date}_{result.period_start}_{result.period_end}"
+        param_key = f"L{cfg.rolling_window}_λ{cfg.lambda_reg}_K{cfg.n_components}_q{cfg.quantile_q}_G{cfg.gap_threshold}_NE{cfg.net_exposure_limit}_{cfg.net_exposure_mode}_NS{cfg.net_exposure_skip}_AC{cfg.accumulate_us_returns}_P{cfg.prior_end_date}_{result.period_start}_{result.period_end}"
         existing_keys = [h.get("_param_key") for h in history]
         if param_key not in existing_keys:
+            _label_parts = [f"L={cfg.rolling_window} λ={cfg.lambda_reg} K={cfg.n_components} q={cfg.quantile_q}"]
+            if cfg.gap_threshold < 1.0:
+                _label_parts.append(f"GAP{int(cfg.gap_threshold*100)}%")
+            if cfg.net_exposure_limit < 1.0:
+                ne_mode_label = "復活" if cfg.net_exposure_mode == "fill" else "削減"
+                _label_parts.append(f"NE{int(cfg.net_exposure_limit*100)}%{ne_mode_label}")
+            if cfg.net_exposure_skip > 0:
+                _label_parts.append(f"|NE|≧{cfg.net_exposure_skip}skip")
+            if cfg.accumulate_us_returns:
+                _label_parts.append("累積")
+            _label_parts.append(f"~{cfg.prior_end_date[:4]}")
             history.append({
                 "_param_key": param_key,
-                "label": f"L={cfg.rolling_window} λ={cfg.lambda_reg} K={cfg.n_components} q={cfg.quantile_q}" + (f" GAP{int(cfg.gap_threshold*100)}%" if cfg.gap_threshold < 1.0 else "") + f" ~{cfg.prior_end_date[:4]}",
+                "label": " ".join(_label_parts),
                 "period": f"{result.period_start}~{result.period_end}",
                 "result": result,
             })
@@ -1129,6 +1240,13 @@ def _render_setup_tab():
         default_name = f"L={cfg.rolling_window} λ={cfg.lambda_reg} K={cfg.n_components} q={cfg.quantile_q}"
         if gap_pct_save < 100:
             default_name += f" GAP{gap_pct_save}%"
+        if cfg.net_exposure_limit < 1.0:
+            ne_mode_label = "復活" if cfg.net_exposure_mode == "fill" else "削減"
+            default_name += f" NE{int(cfg.net_exposure_limit*100)}%{ne_mode_label}"
+        if cfg.net_exposure_skip > 0:
+            default_name += f" |NE|≧{cfg.net_exposure_skip}skip"
+        if cfg.accumulate_us_returns:
+            default_name += " 累積"
         col1, col2 = st.columns([3, 1])
         with col1:
             preset_name = st.text_input("名前を付けて保存", value=default_name, key="save_preset_name")
@@ -1261,6 +1379,13 @@ def _render_setup_tab():
         with col4:
             run_double = st.checkbox("ダブルソート", value=True)
 
+        st.markdown("### 休場処理")
+        accumulate_us = st.checkbox(
+            "JP休場中の米国リターンを累積してシグナルに反映",
+            value=False,
+            help="JP休場中に発生した複数日分の米国リターンを累積し、休場明けのシグナル入力に使用します。OFFの場合は直前1日のみ使用。",
+        )
+
         st.markdown("### ギャップフィルター")
         st.caption("シグナル強度に対してovernightギャップが閾値以上消化済みの銘柄をスキップ")
         gap_threshold = st.slider(
@@ -1269,6 +1394,30 @@ def _render_setup_tab():
             key="form_gap",
             help="100%=フィルターなし (全エントリー)。10%=予測の10%消化でスキップ。0%=予測方向に少しでも動いたらスキップ。-20%=予測と逆に20%以上動いた銘柄のみエントリー",
         )
+
+        ne_col1, ne_col2, ne_col3 = st.columns([2, 1, 1])
+        with ne_col1:
+            net_exposure = st.slider(
+                "ネットエクスポージャー上限 (%)",
+                min_value=0, max_value=100, value=100, step=5,
+                key="form_net_exposure",
+                help="GAPフィルター後のL/S偏りを制限。0%=完全バランス。100%=制限なし。",
+            )
+        with ne_col2:
+            ne_mode = st.radio(
+                "調整モード",
+                options=["trim", "fill"],
+                format_func=lambda x: "多い側を削減" if x == "trim" else "少ない側を復活",
+                key="form_ne_mode",
+                help="trim: 多い側のシグナル弱い銘柄をスキップ。fill: 少ない側にGAPフィルターで外された銘柄をシグナル強い順に復活。",
+            )
+        with ne_col3:
+            ne_skip = st.number_input(
+                "|ネット|≧N で見送り",
+                min_value=0, max_value=20, value=0, step=1,
+                key="form_ne_skip",
+                help="GAPフィルター後の|ロング数-ショート数|がこの値以上なら、その日は売買しない。0=制限なし。",
+            )
 
         st.caption("拡張戦略 (HYBRID, K3/K4アンサンブル) は自動的に計算されます")
 
@@ -1286,6 +1435,10 @@ def _render_setup_tab():
             lambda_reg=lambda_reg,
             quantile_q=quantile_q,
             gap_threshold=gap_threshold / 100.0,
+            accumulate_us_returns=accumulate_us,
+            net_exposure_limit=net_exposure / 100.0,
+            net_exposure_mode=ne_mode,
+            net_exposure_skip=ne_skip,
             run_pca_sub=True,
             run_pca_plain=run_pca_plain,
             run_mom=run_mom,
@@ -1564,6 +1717,9 @@ def _render_results_tab():
     st.markdown("### 直近の売買サンプル")
     _render_trade_samples(result)
 
+    # --- L/S エクスポージャー分析 ---
+    _render_ls_exposure_analysis(result)
+
     # --- AI 解釈 ---
     st.markdown("---")
     _render_ai_interpretation(result)
@@ -1771,8 +1927,8 @@ def _render_trade_samples(result, n_days: int = 10):
                     row["指値目安"] = f"{limit_price:,}{limit_label}" if limit_price else "-"
                     row["寄付き"] = f"{op:,}" if op else "-"
                     row["前日比(%)"] = gap_pct_val
-                    row["織込済(%)"] = round(absorbed)
-                    row["GAP判定"] = "エントリー" if can_trade else "スキップ"
+                    row["織込済(%)"] = round(absorbed) if base_position in ("ロング", "ショート") else "-"
+                    row["GAP判定"] = ("エントリー" if can_trade else "スキップ") if base_position in ("ロング", "ショート") else "-"
                     row["終値"] = f"{cl:,}" if cl else "-"
                     row["当日騰落(%)"] = oc_ret
                 else:
@@ -1960,30 +2116,86 @@ def _build_interpretation_prompt(result) -> str:
     strategies = result.strategies
     config = result.config
 
-    # パフォーマンス表
-    perf_lines = ["| 戦略 | 年率リターン(%) | 年率リスク(%) | シャープ比 | 最大下落率(%) |", "|---|---|---|---|---|"]
-    for name in ["PCA_SUB", "PCA_PLAIN", "MOM", "DOUBLE"]:
-        if name in strategies:
-            m = strategies[name].metrics
-            label = STRATEGY_LABELS.get(name, name)
-            perf_lines.append(f"| {label} | {m['AR']:.2f} | {m['RISK']:.2f} | {m['R/R']:.2f} | {m['MDD']:.2f} |")
+    # --- パラメータ説明 ---
+    param_parts = [
+        f"L={config.rolling_window}, λ={config.lambda_reg}, K={config.n_components}, q={config.quantile_q}",
+    ]
+    if config.gap_threshold < 1.0:
+        param_parts.append(f"GAPフィルター閾値={int(config.gap_threshold*100)}%")
+    if config.net_exposure_limit < 1.0:
+        ne_mode = "復活" if config.net_exposure_mode == "fill" else "削減"
+        param_parts.append(f"NE上限={int(config.net_exposure_limit*100)}%({ne_mode})")
+    if config.net_exposure_skip > 0:
+        param_parts.append(f"|NE|≧{config.net_exposure_skip}スキップ")
+    if config.accumulate_us_returns:
+        param_parts.append("US休場累積あり")
+    param_summary = ", ".join(param_parts)
+
+    # --- 全戦略パフォーマンス表 ---
+    perf_lines = [
+        "| 戦略 | 年率R(%) | リスク(%) | SR | MDD(%) | エントリー率(%) | 月次勝率(%) | 月次平均(%) | 月次ブレ幅(%) | 最悪月(%) |",
+        "|---|---|---|---|---|---|---|---|---|---|",
+    ]
+    strat_order = ["PCA_SUB", "GAP_CUSTOM", "PCA_PLAIN", "MOM", "DOUBLE",
+                   "HYBRID", "K3K4_ENS", "K3K4_GAP",
+                   "GAP_-10", "GAP_0", "GAP_5", "GAP_10", "GAP_20", "GAP_30"]
+    for name in strat_order:
+        if name not in strategies:
+            continue
+        m = strategies[name].metrics
+        label = STRATEGY_LABELS.get(name, name)
+        if name == "GAP_CUSTOM":
+            label = f"GAP_{int(config.gap_threshold*100)}% (設定値)"
+        perf_lines.append(
+            f"| {label} | {m['AR']:.1f} | {m['RISK']:.1f} | {m['R/R']:.2f} | {m['MDD']:.1f} "
+            f"| {m.get('entry_rate', 100):.0f} "
+            f"| {m.get('monthly_win_rate', 0):.0f} | {m.get('monthly_mean', 0):+.2f} "
+            f"| {m.get('monthly_std', 0):.2f} | {m.get('monthly_worst', 0):+.1f} |"
+        )
     perf_table = "\n".join(perf_lines)
 
-    # 年別リターン
+    # --- メイン戦略の選択 (GAP_CUSTOM優先) ---
+    main_key = "GAP_CUSTOM" if "GAP_CUSTOM" in strategies else "PCA_SUB"
+
+    # --- 年別リターン (主要戦略) ---
     annual_lines = []
-    for name in ["PCA_SUB", "PCA_PLAIN", "MOM", "DOUBLE"]:
+    for name in strat_order:
         if name not in strategies:
             continue
         ret = strategies[name].daily_returns.dropna()
         if len(ret) == 0:
             continue
         label = STRATEGY_LABELS.get(name, name)
+        if name == "GAP_CUSTOM":
+            label = f"GAP_{int(config.gap_threshold*100)}%"
         yearly = ret.groupby(ret.index.year).apply(lambda x: ((1 + x).prod() - 1) * 100)
         for year, val in yearly.items():
-            annual_lines.append(f"- {label} {year}年: {val:+.2f}%")
+            annual_lines.append(f"- {label} {year}年: {val:+.1f}%")
     annual_text = "\n".join(annual_lines) if annual_lines else "(データなし)"
 
-    # 直近シグナル
+    # --- L/Sエクスポージャー分析 ---
+    ls_text = "(データなし)"
+    ls_strat = strategies.get("GAP_CUSTOM") or strategies.get("GAP_5")
+    if ls_strat and ls_strat.daily_long_count is not None and ls_strat.daily_short_count is not None:
+        lc = ls_strat.daily_long_count.dropna()
+        sc = ls_strat.daily_short_count.dropna()
+        ret_s = ls_strat.daily_returns
+        common = lc.index.intersection(sc.index).intersection(ret_s.dropna().index)
+        if len(common) > 0:
+            lc = lc.loc[common].astype(int)
+            sc = sc.loc[common].astype(int)
+            net = lc - sc
+            ret_s = ret_s.loc[common]
+            analysis = pd.DataFrame({"ネット": net, "リターン": ret_s})
+            ls_lines = ["| ネット(L-S) | 日数 | 勝率(%) | 平均リターン(%) |", "|---|---|---|---|"]
+            for net_val, group in sorted(analysis.groupby("ネット"), key=lambda x: x[0]):
+                n_days = len(group)
+                win_rate = (group["リターン"] > 0).sum() / n_days * 100
+                avg_ret = group["リターン"].mean() * 100
+                ls_lines.append(f"| {int(net_val)} | {n_days} | {win_rate:.1f} | {avg_ret:+.3f} |")
+            ls_text = "\n".join(ls_lines)
+
+    # --- 直近シグナル ---
     signal_text = "(データなし)"
     if "PCA_SUB" in strategies and strategies["PCA_SUB"].signals is not None:
         sig = strategies["PCA_SUB"].signals.dropna(how="all")
@@ -1996,31 +2208,17 @@ def _build_interpretation_prompt(result) -> str:
                 sig_lines.append(f"- {sector} ({ticker}): シグナル={val:+.4f} -> {direction}")
             signal_text = "\n".join(sig_lines)
 
-    # --- TOPIX年別・月別リターン ---
+    # --- TOPIX ---
     topix_annual_text = "(データなし)"
-    topix_monthly_text = "(データなし)"
     excess_text = "(データなし)"
     if result.benchmark_returns is not None and len(result.benchmark_returns) > 0:
         bm = result.benchmark_returns.dropna()
-        # 年別
         bm_yearly = bm.groupby(bm.index.year).apply(lambda x: ((1 + x).prod() - 1) * 100)
-        topix_annual_lines = [f"- TOPIX {y}年: {v:+.1f}%" for y, v in bm_yearly.items()]
-        topix_annual_text = "\n".join(topix_annual_lines)
-        # 月別平均
-        by_month = bm.groupby(bm.index.month)
-        topix_monthly_lines = []
-        for m_num in range(1, 13):
-            if m_num not in by_month.groups:
-                continue
-            group = by_month.get_group(m_num)
-            m_agg = group.groupby([group.index.year, group.index.month]).apply(
-                lambda x: ((1 + x).prod() - 1) * 100
-            )
-            topix_monthly_lines.append(f"- TOPIX {m_num}月: 平均{m_agg.mean():+.1f}%, 勝率{(m_agg > 0).mean()*100:.0f}%")
-        topix_monthly_text = "\n".join(topix_monthly_lines) if topix_monthly_lines else "(データなし)"
-        # 対TOPIX超過 (提案手法)
-        if "PCA_SUB" in strategies:
-            strat_ret = strategies["PCA_SUB"].daily_returns.dropna()
+        topix_annual_text = "\n".join([f"- TOPIX {y}年: {v:+.1f}%" for y, v in bm_yearly.items()])
+
+        # 対TOPIX超過 (メイン戦略)
+        if main_key in strategies:
+            strat_ret = strategies[main_key].daily_returns.dropna()
             common_idx = strat_ret.index.intersection(bm.index)
             if len(common_idx) > 0:
                 from core.lead_lag.strategy import compute_metrics as _cm
@@ -2029,11 +2227,11 @@ def _build_interpretation_prompt(result) -> str:
                 excess_yearly = excess_daily.groupby(excess_daily.index.year).apply(
                     lambda x: ((1 + x).prod() - 1) * 100
                 )
+                main_label = f"GAP_{int(config.gap_threshold*100)}%" if main_key == "GAP_CUSTOM" else "PCA_SUB"
                 ex_lines = [
-                    f"対TOPIX超過 年率: {em['AR']:+.1f}%, 超過シャープ比: {em['R/R']:.2f}",
-                    f"対TOPIX月次勝率: {em.get('monthly_win_rate',0):.0f}%, 超過月次平均: {em.get('monthly_mean',0):+.2f}%, 超過月次ブレ幅: {em.get('monthly_std',0):.2f}%",
-                    f"対TOPIX最悪月: {em.get('monthly_worst',0):+.1f}%",
-                    "年別 対TOPIX超過:",
+                    f"対TOPIX超過 ({main_label}): 年率{em['AR']:+.1f}%, SR{em['R/R']:.2f}",
+                    f"対TOPIX月次勝率: {em.get('monthly_win_rate',0):.0f}%, 月次平均: {em.get('monthly_mean',0):+.2f}%, ブレ幅: {em.get('monthly_std',0):.2f}%",
+                    "年別:",
                 ]
                 for y, v in excess_yearly.items():
                     bm_y = bm_yearly.get(y, 0)
@@ -2041,44 +2239,61 @@ def _build_interpretation_prompt(result) -> str:
                 excess_text = "\n".join(ex_lines)
 
     prompt = f"""あなたは定量投資戦略の専門アナリストです。
-以下の日米セクターETFリードラグ戦略のバックテスト結果を分析し、
-投資判断に有用な洞察を日本語で提供してください。
+以下の日米セクターETFリードラグ戦略のバックテスト結果を分析してください。
 
 ## 戦略概要
 - 手法: 部分空間正則化PCA (中川ら, SIG-FIN-036, 2026)
-- 仮説: 米国セクターETFの当日リターンが、日本セクターETFの翌日寄引リターン (Open-to-Close) を予測する
-- パラメータ: ウィンドウ長L={config.rolling_window}, 正則化強度λ={config.lambda_reg}, 主成分数K={config.n_components}, 売買比率q={config.quantile_q}
+- 仮説: 米国セクターETFの当日リターンが、日本セクターETFの翌日寄引リターンを予測する
+- 設定: {param_summary}
 - 期間: {result.period_start} ~ {result.period_end} ({result.n_common_days}営業日)
 - 米国側: S&P 500 セクターETF {len(result.us_tickers)}本
 - 日本側: TOPIX-17 セクターETF {len(result.jp_tickers)}本
 
-## パフォーマンス比較 (絶対リターン)
+## パラメータの意味
+- **L**: ローリングウィンドウ長。長いほど安定。
+- **λ**: 正則化強度。1に近いほど事前知識重視。
+- **K**: 主成分数。日米共通パターン数。
+- **q**: 売買比率。0.5=全セクター。
+- **GAPフィルター閾値**: 値が小さいほど厳しい。-10%=最厳格(逆方向10%以上動いた銘柄のみ)。0%=シグナル方向のギャップは全てスキップ。5%=5%まで許容。100%=フィルターなし。
+- **NE上限**: GAPフィルター後のL/S偏りを制限。復活=少ない側にGAPで外された銘柄を復活。削減=多い側を削除。
+- **|NE|≧Nスキップ**: |ロング数-ショート数|がN以上の日は全銘柄見送り。
+
+## 戦略間の関係 (重要: 正しく理解すること)
+- **正則化PCA (PCA_SUB)**: ベースとなるシグナル生成。GAPフィルターなしで全日エントリー。
+- **GAP_X% (GAP_-10, GAP_0, GAP_5, GAP_10, GAP_20, GAP_30)**: すべて**正則化PCAのシグナルを使用**し、GAPフィルターを適用したもの。通常PCAのシグナルではない。つまりGAP_5%は「正則化PCA + GAPフィルター5%」であり、両者は既に組み合わさっている。
+- **GAP_CUSTOM**: ユーザーが手動設定した閾値でのGAPフィルター。シグナルは正則化PCA。
+- **K3K4_ENS**: K=3とK=4のアンサンブル。GAPフィルターなし。
+- **K3K4_GAP**: K3K4_ENSのシグナルにGAP_50%を適用。
+- **通常PCA (PCA_PLAIN)**: 正則化なし(λ=0)のPCA。比較用ベースライン。
+- **HYBRID**: VIX/円高でポジション縮小する正則化PCA。
+
+## 全戦略パフォーマンス比較
 {perf_table}
 
-## TOPIX (ベンチマーク) の年別リターン
+## TOPIX 年別リターン
 {topix_annual_text}
 
-## TOPIX 月別平均リターン・勝率
-{topix_monthly_text}
-
-## 提案手法の対TOPIX超過パフォーマンス
+## 対TOPIX超過パフォーマンス
 {excess_text}
 
 ## 年別リターン (各戦略)
 {annual_text}
 
+## L/Sエクスポージャー分析 (ネットポジション別の日数・勝率・平均リターン)
+{ls_text}
+
 ## 直近シグナル
 {signal_text}
 
 以下の観点で分析してください:
-1. **戦略の有効性**: 提案手法の正則化の効果、通常PCAやモメンタムとの差
-2. **リスク特性**: シャープ比、最大下落率の水準
-3. **対TOPIX分析 (重要)**: TOPIXが上昇した年/月と下落した年/月のそれぞれで、戦略が安定してTOPIXを上回れているか。TOPIXが強い局面と弱い局面で戦略のパフォーマンスに偏りがないか。対TOPIX月次勝率やブレ幅から、毎月安定してTOPIXに勝てているかを評価
-4. **月次安定性 (重要)**: 絶対リターンと対TOPIX超過の両方で、毎月安定してプラスを出せているか。月次勝率、ブレ幅、最悪月の観点から評価
-5. **直近シグナルの解釈**: 現在のロング/ショートの経済的意味
-6. **実運用上の注意点**: 取引コスト、流動性リスク、モデルの限界
-7. **パラメータ改善の提案**: 具体的なL, λ, K, qの組み合わせを3つ提案
-8. **新しいデータや条件の提案**: 指数のボラティリティ、為替、カレンダー効果などの追加データ活用案"""
+1. **戦略の有効性**: 正則化PCA vs 通常PCA。GAPフィルターの効果（閾値別のSR・エントリー率のトレードオフ）。NE制限の効果。
+2. **リスク特性**: SR、MDD、月次安定性の評価。
+3. **GAPフィルター分析 (重要)**: 閾値別のパフォーマンス差。最適な閾値の推定。エントリー率とSRのトレードオフ。
+4. **L/Sエクスポージャー分析**: ネットポジション別の勝率・リターンから、どの程度のL/S偏りが許容可能か。NE制限の最適値。
+5. **対TOPIX分析**: 年別・月次での対TOPIX超過の安定性。
+6. **直近シグナルの解釈**: 現在のロング/ショートの経済的意味。
+7. **実運用上の注意点**: コスト、流動性、モデルの限界。
+8. **改善提案 (最重要)**: 提供データの中でSRが最も高い戦略を起点とし、そのSRをさらに向上させるための具体的な改善案を提示すること。SR最良の戦略がなぜ高SRを達成しているのかを分析し、その強みを維持・強化しつつ弱点（特定年の損失、エントリー率の低さ等）を補う方向で提案すること。既に試されたパラメータの結果を踏まえ、まだ試されていない組み合わせを具体的に提案すること。"""
 
     return prompt
 
@@ -2101,6 +2316,164 @@ def _run_interpretation_thread(progress_dict: dict, prompt: str):
         progress_dict["error"] = str(e)
         progress_dict["detail"] = traceback.format_exc()
         progress_dict["pct"] = 1.0
+
+
+def _render_ls_exposure_analysis(result):
+    """L/Sエクスポージャー分析: ネットポジション別の日数・勝率・平均リターン。"""
+    # daily_long_count を持つ GAP 系戦略を探す
+    gap_strats = {}
+    for key, strat in result.strategies.items():
+        if strat.daily_long_count is not None and strat.daily_short_count is not None:
+            gap_strats[key] = strat
+
+    if not gap_strats:
+        return
+
+    st.markdown("### L/S エクスポージャー分析")
+
+    # 対象戦略を選択
+    target_key = None
+    if "GAP_CUSTOM" in gap_strats:
+        target_key = "GAP_CUSTOM"
+    else:
+        # 最初のGAP戦略
+        target_key = next(iter(gap_strats))
+
+    strat_options = {k: STRATEGY_LABELS.get(k, k) for k in gap_strats}
+    if len(strat_options) > 1:
+        target_key = st.selectbox(
+            "分析対象の戦略",
+            options=list(strat_options.keys()),
+            format_func=lambda k: strat_options[k],
+            index=list(strat_options.keys()).index(target_key) if target_key in strat_options else 0,
+            key="ls_analysis_target",
+        )
+
+    strat = gap_strats[target_key]
+    lc = strat.daily_long_count.dropna()
+    sc = strat.daily_short_count.dropna()
+    ret = strat.daily_returns
+
+    # 共通インデックス
+    common = lc.index.intersection(sc.index).intersection(ret.dropna().index)
+    if len(common) == 0:
+        st.info("エクスポージャーデータがありません。")
+        return
+
+    lc = lc.loc[common].astype(int)
+    sc = sc.loc[common].astype(int)
+    net = lc - sc
+    ret = ret.loc[common]
+
+    # --- ネットエクスポージャー別集計 ---
+    analysis_df = pd.DataFrame({
+        "ロング数": lc,
+        "ショート数": sc,
+        "ネット": net,
+        "リターン": ret,
+    })
+
+    # ネット別集計
+    net_groups = analysis_df.groupby("ネット")
+    net_summary_rows = []
+    for net_val, group in sorted(net_groups, key=lambda x: x[0]):
+        n_days = len(group)
+        wins = (group["リターン"] > 0).sum()
+        win_rate = wins / n_days * 100 if n_days > 0 else 0
+        avg_ret = group["リターン"].mean() * 100
+        net_summary_rows.append({
+            "ネット": int(net_val),
+            "日数": n_days,
+            "勝率 (%)": round(win_rate, 1),
+            "平均リターン (%)": round(avg_ret, 3),
+        })
+    net_summary = pd.DataFrame(net_summary_rows)
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        st.markdown("**ネットエクスポージャー別**")
+        st.dataframe(
+            net_summary.style.format({
+                "勝率 (%)": "{:.1f}",
+                "平均リターン (%)": "{:+.3f}",
+            }).map(
+                lambda v: "color: #2E7D32" if isinstance(v, (int, float)) and v > 0
+                else "color: #C62828" if isinstance(v, (int, float)) and v < 0
+                else "",
+                subset=["平均リターン (%)"],
+            ),
+            hide_index=True,
+            height=min(500, len(net_summary) * 35 + 40),
+        )
+
+    with col2:
+        # ヒストグラム: ネット別日数 + 平均リターン
+        import plotly.graph_objects as go
+        from plotly.subplots import make_subplots
+
+        fig = make_subplots(specs=[[{"secondary_y": True}]])
+
+        fig.add_trace(
+            go.Bar(
+                x=net_summary["ネット"],
+                y=net_summary["日数"],
+                name="日数",
+                marker_color="#1565C0",
+                opacity=0.7,
+            ),
+            secondary_y=False,
+        )
+
+        fig.add_trace(
+            go.Scatter(
+                x=net_summary["ネット"],
+                y=net_summary["平均リターン (%)"],
+                name="平均リターン (%)",
+                mode="lines+markers",
+                line=dict(color="#FF8000", width=2),
+                marker=dict(size=8),
+            ),
+            secondary_y=True,
+        )
+
+        fig.update_layout(
+            height=400,
+            xaxis_title="ネットエクスポージャー (L-S)",
+            template="plotly_white",
+            legend=dict(x=0.02, y=0.98),
+            margin=dict(l=60, r=60, t=30, b=40),
+        )
+        fig.update_yaxes(title_text="日数", secondary_y=False)
+        fig.update_yaxes(title_text="平均リターン (%)", secondary_y=True)
+        st.plotly_chart(fig, use_container_width=True)
+
+    # --- L数・S数別の詳細 ---
+    with st.expander("ロング数・ショート数の詳細分布"):
+        ls_groups = analysis_df.groupby(["ロング数", "ショート数"])
+        ls_rows = []
+        for (l_val, s_val), group in ls_groups:
+            n_days = len(group)
+            wins = (group["リターン"] > 0).sum()
+            win_rate = wins / n_days * 100 if n_days > 0 else 0
+            avg_ret = group["リターン"].mean() * 100
+            ls_rows.append({
+                "ロング数": int(l_val),
+                "ショート数": int(s_val),
+                "ネット": int(l_val - s_val),
+                "日数": n_days,
+                "勝率 (%)": round(win_rate, 1),
+                "平均リターン (%)": round(avg_ret, 3),
+            })
+        ls_detail = pd.DataFrame(ls_rows).sort_values(["ネット", "ロング数"], ascending=[True, True])
+        st.dataframe(
+            ls_detail.style.format({
+                "勝率 (%)": "{:.1f}",
+                "平均リターン (%)": "{:+.3f}",
+            }),
+            hide_index=True,
+            height=min(600, len(ls_detail) * 35 + 40),
+        )
 
 
 def _render_ai_interpretation(result):
@@ -2524,9 +2897,12 @@ def _render_param_compare_tab():
         monthly_avg_data = {}
         for i, h in enumerate(history):
             r = h["result"]
-            if "PCA_SUB" not in r.strategies:
+            if "GAP_CUSTOM" in r.strategies:
+                ret = r.strategies["GAP_CUSTOM"].daily_returns.dropna()
+            elif "PCA_SUB" in r.strategies:
+                ret = r.strategies["PCA_SUB"].daily_returns.dropna()
+            else:
                 continue
-            ret = r.strategies["PCA_SUB"].daily_returns.dropna()
             if len(ret) == 0:
                 continue
             by_month = ret.groupby(ret.index.month)
@@ -2574,31 +2950,48 @@ def _render_param_compare_tab():
 def _build_param_compare_prompt(history: list) -> str:
     """パラメータ比較用のAI分析プロンプトを構築する。新機能 (DYNAMIC_K, REGIME, BLEND等) を含む。"""
     # 全戦略の名前リスト
-    all_strat_keys = ["PCA_SUB", "HYBRID", "K3K4_ENS", "GAP_-10", "GAP_0", "GAP_5", "GAP_10", "GAP_20", "GAP_30", "K3K4_GAP"]
+    all_strat_keys = ["PCA_SUB", "GAP_CUSTOM", "HYBRID", "K3K4_ENS", "GAP_-10", "GAP_0", "GAP_5", "GAP_10", "GAP_20", "GAP_30", "K3K4_GAP"]
 
     # --- パラメータ一覧 ---
     param_changes = []
     for i, h in enumerate(history):
         cfg = h["result"].config
-        ext_str = ""
+        extras = []
+        if cfg.gap_threshold < 1.0:
+            extras.append(f"GAP{int(cfg.gap_threshold*100)}%")
+        if cfg.net_exposure_limit < 1.0:
+            ne_ml = "復活" if cfg.net_exposure_mode == "fill" else "削減"
+            extras.append(f"NE{int(cfg.net_exposure_limit*100)}%{ne_ml}")
+        if cfg.net_exposure_skip > 0:
+            extras.append(f"|NE|≧{cfg.net_exposure_skip}skip")
+        if cfg.accumulate_us_returns:
+            extras.append("US累積あり")
+        ext_str = f", {', '.join(extras)}" if extras else ""
         param_changes.append(
             f"- #{i+1}: L={cfg.rolling_window}, λ={cfg.lambda_reg}, K={cfg.n_components}, "
             f"q={cfg.quantile_q}, 学習~{cfg.prior_end_date}{ext_str}"
         )
     param_text = "\n".join(param_changes)
 
-    # --- PCA_SUB 比較表 ---
+    # --- メイン比較表 (GAP_CUSTOMがあればそちらを優先、なければPCA_SUB) ---
     table_lines = [
-        "| # | パラメータ | 年率R(%) | SR | MDD(%) | 月次勝率(%) | 月次平均(%) | 月次ブレ幅(%) | 最悪月(%) |",
-        "|---|---|---|---|---|---|---|---|---|",
+        "| # | パラメータ | 戦略 | 年率R(%) | SR | MDD(%) | エントリー率(%) | 月次勝率(%) | 月次平均(%) | 月次ブレ幅(%) | 最悪月(%) |",
+        "|---|---|---|---|---|---|---|---|---|---|---|",
     ]
     for i, h in enumerate(history):
         r = h["result"]
-        if "PCA_SUB" not in r.strategies:
+        # GAP_CUSTOMがあればそちらを表示 (GAPフィルター適用後の実際のパフォーマンス)
+        if "GAP_CUSTOM" in r.strategies:
+            m = r.strategies["GAP_CUSTOM"].metrics
+            strat_name = f"GAP_{int(r.config.gap_threshold*100)}%"
+        elif "PCA_SUB" in r.strategies:
+            m = r.strategies["PCA_SUB"].metrics
+            strat_name = "PCA_SUB"
+        else:
             continue
-        m = r.strategies["PCA_SUB"].metrics
         table_lines.append(
-            f"| {i+1} | {h['label']} | {m['AR']:.1f} | {m['R/R']:.2f} | {m['MDD']:.1f} "
+            f"| {i+1} | {h['label']} | {strat_name} | {m['AR']:.1f} | {m['R/R']:.2f} | {m['MDD']:.1f} "
+            f"| {m.get('entry_rate', 100):.0f} "
             f"| {m.get('monthly_win_rate', 0):.0f} | {m.get('monthly_mean', 0):+.2f} "
             f"| {m.get('monthly_std', 0):.2f} | {m.get('monthly_worst', 0):+.1f} |"
         )
@@ -2634,13 +3027,16 @@ def _build_param_compare_prompt(history: list) -> str:
             )
     ext_text = "\n".join(ext_lines) if has_ext else "(拡張戦略なし)"
 
-    # --- 年別リターン (PCA_SUBのみ、簡潔に) ---
+    # --- 年別リターン (GAP_CUSTOM優先、なければPCA_SUB) ---
     annual_lines = []
     for i, h in enumerate(history):
         r = h["result"]
-        if "PCA_SUB" not in r.strategies:
+        if "GAP_CUSTOM" in r.strategies:
+            ret = r.strategies["GAP_CUSTOM"].daily_returns.dropna()
+        elif "PCA_SUB" in r.strategies:
+            ret = r.strategies["PCA_SUB"].daily_returns.dropna()
+        else:
             continue
-        ret = r.strategies["PCA_SUB"].daily_returns.dropna()
         if len(ret) == 0:
             continue
         yearly = ret.groupby(ret.index.year).apply(lambda x: ((1 + x).prod() - 1) * 100)
@@ -2706,17 +3102,34 @@ def _build_param_compare_prompt(history: list) -> str:
 ## 戦略の概要
 米国セクターETFの当日リターンから、翌営業日の日本セクターETFの寄引リターンを予測するロング・ショート戦略。
 
-## 拡張戦略の一覧
-- **HYBRID**: VIX高騰 OR 円高急伸でポジション縮小。SR微改善、MDD改善
-- **K3K4_ENS**: K=3とK=4をVIXで動的加重。K=4は2026年で唯一プラス
-- **GAP_10/30/50%**: シグナル相対ギャップフィルター。シグナルの10/30/50%がovernightギャップで消化済みならスキップ。閾値が小さいほど厳しい(=エントリー率低下、SR向上)。qが大きいほどギャップフィルターとの相性が良い
-- **K3K4_GAP**: K3K4_ENSシグナル + GAP_50%
-- **GAP_CUSTOM**: 手動設定の閾値でのギャップフィルター
+## パラメータの意味
+- **L**: ローリングウィンドウ長（日数）。長いほど安定、短いほど追従性が高い。
+- **λ**: 正則化強度。1に近いほど事前知識を重視、0に近いほど直近データを重視。
+- **K**: 主成分数。日米共通の変動パターン数。
+- **q**: 売買比率。17セクター中の上位/下位何%をロング/ショートするか。0.5=全セクター。
+- **GAP閾値**: オーバーナイトギャップフィルターの閾値。**値が小さいほど厳しい（エントリー率が下がる）。**
+  - GAP=-10%: 最も厳しい。シグナルと逆方向に10%以上動いた銘柄のみエントリー。
+  - GAP=0%: 厳しい。シグナル方向に少しでもギャップアップしたらスキップ。
+  - GAP=5%: やや厳しい。シグナルの5%までのギャップは許容。
+  - GAP=10%: 標準。シグナルの10%までのギャップは許容。
+  - GAP=20%: 緩い。ほとんどエントリーする。
+  - GAP=100%: フィルターなし。
+- **NE上限**: GAPフィルター後のロング数とショート数の偏りを制限。復活=少ない側にGAPで外された銘柄を復活。削減=多い側を削除。
+- **|NE|≧Nスキップ**: GAPフィルター後の|ロング数-ショート数|がN以上ならその日は全銘柄見送り。
+- **US累積**: JP休場中の複数日分の米国リターンを累積してシグナル入力に使用。
+
+## 戦略間の関係 (重要: 正しく理解すること)
+- **正則化PCA (PCA_SUB)**: ベースとなるシグナル生成。GAPフィルターなしで全日エントリー。
+- **GAP_X% (GAP_-10〜GAP_30, GAP_CUSTOM)**: すべて**正則化PCAのシグナルを使用**し、GAPフィルターを適用したもの。通常PCAのシグナルではない。つまりGAP_5%は「正則化PCA + GAPフィルター5%」であり、両者は既に組み合わさっている。
+- **K3K4_ENS**: K=3とK=4のアンサンブル。GAPフィルターなし。
+- **K3K4_GAP**: K3K4_ENSシグナルにGAP_50%を適用。
+- **通常PCA (PCA_PLAIN)**: 正則化なし(λ=0)のPCA。比較用ベースライン。
+- **HYBRID**: VIX/円高でポジション縮小する正則化PCA。
 
 ## 各実行のパラメータ
 {param_text}
 
-## PCA_SUB パフォーマンス比較
+## メイン戦略パフォーマンス比較 (GAP_CUSTOMがあればGAPフィルター適用後の値)
 {table_text}
 
 ## 拡張戦略の結果
@@ -2728,7 +3141,7 @@ def _build_param_compare_prompt(history: list) -> str:
 ## TOPIX 年別リターン
 {topix_text}
 
-## PCA_SUB 年別リターン
+## メイン戦略 年別リターン (GAP_CUSTOMがあればGAPフィルター適用後の値)
 {annual_text}
 
 ## 拡張戦略 年別リターン (代表設定)
@@ -2758,7 +3171,7 @@ def _build_param_compare_prompt(history: list) -> str:
 
 7. **2026年パフォーマンス改善**: 拡張戦略が2026年の劣化をどの程度緩和できているか
 
-8. **実運用推奨**: パラメータ + 戦略タイプのベストな組み合わせを1つ推奨"""
+8. **実運用推奨・改善提案 (最重要)**: 提供データの中でSRが最も高い設定を起点とし、そのSRをさらに向上させるための具体的な改善案を提示すること。SR最良の設定がなぜ高SRを達成しているかを分析し、その強みを維持・強化しつつ弱点を補う方向で次に試すべきパラメータの組み合わせを3つ提案すること。"""
 
     return prompt
 
