@@ -2012,8 +2012,6 @@ def _render_trade_samples(result, n_days: int = 10):
                 fmt["当日騰落(%)"] = "{:+.1f}"
             if "前日比(%)" in trade_df.columns:
                 fmt["前日比(%)"] = "{:+.1f}"
-            if "織込済(%)" in trade_df.columns:
-                fmt["織込済(%)"] = "{:.0f}"
 
             st.dataframe(
                 trade_df.style.map(_style_trade, subset=style_cols).format(fmt, na_rep="-"),
