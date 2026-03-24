@@ -1625,12 +1625,12 @@ def _render_results_tab():
         bm_valid = result.benchmark_returns.dropna()
         bm_ar = bm_valid.mean() * 252 * 100 if len(bm_valid) > 0 else None
         for name, strat in strategies.items():
-            strat_ret = strat.daily_returns.dropna()
-            common_idx = strat_ret.index.intersection(bm_valid.index)
-            if len(common_idx) > 0:
+            # NaN（エントリーなし）= 0%リターンとして扱い、全日でTOPIXと比較
+            strat_ret_filled = strat.daily_returns.reindex(bm_valid.index).fillna(0)
+            if len(strat_ret_filled) > 0:
                 from core.lead_lag.strategy import compute_metrics as _cm
-                excess_daily = strat_ret.loc[common_idx] - bm_valid.loc[common_idx]
-                excess_metrics[name] = _cm(excess_daily.values, common_idx)
+                excess_daily = strat_ret_filled - bm_valid
+                excess_metrics[name] = _cm(excess_daily.values, bm_valid.index)
 
     # --- KPI メトリクス (提案手法のハイライト) ---
     if "PCA_SUB" in strategies:
@@ -1747,11 +1747,10 @@ def _render_results_tab():
         from core.lead_lag.strategy import compute_metrics as _cm
         for name in ex_keys:
             if name in strategies and name not in excess_metrics and has_bm:
-                s_ret = strategies[name].daily_returns.dropna()
-                s_common = s_ret.index.intersection(bm_valid.index)
-                if len(s_common) > 0:
-                    s_excess = s_ret.loc[s_common] - bm_valid.loc[s_common]
-                    excess_metrics[name] = _cm(s_excess.values, s_common)
+                s_ret_filled = strategies[name].daily_returns.reindex(bm_valid.index).fillna(0)
+                if len(s_ret_filled) > 0:
+                    s_excess = s_ret_filled - bm_valid
+                    excess_metrics[name] = _cm(s_excess.values, bm_valid.index)
         for name in ex_keys:
             if name not in excess_metrics:
                 continue
@@ -2404,12 +2403,10 @@ def _build_interpretation_prompt(result) -> str:
         for name in strat_order:
             if name not in strategies:
                 continue
-            strat_ret = strategies[name].daily_returns.dropna()
-            common_idx = strat_ret.index.intersection(bm.index)
-            if len(common_idx) == 0:
-                continue
-            excess_daily = strat_ret.loc[common_idx] - bm.loc[common_idx]
-            em = _cm(excess_daily.values, common_idx)
+            # NaN=0%として全日でTOPIXと比較
+            strat_ret_filled = strategies[name].daily_returns.reindex(bm.index).fillna(0)
+            excess_daily = strat_ret_filled - bm
+            em = _cm(excess_daily.values, bm.index)
             label = STRATEGY_LABELS.get(name, name)
             if name == "GAP_CUSTOM":
                 label = f"GAP_{int(config.gap_threshold*100)}%(NE込)"
@@ -2418,10 +2415,9 @@ def _build_interpretation_prompt(result) -> str:
             )
         # メイン戦略の年別超過
         if main_key in strategies:
-            strat_ret = strategies[main_key].daily_returns.dropna()
-            common_idx = strat_ret.index.intersection(bm.index)
-            if len(common_idx) > 0:
-                excess_daily = strat_ret.loc[common_idx] - bm.loc[common_idx]
+            strat_ret_filled = strategies[main_key].daily_returns.reindex(bm.index).fillna(0)
+            excess_daily = strat_ret_filled - bm
+            if len(excess_daily) > 0:
                 excess_yearly = excess_daily.groupby(excess_daily.index.year).apply(
                     lambda x: ((1 + x).prod() - 1) * 100
                 )
@@ -3340,12 +3336,9 @@ def _build_param_compare_prompt(history: list) -> str:
             for key in ["PCA_SUB", "BLEND_50", "BLEND_70", "REGIME", "DYNAMIC_K"]:
                 if key not in r.strategies:
                     continue
-                strat_ret = r.strategies[key].daily_returns.dropna()
-                common_idx = strat_ret.index.intersection(bm.index)
-                if len(common_idx) == 0:
-                    continue
-                excess_daily = strat_ret.loc[common_idx] - bm.loc[common_idx]
-                em = _cm(excess_daily.values, common_idx)
+                strat_ret_filled = r.strategies[key].daily_returns.reindex(bm.index).fillna(0)
+                excess_daily = strat_ret_filled - bm
+                em = _cm(excess_daily.values, bm.index)
                 label = STRATEGY_LABELS.get(key, key)
                 ex_table_lines.append(
                     f"| {i+1} | {label} | {em['AR']:+.1f} | {em['R/R']:.2f} "
