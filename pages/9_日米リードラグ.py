@@ -1139,16 +1139,17 @@ def _render_daily_trade_tab():
             if strat_name in strategies:
                 ret = strategies[strat_name].daily_returns
                 if jp_td_ts in ret.index and not np.isnan(ret.loc[jp_td_ts]):
-                    ret_cols.append((label, ret.loc[jp_td_ts] * 100))
+                    ret_cols.append((label, f"{ret.loc[jp_td_ts] * 100:+.2f}%"))
+                else:
+                    ret_cols.append((label, "売買なし"))
 
         if ret_cols:
-            # 最大4列ずつ表示
             for i in range(0, len(ret_cols), 4):
                 chunk = ret_cols[i:i+4]
                 cols = st.columns(len(chunk))
                 for col, (label, val) in zip(cols, chunk):
                     with col:
-                        st.metric(label, f"{val:+.2f}%")
+                        st.metric(label, val)
 
     # --- パフォーマンスサマリー ---
     st.markdown("---")
@@ -1945,6 +1946,8 @@ def _render_trade_samples(result, n_days: int = 10):
                 ret = strategies[strat_name].daily_returns
                 if date in ret.index and not np.isnan(ret.loc[date]):
                     ret_summary += f" | {label}: {ret.loc[date]*100:+.2f}%"
+                else:
+                    ret_summary += f" | {label}: 売買なし"
 
         with st.expander(f"{date.strftime('%Y-%m-%d')}{ret_summary}"):
             # 米国ETF騰落率
