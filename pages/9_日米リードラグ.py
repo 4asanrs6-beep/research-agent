@@ -1113,6 +1113,23 @@ def _render_daily_trade_tab():
         height=min(660, len(trade_df) * 35 + 40),
     )
 
+    # --- ティッカーコピー用 ---
+    with st.expander("ティッカーをコピー"):
+        # ロング/ショート/全てのティッカーを縦一列で表示
+        long_tickers = trade_df[trade_df["判定"] == "ロング"]["コード"].tolist()
+        short_tickers = trade_df[trade_df["判定"] == "ショート"]["コード"].tolist()
+        all_tickers = trade_df["コード"].tolist()
+        col_l, col_s, col_a = st.columns(3)
+        with col_l:
+            st.caption(f"ロング ({len(long_tickers)})")
+            st.text_area("", "\n".join(long_tickers), height=150, key="copy_long_tickers", label_visibility="collapsed")
+        with col_s:
+            st.caption(f"ショート ({len(short_tickers)})")
+            st.text_area("", "\n".join(short_tickers), height=150, key="copy_short_tickers", label_visibility="collapsed")
+        with col_a:
+            st.caption(f"全て ({len(all_tickers)})")
+            st.text_area("", "\n".join(all_tickers), height=150, key="copy_all_tickers", label_visibility="collapsed")
+
     # --- 当日リターンサマリー ---
     if not is_future and not is_today_or_future:
         st.markdown("### 当日の戦略リターン")
