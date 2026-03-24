@@ -890,17 +890,17 @@ def _render_daily_trade_tab():
         # 累積の場合、どの期間の累積かを表示
         us_title_suffix = ""
         if config.accumulate_us_returns and date_map:
-            # 前のJP日のUS日付を取得して期間を特定
             sig_idx = available_dates.index(signal_date) if signal_date in available_dates else -1
             if sig_idx > 0:
                 prev_us = date_map.get(available_dates[sig_idx - 1])
                 curr_us = date_map.get(signal_date)
-                if prev_us is not None and curr_us is not None and prev_us != curr_us:
-                    # prev_usの翌日からcurr_usまでが累積期間
-                    from datetime import timedelta
-                    accum_start = prev_us + timedelta(days=1)
-                    if accum_start < curr_us:
-                        us_title_suffix = f" [累積: {accum_start.strftime('%m/%d')}〜{curr_us.strftime('%m/%d')}]"
+                if prev_us is not None and curr_us is not None:
+                    # prev_usの翌US営業日からcurr_usまでの実際のUS営業日を数える
+                    # us_retの元データ（us_cc）のインデックスで判定
+                    us_all_dates = sorted(set(date_map.values()))
+                    accum_dates = [d for d in us_all_dates if d > prev_us and d <= curr_us]
+                    if len(accum_dates) > 1:
+                        us_title_suffix = f" [累積: {accum_dates[0].strftime('%m/%d')}〜{accum_dates[-1].strftime('%m/%d')} ({len(accum_dates)}日分)]"
 
         st.markdown(f"### 米国セクター騰落率 ({us_date_str}){us_title_suffix}")
         us_rows = []
@@ -937,10 +937,12 @@ def _render_daily_trade_tab():
         else:
             position = "-"
 
-        # 前日終値 = シグナル日の終値 (売買日の基準価格)
+        # 前日終値 = 売買日の1つ前のclose_dfインデックスの終値
         last_close = None
-        if has_price and signal_date in close_df.index and ticker in close_df.columns:
-            last_close = close_df.loc[signal_date, ticker]
+        if has_price and ticker in close_df.columns:
+            close_dates_before = close_df.index[close_df.index < jp_trade_date]
+            if len(close_dates_before) > 0:
+                last_close = close_df.loc[close_dates_before[-1], ticker]
 
         lc = int(last_close) if last_close is not None and not np.isnan(last_close) else None
 
