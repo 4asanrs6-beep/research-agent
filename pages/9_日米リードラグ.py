@@ -1931,11 +1931,19 @@ def _render_trade_samples(result, n_days: int = 10):
 
         # 当日のリターンサマリー
         ret_summary = ""
-        for strat_name in ["PCA_SUB", "GAP_CUSTOM"]:
+        gap_pct_val_int = int(config.gap_threshold * 100) if config.gap_threshold < 1.0 else None
+        summary_strats = [("PCA_SUB", "フィルターなし")]
+        if "GAP_CUSTOM" in strategies:
+            summary_strats.append(("GAP_CUSTOM", f"GAP_{gap_pct}%(NE込)"))
+        # NE制限なしのGAP感応度テスト（同じ閾値があれば追加）
+        for gk in ["GAP_-10", "GAP_0", "GAP_5", "GAP_10", "GAP_20", "GAP_30"]:
+            gr = {"GAP_-10": -10, "GAP_0": 0, "GAP_5": 5, "GAP_10": 10, "GAP_20": 20, "GAP_30": 30}.get(gk)
+            if gk in strategies and gr == gap_pct_val_int:
+                summary_strats.append((gk, f"GAP_{gr}%(NE無)"))
+        for strat_name, label in summary_strats:
             if strat_name in strategies:
                 ret = strategies[strat_name].daily_returns
                 if date in ret.index and not np.isnan(ret.loc[date]):
-                    label = "フィルターなし" if strat_name == "PCA_SUB" else f"GAP_{gap_pct}%"
                     ret_summary += f" | {label}: {ret.loc[date]*100:+.2f}%"
 
         with st.expander(f"{date.strftime('%Y-%m-%d')}{ret_summary}"):
