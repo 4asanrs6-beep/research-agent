@@ -44,6 +44,7 @@ class BacktestResult:
     jp_open_prices: pd.DataFrame | None = None    # JP adj_open 価格 (日付×JP)
     benchmark_returns: pd.Series | None = None  # TOPIX 日次リターン (共通日付)
     jp_to_us_date_map: dict | None = None  # JP日付 → 実際のUS日付
+    us_trading_dates: list | None = None  # 全US営業日リスト
 
 
 # ---------------------------------------------------------------------------

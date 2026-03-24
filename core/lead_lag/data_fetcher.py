@@ -66,6 +66,7 @@ class AlignedData:
     us_tickers: list[str]
     jp_tickers: list[str]
     jp_to_us_date_map: dict | None = None  # JP日付 → 実際のUS日付のマッピング
+    us_trading_dates: list | None = None  # 全US営業日リスト
 
 
 def fetch_us_etf_data(
@@ -357,4 +358,5 @@ def build_aligned_dataset(
         us_tickers=actual_us,
         jp_tickers=actual_jp,
         jp_to_us_date_map=date_map,
+        us_trading_dates=sorted(us_cc.index.tolist()),
     )

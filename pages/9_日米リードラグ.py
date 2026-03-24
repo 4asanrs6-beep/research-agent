@@ -901,10 +901,9 @@ def _render_daily_trade_tab():
                 prev_us = date_map.get(available_dates[sig_idx - 1])
                 curr_us = date_map.get(signal_date)
                 if prev_us is not None and curr_us is not None:
-                    # prev_usの翌US営業日からcurr_usまでの実際のUS営業日を数える
-                    # us_retの元データ（us_cc）のインデックスで判定
-                    us_all_dates = sorted(set(date_map.values()))
-                    accum_dates = [d for d in us_all_dates if d > prev_us and d <= curr_us]
+                    # 全US営業日リストから、prev_usの翌日〜curr_usの期間を取得
+                    us_all = result.us_trading_dates or []
+                    accum_dates = [d for d in us_all if d > prev_us and d <= curr_us]
                     if len(accum_dates) > 1:
                         us_title_suffix = f" [累積: {accum_dates[0].strftime('%m/%d')}〜{accum_dates[-1].strftime('%m/%d')} ({len(accum_dates)}日分)]"
 

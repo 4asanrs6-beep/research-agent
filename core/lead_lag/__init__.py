@@ -112,6 +112,7 @@ def run_backtest(
     result.jp_close_prices = aligned.jp_close_prices
     result.jp_open_prices = aligned.jp_open_prices
     result.jp_to_us_date_map = aligned.jp_to_us_date_map
+    result.us_trading_dates = aligned.us_trading_dates
 
     # --- 最新USデータが整列済み期間の後にある場合、追加シグナルを計算 ---
     try:
