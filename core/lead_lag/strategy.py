@@ -1006,16 +1006,12 @@ def run_all_strategies(
             signals=pd.DataFrame(k3k4_sig, index=dates, columns=jp_tickers),
         )
 
-    # --- ギャップフィルター感応度テスト (主要3水準) ---
+    # --- ギャップフィルター感応度テスト (NE制限なし = 純粋なGAPフィルターのみ) ---
     if config.run_pca_sub and jp_overnight_gaps is not None:
         for rate, label in [(-0.1, "GAP_-10"), (0.0, "GAP_0"), (0.05, "GAP_5"), (0.1, "GAP_10"), (0.2, "GAP_20"), (0.3, "GAP_30")]:
             ret_gap, gap_entry_rate, dl_gap, ds_gap = build_portfolio_gap_filter(
                 signals_sub, jp_oc, jp_overnight_gaps, config.quantile_q,
                 absorption_rate=rate,
-                net_exposure_limit=config.net_exposure_limit,
-                net_exposure_mode=config.net_exposure_mode,
-                net_exposure_skip_long=config.net_exposure_skip_long,
-                net_exposure_skip_short=config.net_exposure_skip_short,
             )
             result.strategies[label] = StrategyResult(
                 name=label,
