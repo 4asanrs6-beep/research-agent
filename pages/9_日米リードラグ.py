@@ -863,20 +863,29 @@ def _render_daily_trade_tab():
     n_long = max(1, int(np.ceil(len(sig.dropna()) * q)))
     sorted_sig = sig.dropna().sort_values(ascending=False)
 
-    # 米国データ日
-    us_dates_before = us_ret.index[us_ret.index <= signal_date]
-    us_trade_date = us_dates_before[-1] if len(us_dates_before) > 0 else None
+    # 米国データ日 (JP日付→実際のUS日付マッピングを使用)
+    date_map = result.jp_to_us_date_map or {}
+    actual_us_date = date_map.get(signal_date)
+    if actual_us_date is None:
+        # フォールバック: us_retのインデックスから取得
+        us_dates_before = us_ret.index[us_ret.index <= signal_date]
+        actual_us_date = us_dates_before[-1] if len(us_dates_before) > 0 else None
 
     jp_date_str = jp_trade_date.strftime('%Y-%m-%d') if hasattr(jp_trade_date, 'strftime') else str(jp_trade_date)
-    us_date_str = us_trade_date.strftime('%Y-%m-%d') if us_trade_date is not None else "不明"
+    us_date_str = actual_us_date.strftime('%Y-%m-%d') if actual_us_date is not None else "不明"
 
-    if is_future:
+    # 今日以降 or データ範囲外は未来扱い
+    from datetime import date as _today_date
+    today_ts = pd.Timestamp(_today_date.today())
+    is_today_or_future = jp_trade_date >= today_ts
+
+    if is_future or is_today_or_future:
         st.info(f"**米国 {us_date_str} の終値に基づく → 日本 {jp_date_str} の売買指示**")
     else:
         st.markdown(f"**米国 {us_date_str} の終値 → 日本 {jp_date_str} の売買 (実績)**")
 
-    if len(us_dates_before) > 0:
-        us_day_ret = us_ret.loc[us_dates_before[-1]]
+    if signal_date in us_ret.index:
+        us_day_ret = us_ret.loc[signal_date]
         st.markdown(f"### 米国セクター騰落率 ({us_date_str})")
         us_rows = []
         for t in us_day_ret.index:
@@ -940,8 +949,8 @@ def _render_daily_trade_tab():
         elif position in ("ロング", "ショート"):
             row["指値目安"] = "成行"
 
-        # 売買日のデータがある場合は実績を表示
-        jp_td = jp_trade_date if not is_future else None
+        # 売買日のデータがある場合は実績を表示（今日以降は除外）
+        jp_td = jp_trade_date if not is_future and not is_today_or_future else None
         if jp_td is not None and has_price and hasattr(jp_td, 'strftime'):
             jp_td_ts = pd.Timestamp(jp_td) if not isinstance(jp_td, pd.Timestamp) else jp_td
             if jp_td_ts in open_df.index and ticker in open_df.columns:

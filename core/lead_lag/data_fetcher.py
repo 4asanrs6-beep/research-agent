@@ -65,6 +65,7 @@ class AlignedData:
     common_dates: pd.DatetimeIndex
     us_tickers: list[str]
     jp_tickers: list[str]
+    jp_to_us_date_map: dict | None = None  # JP日付 → 実際のUS日付のマッピング
 
 
 def fetch_us_etf_data(
@@ -338,6 +339,14 @@ def build_aligned_dataset(
         common[-1].strftime("%Y-%m-%d") if len(common) > 0 else "N/A",
     )
 
+    # JP日付 → 実際のUS日付のマッピングを構築
+    date_map = {}
+    for _, row in merged.iterrows():
+        jp_d = pd.Timestamp(row["jp_date"])
+        us_d = pd.Timestamp(row["us_date"])
+        if jp_d in common:
+            date_map[jp_d] = us_d
+
     return AlignedData(
         us_cc_returns=us_final.loc[common, actual_us],
         jp_cc_returns=jp_cc_final.loc[common, actual_jp],
@@ -347,4 +356,5 @@ def build_aligned_dataset(
         common_dates=common,
         us_tickers=actual_us,
         jp_tickers=actual_jp,
+        jp_to_us_date_map=date_map,
     )
