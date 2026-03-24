@@ -1391,9 +1391,10 @@ def _render_setup_tab():
             run_double = st.checkbox("ダブルソート", value=True)
 
         st.markdown("### 休場処理")
+        if "form_accumulate" not in st.session_state:
+            st.session_state["form_accumulate"] = False
         accumulate_us = st.checkbox(
             "JP休場中の米国リターンを累積してシグナルに反映",
-            value=False,
             key="form_accumulate",
             help="JP休場中に発生した複数日分の米国リターンを累積し、休場明けのシグナル入力に使用します。OFFの場合は直前1日のみ使用。",
         )
@@ -1409,13 +1410,17 @@ def _render_setup_tab():
 
         ne_col1, ne_col2, ne_col3 = st.columns([2, 1, 1])
         with ne_col1:
+            if "form_net_exposure" not in st.session_state:
+                st.session_state["form_net_exposure"] = 100
             net_exposure = st.slider(
                 "ネットエクスポージャー上限 (%)",
-                min_value=0, max_value=100, value=100, step=5,
+                min_value=0, max_value=100, step=5,
                 key="form_net_exposure",
                 help="GAPフィルター後のL/S偏りを制限。0%=完全バランス。100%=制限なし。",
             )
         with ne_col2:
+            if "form_ne_mode" not in st.session_state:
+                st.session_state["form_ne_mode"] = "trim"
             ne_mode = st.radio(
                 "調整モード",
                 options=["trim", "fill"],
@@ -1424,9 +1429,11 @@ def _render_setup_tab():
                 help="trim: 多い側のシグナル弱い銘柄をスキップ。fill: 少ない側にGAPフィルターで外された銘柄をシグナル強い順に復活。",
             )
         with ne_col3:
+            if "form_ne_skip" not in st.session_state:
+                st.session_state["form_ne_skip"] = 0
             ne_skip = st.number_input(
                 "|ネット|≧N で見送り",
-                min_value=0, max_value=20, value=0, step=1,
+                min_value=0, max_value=20, step=1,
                 key="form_ne_skip",
                 help="GAPフィルター後の|ロング数-ショート数|がこの値以上なら、その日は売買しない。0=制限なし。",
             )
