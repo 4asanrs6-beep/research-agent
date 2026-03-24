@@ -2289,26 +2289,50 @@ def _build_interpretation_prompt(result) -> str:
             annual_lines.append(f"- {label} {year}年: {val:+.1f}%")
     annual_text = "\n".join(annual_lines) if annual_lines else "(データなし)"
 
-    # --- L/Sエクスポージャー分析 ---
+    # --- L/Sエクスポージャー分析 (NE見送り日を含む) ---
     ls_text = "(データなし)"
     ls_strat = strategies.get("GAP_CUSTOM") or strategies.get("GAP_5")
+    # NE見送り日の仮想リターン用にGAP感応度テストを取得
+    gap_pct_int = int(config.gap_threshold * 100) if config.gap_threshold < 1.0 else None
+    gap_ne_free_key = None
+    for gk, gr in [("GAP_-10", -10), ("GAP_0", 0), ("GAP_5", 5), ("GAP_10", 10), ("GAP_20", 20), ("GAP_30", 30)]:
+        if gr == gap_pct_int and gk in strategies:
+            gap_ne_free_key = gk
+            break
+
     if ls_strat and ls_strat.daily_long_count is not None and ls_strat.daily_short_count is not None:
         lc = ls_strat.daily_long_count.dropna()
         sc = ls_strat.daily_short_count.dropna()
         ret_s = ls_strat.daily_returns
-        common = lc.index.intersection(sc.index).intersection(ret_s.dropna().index)
+        common = lc.index.intersection(sc.index)
         if len(common) > 0:
             lc = lc.loc[common].astype(int)
             sc = sc.loc[common].astype(int)
             net = lc - sc
-            ret_s = ret_s.loc[common]
-            analysis = pd.DataFrame({"ネット": net, "リターン": ret_s})
-            ls_lines = ["| ネット(L-S) | 日数 | 勝率(%) | 平均リターン(%) |", "|---|---|---|---|"]
+            ret_aligned = ret_s.reindex(common)
+            ls_lines = [
+                "| ネット(L-S) | エントリー日数 | 勝率(%) | 平均R(%) | NE見送り | 見送り仮想R(%) | 見送り仮想勝率(%) |",
+                "|---|---|---|---|---|---|---|",
+            ]
+            analysis = pd.DataFrame({"ネット": net, "リターン": ret_aligned, "売買": ~ret_aligned.isna()})
             for net_val, group in sorted(analysis.groupby("ネット"), key=lambda x: x[0]):
-                n_days = len(group)
-                win_rate = (group["リターン"] > 0).sum() / n_days * 100
-                avg_ret = group["リターン"].mean() * 100
-                ls_lines.append(f"| {int(net_val)} | {n_days} | {win_rate:.1f} | {avg_ret:+.3f} |")
+                traded = group[group["売買"]]
+                skipped = group[~group["売買"]]
+                n_traded = len(traded)
+                n_skipped = len(skipped)
+                win_rate = (traded["リターン"] > 0).sum() / n_traded * 100 if n_traded > 0 else 0
+                avg_ret = traded["リターン"].mean() * 100 if n_traded > 0 else 0
+                virt_r = "-"
+                virt_wr = "-"
+                if n_skipped > 0 and gap_ne_free_key:
+                    virt_ret = strategies[gap_ne_free_key].daily_returns.reindex(skipped.index).dropna()
+                    if len(virt_ret) > 0:
+                        virt_r = f"{virt_ret.mean() * 100:+.3f}"
+                        virt_wr = f"{(virt_ret > 0).sum() / len(virt_ret) * 100:.1f}"
+                ls_lines.append(
+                    f"| {int(net_val)} | {n_traded} | {win_rate:.1f} | {avg_ret:+.3f} "
+                    f"| {n_skipped} | {virt_r} | {virt_wr} |"
+                )
             ls_text = "\n".join(ls_lines)
 
     # --- 直近シグナル ---
@@ -2402,14 +2426,14 @@ def _build_interpretation_prompt(result) -> str:
 {signal_text}
 
 以下の観点で分析してください:
-1. **戦略の有効性**: 正則化PCA vs 通常PCA。GAPフィルターの効果（閾値別のSR・エントリー率のトレードオフ）。NE制限の効果。
-2. **リスク特性**: SR、MDD、月次安定性の評価。
-3. **GAPフィルター分析 (重要)**: 閾値別のパフォーマンス差。最適な閾値の推定。エントリー率とSRのトレードオフ。
-4. **L/Sエクスポージャー分析**: ネットポジション別の勝率・リターンから、どの程度のL/S偏りが許容可能か。NE制限の最適値。
-5. **対TOPIX分析**: 年別・月次での対TOPIX超過の安定性。
-6. **直近シグナルの解釈**: 現在のロング/ショートの経済的意味。
-7. **実運用上の注意点**: コスト、流動性、モデルの限界。
-8. **改善提案 (最重要)**: 提供データの中でSRが最も高い戦略を起点とし、そのSRをさらに向上させるための具体的な改善案を提示すること。SR最良の戦略がなぜ高SRを達成しているのかを分析し、その強みを維持・強化しつつ弱点（特定年の損失、エントリー率の低さ等）を補う方向で提案すること。既に試されたパラメータの結果を踏まえ、まだ試されていない組み合わせを具体的に提案すること。"""
+
+1. **GAPフィルター分析**: 閾値別のSR・エントリー率・MDD・年別リターンの比較。最適閾値の推定。GAP_CUSTOMはNE制限込みの実運用設定、GAP_X%はNE制限なしの純粋GAPフィルター。両者の差がNE制限の効果。
+
+2. **L/Sエクスポージャー分析**: ネット別のエントリー日数・勝率・平均リターンとNE見送り日数・仮想リターンから、NE制限のロング偏り/ショート偏り各方向の最適閾値を分析。見送り日の仮想リターンがプラスならNE制限が過剰、マイナスなら適切。
+
+3. **対TOPIX分析**: 年別の対TOPIX超過の安定性。
+
+4. **改善提案 (最重要)**: 提供データの中でSRが最も高い戦略を起点とし、そのSRをさらに向上させるための具体的な改善案を提示すること。SR最良の戦略がなぜ高SRを達成しているのかを分析し、その強みを維持・強化しつつ弱点を補う方向で提案すること。特にNE制限の方向別閾値の最適化、GAPフィルター閾値の微調整について具体的に提案すること。"""
 
     return prompt
 
