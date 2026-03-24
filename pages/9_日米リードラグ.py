@@ -2694,7 +2694,7 @@ def _render_ls_exposure_analysis(result):
         )
         fig.update_yaxes(title_text="日数", secondary_y=False)
         fig.update_yaxes(title_text="平均リターン (%)", secondary_y=True)
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width="stretch")
 
     # --- L数・S数別の詳細 ---
     with st.expander("ロング数・ショート数の詳細分布"):
