@@ -886,7 +886,23 @@ def _render_daily_trade_tab():
 
     if signal_date in us_ret.index:
         us_day_ret = us_ret.loc[signal_date]
-        st.markdown(f"### 米国セクター騰落率 ({us_date_str})")
+
+        # 累積の場合、どの期間の累積かを表示
+        us_title_suffix = ""
+        if config.accumulate_us_returns and date_map:
+            # 前のJP日のUS日付を取得して期間を特定
+            sig_idx = available_dates.index(signal_date) if signal_date in available_dates else -1
+            if sig_idx > 0:
+                prev_us = date_map.get(available_dates[sig_idx - 1])
+                curr_us = date_map.get(signal_date)
+                if prev_us is not None and curr_us is not None and prev_us != curr_us:
+                    # prev_usの翌日からcurr_usまでが累積期間
+                    from datetime import timedelta
+                    accum_start = prev_us + timedelta(days=1)
+                    if accum_start < curr_us:
+                        us_title_suffix = f" [累積: {accum_start.strftime('%m/%d')}〜{curr_us.strftime('%m/%d')}]"
+
+        st.markdown(f"### 米国セクター騰落率 ({us_date_str}){us_title_suffix}")
         us_rows = []
         for t in us_day_ret.index:
             us_rows.append({
