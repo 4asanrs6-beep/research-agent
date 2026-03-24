@@ -29,35 +29,22 @@ def fetch_benchmark_returns(
 
     close_series = None
 
-    # --- J-Quants API で TOPIX ETF (1306) を取得 ---
+    # --- J-Quants API で TOPIX 指数を直接取得 ---
     if jquants_provider is not None:
         try:
-            logger.info("J-Quants: TOPIX ETF (1306) を取得中")
-            start_year = int(start[:4])
-            end_year = int(end[:4]) if end else 2026
-            all_rows = []
-            for year in range(start_year, end_year + 1):
-                chunk_start = f"{year}-01-01" if year > start_year else start
-                chunk_end = f"{year}-12-31" if year < end_year else (end if end else f"{year}-12-31")
-                try:
-                    df_year = jquants_provider.get_price_daily(
-                        code="13060",
-                        start_date=chunk_start,
-                        end_date=chunk_end,
-                    )
-                    if df_year is not None and len(df_year) > 0:
-                        all_rows.append(df_year)
-                except Exception as e:
-                    logger.debug("J-Quants TOPIX %s 取得失敗: %s", year, e)
-            if all_rows:
-                df_all = pd.concat(all_rows, ignore_index=True)
-                df_all["date"] = pd.to_datetime(df_all["date"])
-                df_all = df_all.sort_values("date").drop_duplicates(subset=["date"])
-                col = "adj_close" if "adj_close" in df_all.columns else "close"
-                close_series = df_all.set_index("date")[col]
-                logger.info("J-Quants: TOPIX ETF 取得成功 (%d日)", len(close_series))
+            logger.info("J-Quants: TOPIX 指数 (0000) を取得中")
+            df_topix = jquants_provider.get_index_prices(
+                index_code="0000",
+                start_date=start,
+                end_date=end,
+            )
+            if df_topix is not None and len(df_topix) > 0 and "close" in df_topix.columns:
+                df_topix["date"] = pd.to_datetime(df_topix["date"])
+                df_topix = df_topix.sort_values("date").drop_duplicates(subset=["date"])
+                close_series = df_topix.set_index("date")["close"]
+                logger.info("J-Quants: TOPIX 指数取得成功 (%d日)", len(close_series))
         except Exception as e:
-            logger.warning("J-Quants TOPIX ETF 取得失敗: %s", e)
+            logger.warning("J-Quants TOPIX 指数取得失敗: %s", e)
 
     # --- フォールバック: yfinance ---
     if close_series is None:
