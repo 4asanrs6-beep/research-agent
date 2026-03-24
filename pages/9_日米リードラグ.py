@@ -725,7 +725,13 @@ def _render_presets():
                 if st.button("読み込む", key="load_preset"):
                     p = presets[selected]
                     # フォームウィジェットのsession_stateを直接上書き
+                    # st.formの中のwidgetはrerun後にsession_stateから値を読む
                     from datetime import date as _d
+                    # 既存のフォームキーを一旦削除してから再設定（フォーム内widgetのキャッシュ問題対策）
+                    for k in ["form_L", "form_lambda", "form_K", "form_q", "form_gap",
+                              "form_prior", "form_start", "form_end", "form_us",
+                              "form_accumulate", "form_net_exposure", "form_ne_mode", "form_ne_skip"]:
+                        st.session_state.pop(k, None)
                     st.session_state["form_L"] = p["L"]
                     st.session_state["form_lambda"] = p["lambda"]
                     st.session_state["form_K"] = p["K"]
