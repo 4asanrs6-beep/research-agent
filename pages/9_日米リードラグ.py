@@ -2529,8 +2529,8 @@ def _render_ls_exposure_analysis(result):
         row = {
             "ネット": int(net_val),
             "エントリー": n_traded,
-            "平均リターン (%)": round(avg_ret, 3) if n_traded > 0 else "-",
-            "勝率 (%)": round(win_rate, 1) if n_traded > 0 else "-",
+            "平均リターン (%)": f"{avg_ret:+.3f}" if n_traded > 0 else "-",
+            "勝率 (%)": f"{win_rate:.1f}" if n_traded > 0 else "-",
         }
         if n_skipped > 0:
             row["NE見送り"] = n_skipped
@@ -2547,8 +2547,8 @@ def _render_ls_exposure_analysis(result):
                 if len(skipped_rets) > 0:
                     virt_avg = skipped_rets.mean() * 100
                     virt_wins = (skipped_rets > 0).sum()
-                    row["見送り仮想R (%)"] = round(virt_avg, 3)
-                    row["見送り仮想勝率 (%)"] = round(virt_wins / len(skipped_rets) * 100, 1)
+                    row["見送り仮想R (%)"] = f"{virt_avg:+.3f}"
+                    row["見送り仮想勝率 (%)"] = f"{virt_wins / len(skipped_rets) * 100:.1f}"
         else:
             row["NE見送り"] = 0
         net_summary_rows.append(row)
@@ -2599,8 +2599,15 @@ def _render_ls_exposure_analysis(result):
             )
             fig.update_layout(barmode="stack")
 
+        # 文字列→数値変換ヘルパー
+        def _to_float(v):
+            try:
+                return float(v)
+            except (ValueError, TypeError):
+                return None
+
         # 平均リターン（エントリー日のみ）
-        ret_vals = [v if isinstance(v, (int, float)) else None for v in net_summary["平均リターン (%)"]]
+        ret_vals = [_to_float(v) for v in net_summary["平均リターン (%)"]]
         fig.add_trace(
             go.Scatter(
                 x=net_summary["ネット"],
@@ -2615,7 +2622,7 @@ def _render_ls_exposure_analysis(result):
 
         # 見送り仮想リターン（ある場合）
         if "見送り仮想R (%)" in net_summary.columns:
-            virt_vals = [v if isinstance(v, (int, float)) else None for v in net_summary["見送り仮想R (%)"]]
+            virt_vals = [_to_float(v) for v in net_summary["見送り仮想R (%)"]]
             if any(v is not None for v in virt_vals):
                 fig.add_trace(
                     go.Scatter(
