@@ -20,12 +20,15 @@ def fetch_benchmark_returns(
     Returns:
         Series indexed by date, values = daily close-to-close return
     """
-    cache_key = f"benchmark_topix_{start}_{end}"
+    cache_key = f"benchmark_topix_v2_{start}_{end}"
     if cache is not None:
-        cached = cache.get(cache_key)
-        if cached is not None:
-            logger.info("TOPIX ベンチマーク キャッシュヒット")
-            return cached.set_index("date")["ret"]
+        try:
+            cached = cache.get(cache_key)
+            if cached is not None and len(cached) > 0:
+                logger.info("TOPIX ベンチマーク キャッシュヒット (%d行)", len(cached))
+                return cached.set_index("date")["ret"]
+        except Exception:
+            pass  # キャッシュ形式不一致は無視
 
     close_series = None
 
