@@ -106,9 +106,11 @@ class LeadLagConfig:
     # "trim" = 多い側を削減, "fill" = 少ない側にGAPフィルター除外銘柄を復活
     net_exposure_mode: str = "trim"
 
-    # ネットエクスポージャー絶対値スキップ閾値
-    # |L-S| >= この値のとき、その日は売買しない (0 = 制限なし)
-    net_exposure_skip: int = 0
+    # ネットエクスポージャースキップ閾値 (0 = 制限なし)
+    # NE >= ne_skip_long のとき見送り (ロング偏りすぎ)
+    # NE <= -ne_skip_short のとき見送り (ショート偏りすぎ)
+    net_exposure_skip_long: int = 0
+    net_exposure_skip_short: int = 0
 
     # 実行対象戦略
     run_mom: bool = True

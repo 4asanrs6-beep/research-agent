@@ -433,9 +433,9 @@ AUTO_SEARCH_GRID = [
     _grid("NE50%削減",                ne_mode="trim"),
     _grid("NE0%削減",                 net_exposure=0.0, ne_mode="trim"),
     # --- 7. |NE|スキップ ---
-    _grid("|NE|≧9 skip",             ne_skip=9, net_exposure=1.0, ne_mode="trim"),
-    _grid("|NE|≧8 skip",             ne_skip=8, net_exposure=1.0, ne_mode="trim"),
-    _grid("|NE|≧7 skip",             ne_skip=7, net_exposure=1.0, ne_mode="trim"),
+    _grid("|NE|≧9 skip",             ne_skip_long=9, ne_skip_short=9, net_exposure=1.0, ne_mode="trim"),
+    _grid("|NE|≧8 skip",             ne_skip_long=8, ne_skip_short=8, net_exposure=1.0, ne_mode="trim"),
+    _grid("|NE|≧7 skip",             ne_skip_long=7, ne_skip_short=7, net_exposure=1.0, ne_mode="trim"),
     # --- 8. 累積の有無 ---
     _grid("累積なし",                 accumulate=False),
     # --- 9. 学習期間 ---
@@ -444,7 +444,7 @@ AUTO_SEARCH_GRID = [
     _grid("学習~2024",  prior_end="2024-06-30"),
     # --- 10. 複合 ---
     _grid("L=100 λ=0.83 K=4",        L=100, **{"lambda": 0.83}, K=4),
-    _grid("L=120 GAP0% |NE|≧9skip",  L=120, gap=0.0, ne_skip=9, net_exposure=1.0, ne_mode="trim"),
+    _grid("L=120 GAP0% |NE|≧9skip",  L=120, gap=0.0, ne_skip_long=9, ne_skip_short=9, net_exposure=1.0, ne_mode="trim"),
 ]
 
 
@@ -463,7 +463,8 @@ def _run_auto_search_thread(progress_dict: dict, provider, cache, start_date: st
             p_gap = params.get("gap", 1.0)  # 1.0 = フィルターなし
             p_ne = params.get("net_exposure", 1.0)
             p_ne_mode = params.get("ne_mode", "trim")
-            p_ne_skip = params.get("ne_skip", 0)
+            p_ne_skip_long = params.get("ne_skip_long", 0)
+            p_ne_skip_short = params.get("ne_skip_short", 0)
             p_accum = params.get("accumulate", False)
             config = LeadLagConfig(
                 start_date=start_date,
@@ -476,7 +477,8 @@ def _run_auto_search_thread(progress_dict: dict, provider, cache, start_date: st
                 gap_threshold=p_gap,
                 net_exposure_limit=p_ne,
                 net_exposure_mode=p_ne_mode,
-                net_exposure_skip=p_ne_skip,
+                net_exposure_skip_long=p_ne_skip_long,
+                net_exposure_skip_short=p_ne_skip_short,
                 accumulate_us_returns=p_accum,
                 run_pca_sub=True,
                 run_pca_plain=False,
@@ -730,7 +732,8 @@ def _render_presets():
                     # 既存のフォームキーを一旦削除してから再設定（フォーム内widgetのキャッシュ問題対策）
                     for k in ["form_L", "form_lambda", "form_K", "form_q", "form_gap",
                               "form_prior", "form_start", "form_end", "form_us",
-                              "form_accumulate", "form_net_exposure", "form_ne_mode", "form_ne_skip"]:
+                              "form_accumulate", "form_net_exposure", "form_ne_mode",
+                              "form_ne_skip_long", "form_ne_skip_short"]:
                         st.session_state.pop(k, None)
                     st.session_state["form_L"] = p["L"]
                     st.session_state["form_lambda"] = p["lambda"]
@@ -744,7 +747,8 @@ def _render_presets():
                     st.session_state["form_accumulate"] = p.get("accumulate", False)
                     st.session_state["form_net_exposure"] = p.get("net_exposure", 100)
                     st.session_state["form_ne_mode"] = p.get("ne_mode", "trim")
-                    st.session_state["form_ne_skip"] = p.get("ne_skip", 0)
+                    st.session_state["form_ne_skip_long"] = p.get("ne_skip_long", p.get("ne_skip", 0))
+                    st.session_state["form_ne_skip_short"] = p.get("ne_skip_short", p.get("ne_skip", 0))
                     st.success(f"「{selected}」を読み込みました")
                     st.rerun()
                 if st.button("削除", key="delete_preset"):
@@ -781,7 +785,8 @@ def _render_presets():
                         "accumulate": cfg.accumulate_us_returns,
                         "net_exposure": int(cfg.net_exposure_limit * 100),
                         "ne_mode": cfg.net_exposure_mode,
-                        "ne_skip": cfg.net_exposure_skip,
+                        "ne_skip_long": cfg.net_exposure_skip_long,
+                        "ne_skip_short": cfg.net_exposure_skip_short,
                     }
                     _save_presets(presets)
                     st.success(f"「{preset_name}」を保存しました")
@@ -1060,7 +1065,7 @@ def _render_daily_trade_tab():
         st.caption(f"ネットエクスポージャー上限: {ne_pct}% [{mode_label}] (L{n_long_entry} vs S{n_short_entry}, 許容差{max_diff})")
 
     # ネットエクスポージャー絶対値スキップ判定
-    if config.net_exposure_skip > 0:
+    if config.net_exposure_skip_long > 0 or config.net_exposure_skip_short > 0:
         gap_col = "GAP判定"
         has_gap_col = gap_col in trade_df.columns
         if has_gap_col:
@@ -1070,9 +1075,14 @@ def _render_daily_trade_tab():
             n_l = (trade_df["判定"] == "ロング").sum()
             n_s = (trade_df["判定"] == "ショート").sum()
 
-        net_abs = abs(n_l - n_s)
-        if net_abs >= config.net_exposure_skip:
-            st.warning(f"|ネット| = {net_abs} ≧ {config.net_exposure_skip} → **本日は全銘柄見送り**")
+        net_val = n_l - n_s
+        skip_reason = None
+        if config.net_exposure_skip_long > 0 and net_val >= config.net_exposure_skip_long:
+            skip_reason = f"NE = {net_val} ≧ {config.net_exposure_skip_long} (ロング偏り)"
+        elif config.net_exposure_skip_short > 0 and net_val <= -config.net_exposure_skip_short:
+            skip_reason = f"NE = {net_val} ≦ -{config.net_exposure_skip_short} (ショート偏り)"
+        if skip_reason:
+            st.warning(f"{skip_reason} → **本日は全銘柄見送り**")
 
     # スタイリング
     style_cols = ["判定"]
@@ -1251,7 +1261,7 @@ def _render_setup_tab():
         history = st.session_state["ll_history"]
         # 同一パラメータの重複チェック
         cfg = result.config
-        param_key = f"L{cfg.rolling_window}_λ{cfg.lambda_reg}_K{cfg.n_components}_q{cfg.quantile_q}_G{cfg.gap_threshold}_NE{cfg.net_exposure_limit}_{cfg.net_exposure_mode}_NS{cfg.net_exposure_skip}_AC{cfg.accumulate_us_returns}_P{cfg.prior_end_date}_{result.period_start}_{result.period_end}"
+        param_key = f"L{cfg.rolling_window}_λ{cfg.lambda_reg}_K{cfg.n_components}_q{cfg.quantile_q}_G{cfg.gap_threshold}_NE{cfg.net_exposure_limit}_{cfg.net_exposure_mode}_NSL{cfg.net_exposure_skip_long}_NSS{cfg.net_exposure_skip_short}_AC{cfg.accumulate_us_returns}_P{cfg.prior_end_date}_{result.period_start}_{result.period_end}"
         existing_keys = [h.get("_param_key") for h in history]
         if param_key not in existing_keys:
             _label_parts = [f"L={cfg.rolling_window} λ={cfg.lambda_reg} K={cfg.n_components} q={cfg.quantile_q}"]
@@ -1260,8 +1270,13 @@ def _render_setup_tab():
             if cfg.net_exposure_limit < 1.0:
                 ne_mode_label = "復活" if cfg.net_exposure_mode == "fill" else "削減"
                 _label_parts.append(f"NE{int(cfg.net_exposure_limit*100)}%{ne_mode_label}")
-            if cfg.net_exposure_skip > 0:
-                _label_parts.append(f"|NE|≧{cfg.net_exposure_skip}skip")
+            if cfg.net_exposure_skip_long > 0 or cfg.net_exposure_skip_short > 0:
+                skip_parts = []
+                if cfg.net_exposure_skip_long > 0:
+                    skip_parts.append(f"L≧{cfg.net_exposure_skip_long}")
+                if cfg.net_exposure_skip_short > 0:
+                    skip_parts.append(f"S≧{cfg.net_exposure_skip_short}")
+                _label_parts.append(f"NE{'/'.join(skip_parts)}skip")
             if cfg.accumulate_us_returns:
                 _label_parts.append("累積")
             _label_parts.append(f"~{cfg.prior_end_date[:4]}")
@@ -1282,8 +1297,13 @@ def _render_setup_tab():
         if cfg.net_exposure_limit < 1.0:
             ne_mode_label = "復活" if cfg.net_exposure_mode == "fill" else "削減"
             default_name += f" NE{int(cfg.net_exposure_limit*100)}%{ne_mode_label}"
-        if cfg.net_exposure_skip > 0:
-            default_name += f" |NE|≧{cfg.net_exposure_skip}skip"
+        if cfg.net_exposure_skip_long > 0 or cfg.net_exposure_skip_short > 0:
+            skip_parts = []
+            if cfg.net_exposure_skip_long > 0:
+                skip_parts.append(f"L≧{cfg.net_exposure_skip_long}")
+            if cfg.net_exposure_skip_short > 0:
+                skip_parts.append(f"S≧{cfg.net_exposure_skip_short}")
+            default_name += f" NE{'/'.join(skip_parts)}skip"
         if cfg.accumulate_us_returns:
             default_name += " 累積"
         col1, col2 = st.columns([3, 1])
@@ -1300,7 +1320,8 @@ def _render_setup_tab():
                     "accumulate": cfg.accumulate_us_returns,
                     "net_exposure": int(cfg.net_exposure_limit * 100),
                     "ne_mode": cfg.net_exposure_mode,
-                    "ne_skip": cfg.net_exposure_skip,
+                    "ne_skip_long": cfg.net_exposure_skip_long,
+                        "ne_skip_short": cfg.net_exposure_skip_short,
                 }
                 _save_presets(presets)
                 st.success(f"「{preset_name}」を保存しました")
@@ -1461,13 +1482,21 @@ def _render_setup_tab():
                 help="trim: 多い側のシグナル弱い銘柄をスキップ。fill: 少ない側にGAPフィルターで外された銘柄をシグナル強い順に復活。",
             )
         with ne_col3:
-            if "form_ne_skip" not in st.session_state:
-                st.session_state["form_ne_skip"] = 0
-            ne_skip = st.number_input(
-                "|ネット|≧N で見送り",
+            if "form_ne_skip_long" not in st.session_state:
+                st.session_state["form_ne_skip_long"] = 0
+            ne_skip_long = st.number_input(
+                "NE≧Nで見送り(L偏り)",
                 min_value=0, max_value=20, step=1,
-                key="form_ne_skip",
-                help="GAPフィルター後の|ロング数-ショート数|がこの値以上なら、その日は売買しない。0=制限なし。",
+                key="form_ne_skip_long",
+                help="ロング数-ショート数≧Nなら見送り。0=制限なし。",
+            )
+            if "form_ne_skip_short" not in st.session_state:
+                st.session_state["form_ne_skip_short"] = 0
+            ne_skip_short = st.number_input(
+                "NE≦-Nで見送り(S偏り)",
+                min_value=0, max_value=20, step=1,
+                key="form_ne_skip_short",
+                help="ショート数-ロング数≧Nなら見送り。0=制限なし。",
             )
 
         st.caption("拡張戦略 (HYBRID, K3/K4アンサンブル) は自動的に計算されます")
@@ -1489,7 +1518,8 @@ def _render_setup_tab():
             accumulate_us_returns=accumulate_us,
             net_exposure_limit=net_exposure / 100.0,
             net_exposure_mode=ne_mode,
-            net_exposure_skip=ne_skip,
+            net_exposure_skip_long=ne_skip_long,
+            net_exposure_skip_short=ne_skip_short,
             run_pca_sub=True,
             run_pca_plain=run_pca_plain,
             run_mom=run_mom,
@@ -2174,8 +2204,13 @@ def _build_interpretation_prompt(result) -> str:
     if config.net_exposure_limit < 1.0:
         ne_mode = "復活" if config.net_exposure_mode == "fill" else "削減"
         param_parts.append(f"NE上限={int(config.net_exposure_limit*100)}%({ne_mode})")
-    if config.net_exposure_skip > 0:
-        param_parts.append(f"|NE|≧{config.net_exposure_skip}スキップ")
+    if config.net_exposure_skip_long > 0 or config.net_exposure_skip_short > 0:
+        skip_p = []
+        if config.net_exposure_skip_long > 0:
+            skip_p.append(f"L偏り≧{config.net_exposure_skip_long}")
+        if config.net_exposure_skip_short > 0:
+            skip_p.append(f"S偏り≧{config.net_exposure_skip_short}")
+        param_parts.append(f"NE{'/'.join(skip_p)}スキップ")
     if config.accumulate_us_returns:
         param_parts.append("US休場累積あり")
     param_summary = ", ".join(param_parts)
@@ -3011,8 +3046,13 @@ def _build_param_compare_prompt(history: list) -> str:
         if cfg.net_exposure_limit < 1.0:
             ne_ml = "復活" if cfg.net_exposure_mode == "fill" else "削減"
             extras.append(f"NE{int(cfg.net_exposure_limit*100)}%{ne_ml}")
-        if cfg.net_exposure_skip > 0:
-            extras.append(f"|NE|≧{cfg.net_exposure_skip}skip")
+        if cfg.net_exposure_skip_long > 0 or cfg.net_exposure_skip_short > 0:
+            sp = []
+            if cfg.net_exposure_skip_long > 0:
+                sp.append(f"L≧{cfg.net_exposure_skip_long}")
+            if cfg.net_exposure_skip_short > 0:
+                sp.append(f"S≧{cfg.net_exposure_skip_short}")
+            extras.append(f"NE{'/'.join(sp)}skip")
         if cfg.accumulate_us_returns:
             extras.append("US累積あり")
         ext_str = f", {', '.join(extras)}" if extras else ""

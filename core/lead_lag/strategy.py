@@ -306,7 +306,8 @@ def build_portfolio_gap_filter(
     absorption_rate: float = 0.5,
     net_exposure_limit: float = 1.0,
     net_exposure_mode: str = "trim",
-    net_exposure_skip: int = 0,
+    net_exposure_skip_long: int = 0,
+    net_exposure_skip_short: int = 0,
 ) -> np.ndarray:
     """シグナル強度に対してギャップが大きすぎる銘柄をスキップするポートフォリオ。
 
@@ -407,7 +408,13 @@ def build_portfolio_gap_filter(
         total_candidates += n_candidates_day
 
         # ネットエクスポージャー絶対値スキップ
-        if net_exposure_skip > 0 and abs(len(long_idx) - len(short_idx)) >= net_exposure_skip:
+        net_val = len(long_idx) - len(short_idx)
+        skip_by_ne = False
+        if net_exposure_skip_long > 0 and net_val >= net_exposure_skip_long:
+            skip_by_ne = True
+        if net_exposure_skip_short > 0 and net_val <= -net_exposure_skip_short:
+            skip_by_ne = True
+        if skip_by_ne:
             daily_long_count[t] = len(long_idx)
             daily_short_count[t] = len(short_idx)
             continue
@@ -885,7 +892,8 @@ def run_all_strategies(
                 absorption_rate=config.gap_threshold,
                 net_exposure_limit=config.net_exposure_limit,
                 net_exposure_mode=config.net_exposure_mode,
-                net_exposure_skip=config.net_exposure_skip,
+                net_exposure_skip_long=config.net_exposure_skip_long,
+                net_exposure_skip_short=config.net_exposure_skip_short,
             )
             result.strategies["GAP_CUSTOM"] = StrategyResult(
                 name="GAP_CUSTOM",
@@ -1006,7 +1014,8 @@ def run_all_strategies(
                 absorption_rate=rate,
                 net_exposure_limit=config.net_exposure_limit,
                 net_exposure_mode=config.net_exposure_mode,
-                net_exposure_skip=config.net_exposure_skip,
+                net_exposure_skip_long=config.net_exposure_skip_long,
+                net_exposure_skip_short=config.net_exposure_skip_short,
             )
             result.strategies[label] = StrategyResult(
                 name=label,
@@ -1024,7 +1033,8 @@ def run_all_strategies(
                 absorption_rate=0.5,
                 net_exposure_limit=config.net_exposure_limit,
                 net_exposure_mode=config.net_exposure_mode,
-                net_exposure_skip=config.net_exposure_skip,
+                net_exposure_skip_long=config.net_exposure_skip_long,
+                net_exposure_skip_short=config.net_exposure_skip_short,
             )
             result.strategies["K3K4_GAP"] = StrategyResult(
                 name="K3K4_GAP",
