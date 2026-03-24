@@ -1021,12 +1021,12 @@ def run_all_strategies(
                 daily_short_count=pd.Series(ds_gap, index=dates, name="short_count"),
             )
 
-        # ベスト閾値 (50%) でK3K4_ENSにも適用
-        if "K3K4_ENS" in result.strategies:
+        # K3K4_ENSにも同じGAPフィルター＋NE制限を適用
+        if "K3K4_ENS" in result.strategies and config.gap_threshold < 1.0:
             _progress("K3K4+ギャップフィルター適用中...", 0.98)
             ret_k3k4_gap, k3k4_gap_entry, dl_k3k4, ds_k3k4 = build_portfolio_gap_filter(
                 k3k4_sig, jp_oc, jp_overnight_gaps, config.quantile_q,
-                absorption_rate=0.5,
+                absorption_rate=config.gap_threshold,
                 net_exposure_limit=config.net_exposure_limit,
                 net_exposure_mode=config.net_exposure_mode,
                 net_exposure_skip_long=config.net_exposure_skip_long,

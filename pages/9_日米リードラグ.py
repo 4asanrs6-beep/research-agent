@@ -1882,6 +1882,11 @@ def _render_annual_returns(strategies, benchmark_returns=None):
                     excess_col = f"{label} 対TOPIX"
                     df_annual[excess_col] = df_annual[label] - df_annual["TOPIX"]
 
+        # 年平均行を追加
+        avg_row = df_annual.mean()
+        avg_row.name = "平均"
+        df_annual = pd.concat([df_annual, avg_row.to_frame().T])
+
         st.dataframe(
             df_annual.style.format("{:+.1f}", na_rep="-").map(
                 lambda v: "color: #2E7D32" if isinstance(v, (int, float)) and v > 0
@@ -2356,27 +2361,42 @@ def _build_interpretation_prompt(result) -> str:
         bm_yearly = bm.groupby(bm.index.year).apply(lambda x: ((1 + x).prod() - 1) * 100)
         topix_annual_text = "\n".join([f"- TOPIX {y}年: {v:+.1f}%" for y, v in bm_yearly.items()])
 
-        # 対TOPIX超過 (メイン戦略)
+        # 対TOPIX超過 (全戦略)
+        from core.lead_lag.strategy import compute_metrics as _cm
+        ex_lines = [
+            "| 戦略 | 超過年率R(%) | 超過SR | 対TOPIX月次勝率(%) |",
+            "|---|---|---|---|",
+        ]
+        for name in strat_order:
+            if name not in strategies:
+                continue
+            strat_ret = strategies[name].daily_returns.dropna()
+            common_idx = strat_ret.index.intersection(bm.index)
+            if len(common_idx) == 0:
+                continue
+            excess_daily = strat_ret.loc[common_idx] - bm.loc[common_idx]
+            em = _cm(excess_daily.values, common_idx)
+            label = STRATEGY_LABELS.get(name, name)
+            if name == "GAP_CUSTOM":
+                label = f"GAP_{int(config.gap_threshold*100)}%(NE込)"
+            ex_lines.append(
+                f"| {label} | {em['AR']:+.1f} | {em['R/R']:.2f} | {em.get('monthly_win_rate',0):.0f} |"
+            )
+        # メイン戦略の年別超過
         if main_key in strategies:
             strat_ret = strategies[main_key].daily_returns.dropna()
             common_idx = strat_ret.index.intersection(bm.index)
             if len(common_idx) > 0:
-                from core.lead_lag.strategy import compute_metrics as _cm
                 excess_daily = strat_ret.loc[common_idx] - bm.loc[common_idx]
-                em = _cm(excess_daily.values, common_idx)
                 excess_yearly = excess_daily.groupby(excess_daily.index.year).apply(
                     lambda x: ((1 + x).prod() - 1) * 100
                 )
                 main_label = f"GAP_{int(config.gap_threshold*100)}%" if main_key == "GAP_CUSTOM" else "PCA_SUB"
-                ex_lines = [
-                    f"対TOPIX超過 ({main_label}): 年率{em['AR']:+.1f}%, SR{em['R/R']:.2f}",
-                    f"対TOPIX月次勝率: {em.get('monthly_win_rate',0):.0f}%, 月次平均: {em.get('monthly_mean',0):+.2f}%, ブレ幅: {em.get('monthly_std',0):.2f}%",
-                    "年別:",
-                ]
+                ex_lines.append(f"\n{main_label} 年別 対TOPIX超過:")
                 for y, v in excess_yearly.items():
                     bm_y = bm_yearly.get(y, 0)
                     ex_lines.append(f"  {y}年: 戦略{v+bm_y:+.1f}% - TOPIX{bm_y:+.1f}% = 超過{v:+.1f}%")
-                excess_text = "\n".join(ex_lines)
+        excess_text = "\n".join(ex_lines)
 
     prompt = f"""あなたは定量投資戦略の専門アナリストです。
 以下の日米セクターETFリードラグ戦略のバックテスト結果を分析してください。
