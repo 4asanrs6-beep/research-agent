@@ -746,11 +746,17 @@ def double_sort_strategy(
 # パフォーマンス指標 (論文 Section 4.2, 式 27-30)
 # ---------------------------------------------------------------------------
 def compute_metrics(daily_returns: np.ndarray, dates: pd.DatetimeIndex | None = None, entry_rate: float | None = None) -> dict:
-    """AR, RISK, R/R, MDD + 月次安定性指標を計算する。"""
+    """AR, RISK, R/R, MDD + 月次安定性指標を計算する。
+    NaN（エントリーなし日）は0%リターンとして扱い、全日ベースで計算する。
+    """
     total_days = len(daily_returns)
-    valid = daily_returns[~np.isnan(daily_returns)]
-    trade_ratio = len(valid) / total_days * 100 if total_days > 0 else 0
-    if len(valid) == 0:
+    n_traded = int(np.sum(~np.isnan(daily_returns)))
+    trade_ratio = n_traded / total_days * 100 if total_days > 0 else 0
+
+    # NaN → 0 (エントリーなし = フラット)
+    filled = np.where(np.isnan(daily_returns), 0.0, daily_returns)
+
+    if total_days == 0:
         return {
             "AR": 0, "RISK": 0, "R/R": 0, "MDD": 0, "n_days": 0,
             "trade_ratio": 0, "entry_rate": 0,
@@ -759,13 +765,13 @@ def compute_metrics(daily_returns: np.ndarray, dates: pd.DatetimeIndex | None = 
             "total_months": 0,
         }
 
-    # 年率換算 (252営業日)
-    ar = valid.mean() * 252
-    risk = valid.std() * np.sqrt(252)
+    # 年率換算 (全日ベース)
+    ar = filled.mean() * 252
+    risk = filled.std() * np.sqrt(252)
     rr = ar / risk if risk > 1e-12 else 0.0
 
-    # MDD (式30)
-    cumulative = np.cumprod(1 + valid)
+    # MDD (全日ベース)
+    cumulative = np.cumprod(1 + filled)
     running_max = np.maximum.accumulate(cumulative)
     drawdowns = cumulative / running_max - 1
     mdd = drawdowns.min()
@@ -775,16 +781,15 @@ def compute_metrics(daily_returns: np.ndarray, dates: pd.DatetimeIndex | None = 
         "RISK": risk * 100,
         "R/R": rr,
         "MDD": mdd * 100,
-        "n_days": len(valid),
+        "n_days": n_traded,
         "trade_ratio": trade_ratio,
         "entry_rate": entry_rate if entry_rate is not None else 100.0,
     }
 
-    # --- 月次安定性指標 ---
-    if dates is not None:
-        valid_dates = dates[~np.isnan(daily_returns)]
-        if len(valid_dates) > 0:
-            s = pd.Series(valid, index=valid_dates)
+    # --- 月次安定性指標 (全日ベース) ---
+    if dates is not None and len(dates) > 0:
+        s = pd.Series(filled, index=dates)
+        if len(s) > 0:
             monthly = s.groupby([s.index.year, s.index.month]).apply(
                 lambda x: ((1 + x).prod() - 1) * 100
             )
