@@ -1122,13 +1122,13 @@ def _render_daily_trade_tab():
         col_l, col_s, col_a = st.columns(3)
         with col_l:
             st.caption(f"ロング ({len(long_tickers)})")
-            st.text_area("", "\n".join(long_tickers), height=150, key="copy_long_tickers", label_visibility="collapsed")
+            st.text_area("ロング", "\n".join(long_tickers), height=150, key="copy_long_tickers", label_visibility="collapsed")
         with col_s:
             st.caption(f"ショート ({len(short_tickers)})")
-            st.text_area("", "\n".join(short_tickers), height=150, key="copy_short_tickers", label_visibility="collapsed")
+            st.text_area("ショート", "\n".join(short_tickers), height=150, key="copy_short_tickers", label_visibility="collapsed")
         with col_a:
             st.caption(f"全て ({len(all_tickers)})")
-            st.text_area("", "\n".join(all_tickers), height=150, key="copy_all_tickers", label_visibility="collapsed")
+            st.text_area("全て", "\n".join(all_tickers), height=150, key="copy_all_tickers", label_visibility="collapsed")
 
     # --- 当日リターンサマリー ---
     if not is_future and not is_today_or_future:
@@ -1909,6 +1909,7 @@ def _render_annual_returns(strategies, benchmark_returns=None):
         # 年平均行を追加
         avg_row = df_annual.mean()
         avg_row.name = "平均"
+        df_annual.index = df_annual.index.astype(str)
         df_annual = pd.concat([df_annual, avg_row.to_frame().T])
 
         st.dataframe(
