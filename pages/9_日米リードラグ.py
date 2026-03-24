@@ -1739,23 +1739,28 @@ def _render_results_tab():
             "TOPIXを上回った月の割合や、TOPIXに対する最悪月がわかる"
         )
         ex_rows = []
-        ex_keys = ["PCA_SUB", "GAP_CUSTOM", "PCA_PLAIN", "MOM", "DOUBLE"]
-        # GAP_CUSTOMの超過メトリクスを計算
-        if "GAP_CUSTOM" in strategies and "GAP_CUSTOM" not in excess_metrics:
-            from core.lead_lag.strategy import compute_metrics as _cm
-            gc_ret = strategies["GAP_CUSTOM"].daily_returns.dropna()
-            gc_common = gc_ret.index.intersection(bm_valid.index) if has_bm else pd.DatetimeIndex([])
-            if len(gc_common) > 0:
-                gc_excess = gc_ret.loc[gc_common] - bm_valid.loc[gc_common]
-                excess_metrics["GAP_CUSTOM"] = _cm(gc_excess.values, gc_common)
+        ex_keys = ["PCA_SUB", "GAP_CUSTOM",
+                   "GAP_-10", "GAP_0", "GAP_5", "GAP_10", "GAP_20", "GAP_30",
+                   "K3K4_ENS", "K3K4_GAP", "HYBRID",
+                   "PCA_PLAIN", "MOM", "DOUBLE"]
+        # 不足している戦略の超過メトリクスを計算
+        from core.lead_lag.strategy import compute_metrics as _cm
+        for name in ex_keys:
+            if name in strategies and name not in excess_metrics and has_bm:
+                s_ret = strategies[name].daily_returns.dropna()
+                s_common = s_ret.index.intersection(bm_valid.index)
+                if len(s_common) > 0:
+                    s_excess = s_ret.loc[s_common] - bm_valid.loc[s_common]
+                    excess_metrics[name] = _cm(s_excess.values, s_common)
         for name in ex_keys:
             if name not in excess_metrics:
                 continue
             em = excess_metrics[name]
             label = STRATEGY_LABELS.get(name, name)
-            if name == "GAP_CUSTOM":
-                threshold_pct = int(result.config.gap_threshold * 100)
-                label = f"GAP_{threshold_pct}%"
+            if name == "GAP_CUSTOM" and gap_pct_display is not None:
+                label = f"GAP_{gap_pct_display}% (NE制限込み)"
+            elif name == "K3K4_GAP" and gap_pct_display is not None:
+                label = f"K3K4+GAP_{gap_pct_display}% (NE制限込み)"
             ex_rows.append({
                 "戦略": label,
                 "超過リターン (%)": round(em.get("AR", 0), 1),
