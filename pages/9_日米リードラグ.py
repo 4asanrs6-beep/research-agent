@@ -2470,8 +2470,8 @@ def _render_ls_exposure_analysis(result):
     sc = strat.daily_short_count.dropna()
     ret = strat.daily_returns
 
-    # 共通インデックス
-    common = lc.index.intersection(sc.index).intersection(ret.dropna().index)
+    # L/S数がある日全てを対象（NEスキップ日はリターンがNaN）
+    common = lc.index.intersection(sc.index)
     if len(common) == 0:
         st.info("エクスポージャーデータがありません。")
         return
@@ -2479,52 +2479,73 @@ def _render_ls_exposure_analysis(result):
     lc = lc.loc[common].astype(int)
     sc = sc.loc[common].astype(int)
     net = lc - sc
-    ret = ret.loc[common]
+    ret_aligned = ret.reindex(common)  # NaN = NEスキップで売買しなかった日
 
     # --- ネットエクスポージャー別集計 ---
     analysis_df = pd.DataFrame({
         "ロング数": lc,
         "ショート数": sc,
         "ネット": net,
-        "リターン": ret,
+        "リターン": ret_aligned,
+        "売買": ~ret_aligned.isna(),
     })
 
-    # ネット別集計
+    # ネット別集計（エントリー日とNEスキップ日を分けて表示）
     net_groups = analysis_df.groupby("ネット")
     net_summary_rows = []
     for net_val, group in sorted(net_groups, key=lambda x: x[0]):
-        n_days = len(group)
-        wins = (group["リターン"] > 0).sum()
-        win_rate = wins / n_days * 100 if n_days > 0 else 0
-        avg_ret = group["リターン"].mean() * 100
-        net_summary_rows.append({
+        traded = group[group["売買"]]
+        skipped = group[~group["売買"]]
+        n_traded = len(traded)
+        n_skipped = len(skipped)
+        n_total = n_traded + n_skipped
+        wins = (traded["リターン"] > 0).sum() if n_traded > 0 else 0
+        win_rate = wins / n_traded * 100 if n_traded > 0 else 0
+        avg_ret = traded["リターン"].mean() * 100 if n_traded > 0 else 0
+        row = {
             "ネット": int(net_val),
-            "日数": n_days,
-            "勝率 (%)": round(win_rate, 1),
-            "平均リターン (%)": round(avg_ret, 3),
-        })
+            "エントリー": n_traded,
+            "平均リターン (%)": round(avg_ret, 3) if n_traded > 0 else "-",
+            "勝率 (%)": round(win_rate, 1) if n_traded > 0 else "-",
+        }
+        if n_skipped > 0:
+            row["NE見送り"] = n_skipped
+            # NE見送り日の仮想リターン（GAPのみ戦略から取得）
+            gap_key_for_virtual = None
+            gap_pct_val = int(result.config.gap_threshold * 100) if result.config.gap_threshold < 1.0 else None
+            for gk, gr in [("GAP_-10", -10), ("GAP_0", 0), ("GAP_5", 5), ("GAP_10", 10), ("GAP_20", 20), ("GAP_30", 30)]:
+                if gr == gap_pct_val and gk in result.strategies:
+                    gap_key_for_virtual = gk
+                    break
+            if gap_key_for_virtual:
+                virt_ret = result.strategies[gap_key_for_virtual].daily_returns
+                skipped_rets = virt_ret.reindex(skipped.index).dropna()
+                if len(skipped_rets) > 0:
+                    virt_avg = skipped_rets.mean() * 100
+                    virt_wins = (skipped_rets > 0).sum()
+                    row["見送り仮想R (%)"] = round(virt_avg, 3)
+                    row["見送り仮想勝率 (%)"] = round(virt_wins / len(skipped_rets) * 100, 1)
+        else:
+            row["NE見送り"] = 0
+        net_summary_rows.append(row)
     net_summary = pd.DataFrame(net_summary_rows)
 
     col1, col2 = st.columns(2)
 
     with col1:
         st.markdown("**ネットエクスポージャー別**")
+        fmt_cols = {}
+        for c in ["平均リターン (%)", "勝率 (%)", "見送り仮想R (%)", "見送り仮想勝率 (%)"]:
+            if c in net_summary.columns:
+                fmt_cols[c] = lambda v: f"{v:+.3f}" if isinstance(v, (int, float)) else str(v)
         st.dataframe(
-            net_summary.style.format({
-                "勝率 (%)": "{:.1f}",
-                "平均リターン (%)": "{:+.3f}",
-            }).map(
-                lambda v: "color: #2E7D32" if isinstance(v, (int, float)) and v > 0
-                else "color: #C62828" if isinstance(v, (int, float)) and v < 0
-                else "",
-                subset=["平均リターン (%)"],
-            ),
+            net_summary,
             hide_index=True,
             height=min(500, len(net_summary) * 35 + 40),
         )
 
     with col2:
-        # ヒストグラム: ネット別日数 + 平均リターン
+        # ヒストグラム: エントリー日数(青) + NE見送り日数(赤) + 平均リターン(折線)
         import plotly.graph_objects as go
         from plotly.subplots import make_subplots
 
@@ -2533,18 +2554,33 @@ def _render_ls_exposure_analysis(result):
         fig.add_trace(
             go.Bar(
                 x=net_summary["ネット"],
-                y=net_summary["日数"],
-                name="日数",
+                y=net_summary["エントリー"],
+                name="エントリー日数",
                 marker_color="#1565C0",
                 opacity=0.7,
             ),
             secondary_y=False,
         )
 
+        if "NE見送り" in net_summary.columns and net_summary["NE見送り"].sum() > 0:
+            fig.add_trace(
+                go.Bar(
+                    x=net_summary["ネット"],
+                    y=net_summary["NE見送り"],
+                    name="NE見送り日数",
+                    marker_color="#C62828",
+                    opacity=0.5,
+                ),
+                secondary_y=False,
+            )
+            fig.update_layout(barmode="stack")
+
+        # 平均リターン（エントリー日のみ）
+        ret_vals = [v if isinstance(v, (int, float)) else None for v in net_summary["平均リターン (%)"]]
         fig.add_trace(
             go.Scatter(
                 x=net_summary["ネット"],
-                y=net_summary["平均リターン (%)"],
+                y=ret_vals,
                 name="平均リターン (%)",
                 mode="lines+markers",
                 line=dict(color="#FF8000", width=2),
@@ -2552,6 +2588,21 @@ def _render_ls_exposure_analysis(result):
             ),
             secondary_y=True,
         )
+
+        # 見送り仮想リターン（ある場合）
+        if "見送り仮想R (%)" in net_summary.columns:
+            virt_vals = [v if isinstance(v, (int, float)) else None for v in net_summary["見送り仮想R (%)"]]
+            if any(v is not None for v in virt_vals):
+                fig.add_trace(
+                    go.Scatter(
+                        x=net_summary["ネット"],
+                        y=virt_vals,
+                        name="見送り仮想R (%)",
+                        mode="markers",
+                        marker=dict(size=10, color="#C62828", symbol="x"),
+                    ),
+                    secondary_y=True,
+                )
 
         fig.update_layout(
             height=400,
