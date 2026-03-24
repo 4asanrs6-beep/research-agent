@@ -786,10 +786,14 @@ def compute_metrics(daily_returns: np.ndarray, dates: pd.DatetimeIndex | None = 
         "entry_rate": entry_rate if entry_rate is not None else 100.0,
     }
 
-    # --- 月次安定性指標 (全日ベース) ---
+    # --- 月次安定性指標 (エントリーがあった月のみ) ---
     if dates is not None and len(dates) > 0:
-        s = pd.Series(filled, index=dates)
-        if len(s) > 0:
+        # エントリー日のみで月次リターンを計算（NaN日は除外）
+        valid_mask = ~np.isnan(daily_returns)
+        valid_vals = daily_returns[valid_mask]
+        valid_dates = dates[valid_mask]
+        if len(valid_vals) > 0:
+            s = pd.Series(valid_vals, index=valid_dates)
             monthly = s.groupby([s.index.year, s.index.month]).apply(
                 lambda x: ((1 + x).prod() - 1) * 100
             )
