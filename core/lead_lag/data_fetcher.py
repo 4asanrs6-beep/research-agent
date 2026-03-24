@@ -266,12 +266,15 @@ def build_aligned_dataset(
     jp_dates = pd.DataFrame({"jp_date": jp_cc.index})
     us_dates = pd.DataFrame({"us_date": us_cc.index, "us_date_val": us_cc.index})
 
+    # JP市場はUS市場より先に開くため、JP日tの寄付き時点で
+    # 利用可能なのはt-1以前のUS終値。同日のUSはまだ始まっていない。
     merged = pd.merge_asof(
         jp_dates.sort_values("jp_date"),
         us_dates.sort_values("us_date"),
         left_on="jp_date",
         right_on="us_date",
         direction="backward",
+        allow_exact_matches=False,
     )
     # US の取引日が5営業日以上前のものは除外 (長期休場など)
     merged = merged.dropna(subset=["us_date"])

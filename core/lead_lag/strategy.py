@@ -285,12 +285,10 @@ def build_portfolio(
         weights[long_idx] = 1.0 / len(long_idx)
         weights[short_idx] = -1.0 / len(short_idx)
 
-        # 戦略リターン (式7): 翌日の oc リターンを使用
-        # signals[t] は時点 t の情報で生成 → t+1 の JP oc リターンで評価
-        if t + 1 < T:
-            ret = jp_oc_returns[t + 1]
-            if not np.isnan(ret).all():
-                strategy_returns[t + 1] = np.nansum(weights * ret)
+        # 戦略リターン: signals[t] は前日US終値で生成 → 当日JP寄引で評価
+        ret = jp_oc_returns[t]
+        if not np.isnan(ret).all():
+            strategy_returns[t] = np.nansum(weights * ret)
 
     return strategy_returns
 
@@ -349,90 +347,86 @@ def build_portfolio_gap_filter(
         long_candidates = valid_indices[ranked[:n_long]]
         short_candidates = valid_indices[ranked[-n_short:]]
 
-        if t + 1 < T:
-            gap = jp_overnight_gaps[t + 1]
-            n_candidates_day = len(long_candidates) + len(short_candidates)
+        # signals[t] は前日US終値ベース → 当日JPの寄引で評価
+        gap = jp_overnight_gaps[t]
+        n_candidates_day = len(long_candidates) + len(short_candidates)
 
-            long_idx = []
-            for i in long_candidates:
-                if np.isnan(gap[i]) or np.isnan(sig[i]):
-                    long_idx.append(i)
-                    continue
-                if abs(sig[i]) < 1e-10:
-                    long_idx.append(i)
-                    continue
-                if gap[i] <= abs(sig[i]) * absorption_rate:
-                    long_idx.append(i)
-
-            short_idx = []
-            for i in short_candidates:
-                if np.isnan(gap[i]) or np.isnan(sig[i]):
-                    short_idx.append(i)
-                    continue
-                if abs(sig[i]) < 1e-10:
-                    short_idx.append(i)
-                    continue
-                if gap[i] >= -abs(sig[i]) * absorption_rate:
-                    short_idx.append(i)
-
-            # ネットエクスポージャー制限: L/Sの差をフィルター前ロング数×比率以内に抑える
-            if net_exposure_limit < 1.0:
-                max_diff = max(1, int(np.ceil(n_long * net_exposure_limit)))
-                n_l, n_s = len(long_idx), len(short_idx)
-
-                if net_exposure_mode == "fill":
-                    # fillモード: 少ない側にGAPフィルター除外銘柄を復活
-                    long_excluded = [i for i in long_candidates if i not in long_idx]
-                    short_excluded = [i for i in short_candidates if i not in short_idx]
-
-                    if n_l - n_s > max_diff and short_excluded:
-                        # ショートが少ない → 除外ショートをシグナル強い順に復活
-                        short_excluded.sort(key=lambda i: abs(sig[i]), reverse=True)
-                        n_to_fill = min(len(short_excluded), n_l - n_s - max_diff)
-                        short_idx.extend(short_excluded[:n_to_fill])
-                    elif n_s - n_l > max_diff and long_excluded:
-                        # ロングが少ない → 除外ロングをシグナル強い順に復活
-                        long_excluded.sort(key=lambda i: abs(sig[i]), reverse=True)
-                        n_to_fill = min(len(long_excluded), n_s - n_l - max_diff)
-                        long_idx.extend(long_excluded[:n_to_fill])
-                else:
-                    # trimモード: 多い側を削減
-                    if n_l - n_s > max_diff:
-                        long_sigs = [(i, abs(sig[i])) for i in long_idx]
-                        long_sigs.sort(key=lambda x: x[1], reverse=True)
-                        long_idx = [i for i, _ in long_sigs[:n_s + max_diff]]
-                    elif n_s - n_l > max_diff:
-                        short_sigs = [(i, abs(sig[i])) for i in short_idx]
-                        short_sigs.sort(key=lambda x: x[1], reverse=True)
-                        short_idx = [i for i, _ in short_sigs[:n_l + max_diff]]
-
-            total_candidates += n_candidates_day
-
-            # ネットエクスポージャー絶対値スキップ
-            if net_exposure_skip > 0 and abs(len(long_idx) - len(short_idx)) >= net_exposure_skip:
-                # 日次L/S数は記録するが売買しない
-                daily_long_count[t + 1] = len(long_idx)
-                daily_short_count[t + 1] = len(short_idx)
+        long_idx = []
+        for i in long_candidates:
+            if np.isnan(gap[i]) or np.isnan(sig[i]):
+                long_idx.append(i)
                 continue
-
-            total_entered += len(long_idx) + len(short_idx)
-
-            # 日次L/S数を記録 (t+1日の売買)
-            daily_long_count[t + 1] = len(long_idx)
-            daily_short_count[t + 1] = len(short_idx)
-
-            if not long_idx and not short_idx:
+            if abs(sig[i]) < 1e-10:
+                long_idx.append(i)
                 continue
+            if gap[i] <= abs(sig[i]) * absorption_rate:
+                long_idx.append(i)
 
-            weights = np.zeros(N)
-            if long_idx:
-                weights[long_idx] = 1.0 / len(long_idx)
-            if short_idx:
-                weights[short_idx] = -1.0 / len(short_idx)
+        short_idx = []
+        for i in short_candidates:
+            if np.isnan(gap[i]) or np.isnan(sig[i]):
+                short_idx.append(i)
+                continue
+            if abs(sig[i]) < 1e-10:
+                short_idx.append(i)
+                continue
+            if gap[i] >= -abs(sig[i]) * absorption_rate:
+                short_idx.append(i)
 
-            ret = jp_oc_returns[t + 1]
-            if not np.isnan(ret).all():
-                strategy_returns[t + 1] = np.nansum(weights * ret)
+        # ネットエクスポージャー制限: L/Sの差をフィルター前ロング数×比率以内に抑える
+        if net_exposure_limit < 1.0:
+            max_diff = max(1, int(np.ceil(n_long * net_exposure_limit)))
+            n_l, n_s = len(long_idx), len(short_idx)
+
+            if net_exposure_mode == "fill":
+                # fillモード: 少ない側にGAPフィルター除外銘柄を復活
+                long_excluded = [i for i in long_candidates if i not in long_idx]
+                short_excluded = [i for i in short_candidates if i not in short_idx]
+
+                if n_l - n_s > max_diff and short_excluded:
+                    short_excluded.sort(key=lambda i: abs(sig[i]), reverse=True)
+                    n_to_fill = min(len(short_excluded), n_l - n_s - max_diff)
+                    short_idx.extend(short_excluded[:n_to_fill])
+                elif n_s - n_l > max_diff and long_excluded:
+                    long_excluded.sort(key=lambda i: abs(sig[i]), reverse=True)
+                    n_to_fill = min(len(long_excluded), n_s - n_l - max_diff)
+                    long_idx.extend(long_excluded[:n_to_fill])
+            else:
+                # trimモード: 多い側を削減
+                if n_l - n_s > max_diff:
+                    long_sigs = [(i, abs(sig[i])) for i in long_idx]
+                    long_sigs.sort(key=lambda x: x[1], reverse=True)
+                    long_idx = [i for i, _ in long_sigs[:n_s + max_diff]]
+                elif n_s - n_l > max_diff:
+                    short_sigs = [(i, abs(sig[i])) for i in short_idx]
+                    short_sigs.sort(key=lambda x: x[1], reverse=True)
+                    short_idx = [i for i, _ in short_sigs[:n_l + max_diff]]
+
+        total_candidates += n_candidates_day
+
+        # ネットエクスポージャー絶対値スキップ
+        if net_exposure_skip > 0 and abs(len(long_idx) - len(short_idx)) >= net_exposure_skip:
+            daily_long_count[t] = len(long_idx)
+            daily_short_count[t] = len(short_idx)
+            continue
+
+        total_entered += len(long_idx) + len(short_idx)
+
+        daily_long_count[t] = len(long_idx)
+        daily_short_count[t] = len(short_idx)
+
+        if not long_idx and not short_idx:
+            continue
+
+        weights = np.zeros(N)
+        if long_idx:
+            weights[long_idx] = 1.0 / len(long_idx)
+        if short_idx:
+            weights[short_idx] = -1.0 / len(short_idx)
+
+        ret = jp_oc_returns[t]
+        if not np.isnan(ret).all():
+            strategy_returns[t] = np.nansum(weights * ret)
 
     entry_rate = total_entered / total_candidates * 100 if total_candidates > 0 else 100.0
     return strategy_returns, entry_rate, daily_long_count, daily_short_count

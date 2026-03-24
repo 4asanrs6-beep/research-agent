@@ -830,22 +830,21 @@ def _render_daily_trade_tab():
         candidates = trade_dates[:1]
     jp_trade_date = candidates[-1]
 
-    # シグナル日 = 売買日の前日 (available_datesでの1つ前)
-    trade_idx = available_dates.index(jp_trade_date) if jp_trade_date in available_dates else -1
-    if trade_idx < 0:
-        # jp_trade_dateが最新シグナルの翌日の場合 (データの最後)
-        signal_date = available_dates[-1]
+    # シグナル日の決定
+    # 新アライメント: sig_df[t] は前日US終値ベース → t日のJP市場で売買。
+    # よって売買日 jp_trade_date に対するシグナル日は同日。
+    if jp_trade_date in available_dates:
+        signal_date = jp_trade_date
     else:
-        signal_date = available_dates[trade_idx - 1] if trade_idx > 0 else available_dates[0]
+        # jp_trade_dateがavailable_datesにない場合 (最新シグナルの翌営業日等)
+        signal_date = available_dates[-1]
 
     # 最新シグナルの翌日 (まだ売買していない日) も選択可能にする
     last_signal = available_dates[-1]
-    is_future = (jp_trade_date == last_signal) or (selected_ts > last_signal)
-    if selected_ts > last_signal:
-        # 最新シグナルで翌営業日を売買
+    is_future = selected_ts > last_signal
+    if is_future:
         signal_date = last_signal
         jp_trade_date = selected_ts
-        is_future = True
 
     if selected_ts != jp_trade_date and not is_future:
         st.caption(f"※ {selected_input} は非営業日のため {jp_trade_date.strftime('%Y-%m-%d')} を表示")
