@@ -1118,21 +1118,22 @@ def _render_daily_trade_tab():
         st.markdown("### 当日の戦略リターン")
         jp_td_ts = pd.Timestamp(jp_trade_date) if not isinstance(jp_trade_date, pd.Timestamp) else jp_trade_date
 
-        # 表示対象: フィルターなし、GAP_CUSTOM、GAP感応度テスト（NE制限なしのGAPのみ）
+        # 表示対象: フィルターなし → GAP(NE制限なし) → GAP(NE制限込み) の順
+        # フィルタリングが厳しい順に右へ
         display_strats = [("PCA_SUB", "フィルターなし")]
-        if "GAP_CUSTOM" in strategies:
-            display_strats.append(("GAP_CUSTOM", f"GAP_{gap_pct}% (NE制限込み)"))
-        # NE制限なしのGAP感応度テスト結果も表示（GAPフィルターのみの仮想リターン）
         gap_pct_val = int(config.gap_threshold * 100) if config.gap_threshold < 1.0 else None
+        # NE制限なしのGAP感応度テスト
         for gap_key in ["GAP_-10", "GAP_0", "GAP_5", "GAP_10", "GAP_20", "GAP_30"]:
             if gap_key in strategies:
                 gap_label = gap_key.replace("GAP_", "GAP ")
-                # GAP_CUSTOMと同じ閾値の場合はスキップ（重複回避）
                 gap_rate = {"GAP_-10": -10, "GAP_0": 0, "GAP_5": 5, "GAP_10": 10, "GAP_20": 20, "GAP_30": 30}.get(gap_key)
                 if gap_rate == gap_pct_val:
                     display_strats.append((gap_key, f"GAP_{gap_rate}% (NE制限なし)"))
                 else:
                     display_strats.append((gap_key, f"{gap_label}%"))
+        # NE制限込みのGAP_CUSTOM（最も厳しいフィルター）
+        if "GAP_CUSTOM" in strategies:
+            display_strats.append(("GAP_CUSTOM", f"GAP_{gap_pct}% (NE制限込み)"))
 
         ret_cols = []
         for strat_name, label in display_strats:
@@ -1933,14 +1934,14 @@ def _render_trade_samples(result, n_days: int = 10):
         # 当日のリターンサマリー
         ret_summary = ""
         gap_pct_val_int = int(config.gap_threshold * 100) if config.gap_threshold < 1.0 else None
+        # フィルターなし → GAP(NE無) → GAP(NE込) の順
         summary_strats = [("PCA_SUB", "フィルターなし")]
-        if "GAP_CUSTOM" in strategies:
-            summary_strats.append(("GAP_CUSTOM", f"GAP_{gap_pct}%(NE込)"))
-        # NE制限なしのGAP感応度テスト（同じ閾値があれば追加）
         for gk in ["GAP_-10", "GAP_0", "GAP_5", "GAP_10", "GAP_20", "GAP_30"]:
             gr = {"GAP_-10": -10, "GAP_0": 0, "GAP_5": 5, "GAP_10": 10, "GAP_20": 20, "GAP_30": 30}.get(gk)
             if gk in strategies and gr == gap_pct_val_int:
                 summary_strats.append((gk, f"GAP_{gr}%(NE無)"))
+        if "GAP_CUSTOM" in strategies:
+            summary_strats.append(("GAP_CUSTOM", f"GAP_{gap_pct}%(NE込)"))
         for strat_name, label in summary_strats:
             if strat_name in strategies:
                 ret = strategies[strat_name].daily_returns
