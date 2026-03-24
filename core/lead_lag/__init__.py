@@ -72,7 +72,7 @@ def run_backtest(
     benchmark_returns = None
     try:
         _progress("TOPIX ベンチマークを取得中...", 0.09)
-        bm = fetch_benchmark_returns(config.start_date, end_date, cache=cache)
+        bm = fetch_benchmark_returns(config.start_date, end_date, jquants_provider=jquants_provider, cache=cache)
         if len(bm) > 0:
             common = bm.index.intersection(aligned.common_dates)
             benchmark_returns = bm.loc[common]

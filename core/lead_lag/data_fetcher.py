@@ -12,9 +12,10 @@ logger = logging.getLogger(__name__)
 def fetch_benchmark_returns(
     start: str,
     end: str,
+    jquants_provider=None,
     cache=None,
 ) -> pd.Series:
-    """TOPIX (^TPX) の日次リターンを yfinance で取得する。
+    """TOPIX連動ETF (1306) の日次リターンを取得する。J-Quants API優先、フォールバックでyfinance。
 
     Returns:
         Series indexed by date, values = daily close-to-close return
@@ -26,23 +27,59 @@ def fetch_benchmark_returns(
             logger.info("TOPIX ベンチマーク キャッシュヒット")
             return cached.set_index("date")["ret"]
 
-    import yfinance as yf
+    close_series = None
 
-    logger.info("yfinance: TOPIX (^TPX) を取得中")
-    raw = yf.download("^TPX", start=start, end=end, auto_adjust=True, progress=False)
-    if raw.empty:
-        # フォールバック: TOPIX ETF (1306.T)
-        logger.info("^TPX 取得失敗、1306.T にフォールバック")
-        raw = yf.download("1306.T", start=start, end=end, auto_adjust=True, progress=False)
+    # --- J-Quants API で TOPIX ETF (1306) を取得 ---
+    if jquants_provider is not None:
+        try:
+            logger.info("J-Quants: TOPIX ETF (1306) を取得中")
+            start_year = int(start[:4])
+            end_year = int(end[:4]) if end else 2026
+            all_rows = []
+            for year in range(start_year, end_year + 1):
+                try:
+                    df_year = jquants_provider.get_prices_daily_quotes(
+                        code="13060", from_yyyymmdd=f"{year}0101", to_yyyymmdd=f"{year}1231"
+                    )
+                    if df_year is not None and len(df_year) > 0:
+                        all_rows.append(df_year)
+                except Exception:
+                    pass
+            if all_rows:
+                df_all = pd.concat(all_rows, ignore_index=True)
+                df_all["Date"] = pd.to_datetime(df_all["Date"])
+                df_all = df_all.sort_values("Date").drop_duplicates(subset=["Date"])
+                if "AdjustmentClose" in df_all.columns:
+                    close_series = df_all.set_index("Date")["AdjustmentClose"]
+                elif "Close" in df_all.columns:
+                    close_series = df_all.set_index("Date")["Close"]
+                if close_series is not None:
+                    logger.info("J-Quants: TOPIX ETF 取得成功 (%d日)", len(close_series))
+        except Exception as e:
+            logger.warning("J-Quants TOPIX ETF 取得失敗: %s", e)
 
-    if raw.empty:
+    # --- フォールバック: yfinance ---
+    if close_series is None:
+        try:
+            import yfinance as yf
+            logger.info("yfinance: TOPIX (1306.T) を取得中")
+            raw = yf.download("1306.T", start=start, end=end, auto_adjust=True, progress=False)
+            if raw.empty:
+                logger.info("1306.T 取得失敗、^TPX にフォールバック")
+                raw = yf.download("^TPX", start=start, end=end, auto_adjust=True, progress=False)
+            if not raw.empty:
+                close = raw["Close"]
+                if isinstance(close, pd.DataFrame):
+                    close = close.iloc[:, 0]
+                close_series = close
+        except Exception as e:
+            logger.warning("yfinance TOPIX 取得失敗: %s", e)
+
+    if close_series is None or len(close_series) == 0:
         logger.warning("TOPIX ベンチマークデータを取得できませんでした")
         return pd.Series(dtype=float)
 
-    close = raw["Close"]
-    if isinstance(close, pd.DataFrame):
-        close = close.iloc[:, 0]
-    ret = close.pct_change().dropna()
+    ret = close_series.pct_change().dropna()
     ret.index = pd.to_datetime(ret.index)
     ret.name = "TOPIX"
 
