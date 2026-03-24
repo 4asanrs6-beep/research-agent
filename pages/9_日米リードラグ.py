@@ -1660,26 +1660,38 @@ def _render_results_tab():
     # --- パフォーマンス比較表 ---
     st.markdown("### 全戦略の比較 — 絶対パフォーマンス")
     rows = []
-    show_keys = ["PCA_SUB", "GAP_CUSTOM", "PCA_PLAIN", "MOM", "DOUBLE"]
+    show_keys = ["PCA_SUB", "GAP_CUSTOM",
+                 "GAP_-10", "GAP_0", "GAP_5", "GAP_10", "GAP_20", "GAP_30",
+                 "K3K4_ENS", "K3K4_GAP", "HYBRID",
+                 "PCA_PLAIN", "MOM", "DOUBLE"]
+
+    def _make_perf_row(m, label):
+        return {
+            "戦略": label,
+            "年率リターン (%)": round(m["AR"], 2),
+            "シャープ比": round(m["R/R"], 2),
+            "最大下落率 (%)": round(m["MDD"], 2),
+            "エントリー率 (%)": round(m.get("entry_rate", 100), 0),
+            "月次勝率 (%)": round(m.get("monthly_win_rate", 0), 0),
+            "月次平均 (%)": round(m.get("monthly_mean", 0), 2),
+            "月次ブレ幅 (%)": round(m.get("monthly_std", 0), 2),
+            "最悪月 (%)": round(m.get("monthly_worst", 0), 1),
+        }
+
+    # TOPIX行
+    if has_bm:
+        from core.lead_lag.strategy import compute_metrics as _cm_bm
+        bm_m = _cm_bm(bm_valid.values, bm_valid.index)
+        rows.append(_make_perf_row(bm_m, "TOPIX (ベンチマーク)"))
+
     for name in show_keys:
         if name in strategies:
             m = strategies[name].metrics
             label = STRATEGY_LABELS.get(name, name)
             if name == "GAP_CUSTOM":
                 threshold_pct = int(result.config.gap_threshold * 100)
-                label = f"ギャップフィルター ({threshold_pct}%)"
-            row = {
-                "戦略": label,
-                "年率リターン (%)": round(m["AR"], 2),
-                "シャープ比": round(m["R/R"], 2),
-                "最大下落率 (%)": round(m["MDD"], 2),
-                "エントリー率 (%)": round(m.get("entry_rate", 100), 0),
-                "月次勝率 (%)": round(m.get("monthly_win_rate", 0), 0),
-                "月次平均 (%)": round(m.get("monthly_mean", 0), 2),
-                "月次ブレ幅 (%)": round(m.get("monthly_std", 0), 2),
-                "最悪月 (%)": round(m.get("monthly_worst", 0), 1),
-            }
-            rows.append(row)
+                label = f"GAP_{threshold_pct}% (NE制限込み)"
+            rows.append(_make_perf_row(m, label))
 
     if rows:
         df_perf = pd.DataFrame(rows)
@@ -1693,15 +1705,10 @@ def _render_results_tab():
             "月次ブレ幅 (%)": "{:.2f}",
             "最悪月 (%)": "{:+.1f}",
         }
-        if "対TOPIX超過 (%)" in df_perf.columns:
-            fmt["対TOPIX超過 (%)"] = "{:+.1f}"
         st.dataframe(
             df_perf.style.apply(_highlight_best, axis=0).format(fmt),
             hide_index=True,
         )
-
-        if bm_ar is not None:
-            st.caption(f"TOPIX 年率リターン: {bm_ar:+.1f}% (同期間)")
 
     # --- 対TOPIX比較表 ---
     if excess_metrics:
