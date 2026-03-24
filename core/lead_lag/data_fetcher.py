@@ -37,24 +37,25 @@ def fetch_benchmark_returns(
             end_year = int(end[:4]) if end else 2026
             all_rows = []
             for year in range(start_year, end_year + 1):
+                chunk_start = f"{year}-01-01" if year > start_year else start
+                chunk_end = f"{year}-12-31" if year < end_year else (end if end else f"{year}-12-31")
                 try:
-                    df_year = jquants_provider.get_prices_daily_quotes(
-                        code="13060", from_yyyymmdd=f"{year}0101", to_yyyymmdd=f"{year}1231"
+                    df_year = jquants_provider.get_price_daily(
+                        code="13060",
+                        start_date=chunk_start,
+                        end_date=chunk_end,
                     )
                     if df_year is not None and len(df_year) > 0:
                         all_rows.append(df_year)
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug("J-Quants TOPIX %s 取得失敗: %s", year, e)
             if all_rows:
                 df_all = pd.concat(all_rows, ignore_index=True)
-                df_all["Date"] = pd.to_datetime(df_all["Date"])
-                df_all = df_all.sort_values("Date").drop_duplicates(subset=["Date"])
-                if "AdjustmentClose" in df_all.columns:
-                    close_series = df_all.set_index("Date")["AdjustmentClose"]
-                elif "Close" in df_all.columns:
-                    close_series = df_all.set_index("Date")["Close"]
-                if close_series is not None:
-                    logger.info("J-Quants: TOPIX ETF 取得成功 (%d日)", len(close_series))
+                df_all["date"] = pd.to_datetime(df_all["date"])
+                df_all = df_all.sort_values("date").drop_duplicates(subset=["date"])
+                col = "adj_close" if "adj_close" in df_all.columns else "close"
+                close_series = df_all.set_index("date")[col]
+                logger.info("J-Quants: TOPIX ETF 取得成功 (%d日)", len(close_series))
         except Exception as e:
             logger.warning("J-Quants TOPIX ETF 取得失敗: %s", e)
 
