@@ -77,7 +77,8 @@ def run_backtest(
             common = bm.index.intersection(aligned.common_dates)
             benchmark_returns = bm.loc[common]
     except Exception as e:
-        logger.warning("TOPIX ベンチマーク取得失敗: %s", e)
+        import traceback as _tb
+        logger.warning("TOPIX ベンチマーク取得失敗: %s\n%s", e, _tb.format_exc())
 
     # --- Step 4: 戦略実行 ---
     def _strategy_progress(msg, pct):

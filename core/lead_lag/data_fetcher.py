@@ -32,19 +32,26 @@ def fetch_benchmark_returns(
     # --- J-Quants API で TOPIX 指数を直接取得 ---
     if jquants_provider is not None:
         try:
-            logger.info("J-Quants: TOPIX 指数 (0000) を取得中")
+            logger.info("J-Quants: TOPIX 指数 (0000) を取得中 (start=%s, end=%s)", start, end)
             df_topix = jquants_provider.get_index_prices(
                 index_code="0000",
                 start_date=start,
                 end_date=end,
             )
+            logger.info("J-Quants TOPIX 結果: type=%s, len=%s, columns=%s",
+                        type(df_topix).__name__,
+                        len(df_topix) if df_topix is not None else "None",
+                        list(df_topix.columns) if df_topix is not None and hasattr(df_topix, 'columns') else "N/A")
             if df_topix is not None and len(df_topix) > 0 and "close" in df_topix.columns:
                 df_topix["date"] = pd.to_datetime(df_topix["date"])
                 df_topix = df_topix.sort_values("date").drop_duplicates(subset=["date"])
                 close_series = df_topix.set_index("date")["close"]
                 logger.info("J-Quants: TOPIX 指数取得成功 (%d日)", len(close_series))
+            else:
+                logger.warning("J-Quants TOPIX: データが空またはcloseカラムなし")
         except Exception as e:
-            logger.warning("J-Quants TOPIX 指数取得失敗: %s", e)
+            import traceback as _tb
+            logger.warning("J-Quants TOPIX 指数取得失敗: %s\n%s", e, _tb.format_exc())
 
     # --- フォールバック: yfinance ---
     if close_series is None:
