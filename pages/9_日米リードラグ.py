@@ -1114,21 +1114,41 @@ def _render_daily_trade_tab():
     )
 
     # --- 当日リターンサマリー ---
-    if not is_future:
+    if not is_future and not is_today_or_future:
         st.markdown("### 当日の戦略リターン")
+        jp_td_ts = pd.Timestamp(jp_trade_date) if not isinstance(jp_trade_date, pd.Timestamp) else jp_trade_date
+
+        # 表示対象: フィルターなし、GAP_CUSTOM、GAP感応度テスト（NE制限なしのGAPのみ）
+        display_strats = [("PCA_SUB", "フィルターなし")]
+        if "GAP_CUSTOM" in strategies:
+            display_strats.append(("GAP_CUSTOM", f"GAP_{gap_pct}% (NE制限込み)"))
+        # NE制限なしのGAP感応度テスト結果も表示（GAPフィルターのみの仮想リターン）
+        gap_pct_val = int(config.gap_threshold * 100) if config.gap_threshold < 1.0 else None
+        for gap_key in ["GAP_-10", "GAP_0", "GAP_5", "GAP_10", "GAP_20", "GAP_30"]:
+            if gap_key in strategies:
+                gap_label = gap_key.replace("GAP_", "GAP ")
+                # GAP_CUSTOMと同じ閾値の場合はスキップ（重複回避）
+                gap_rate = {"GAP_-10": -10, "GAP_0": 0, "GAP_5": 5, "GAP_10": 10, "GAP_20": 20, "GAP_30": 30}.get(gap_key)
+                if gap_rate == gap_pct_val:
+                    display_strats.append((gap_key, f"GAP_{gap_rate}% (NE制限なし)"))
+                else:
+                    display_strats.append((gap_key, f"{gap_label}%"))
+
         ret_cols = []
-        for strat_name in ["PCA_SUB", "GAP_CUSTOM"]:
+        for strat_name, label in display_strats:
             if strat_name in strategies:
                 ret = strategies[strat_name].daily_returns
-                jp_td_ts = pd.Timestamp(jp_trade_date) if not isinstance(jp_trade_date, pd.Timestamp) else jp_trade_date
                 if jp_td_ts in ret.index and not np.isnan(ret.loc[jp_td_ts]):
-                    label = "フィルターなし" if strat_name == "PCA_SUB" else f"GAP_{gap_pct}%"
                     ret_cols.append((label, ret.loc[jp_td_ts] * 100))
+
         if ret_cols:
-            cols = st.columns(len(ret_cols))
-            for col, (label, val) in zip(cols, ret_cols):
-                with col:
-                    st.metric(label, f"{val:+.2f}%")
+            # 最大4列ずつ表示
+            for i in range(0, len(ret_cols), 4):
+                chunk = ret_cols[i:i+4]
+                cols = st.columns(len(chunk))
+                for col, (label, val) in zip(cols, chunk):
+                    with col:
+                        st.metric(label, f"{val:+.2f}%")
 
     # --- パフォーマンスサマリー ---
     st.markdown("---")
