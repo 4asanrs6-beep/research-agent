@@ -29,26 +29,33 @@ def fetch_benchmark_returns(
 
     close_series = None
 
-    # --- J-Quants API で TOPIX 指数を直接取得 ---
+    # --- J-Quants API で TOPIX 指数を直接取得 (年単位で分割) ---
     if jquants_provider is not None:
         try:
             logger.info("J-Quants: TOPIX 指数 (0000) を取得中 (start=%s, end=%s)", start, end)
-            df_topix = jquants_provider.get_index_prices(
-                index_code="0000",
-                start_date=start,
-                end_date=end,
-            )
-            logger.info("J-Quants TOPIX 結果: type=%s, len=%s, columns=%s",
-                        type(df_topix).__name__,
-                        len(df_topix) if df_topix is not None else "None",
-                        list(df_topix.columns) if df_topix is not None and hasattr(df_topix, 'columns') else "N/A")
-            if df_topix is not None and len(df_topix) > 0 and "close" in df_topix.columns:
-                df_topix["date"] = pd.to_datetime(df_topix["date"])
-                df_topix = df_topix.sort_values("date").drop_duplicates(subset=["date"])
-                close_series = df_topix.set_index("date")["close"]
-                logger.info("J-Quants: TOPIX 指数取得成功 (%d日)", len(close_series))
-            else:
-                logger.warning("J-Quants TOPIX: データが空またはcloseカラムなし")
+            start_year = int(start[:4])
+            end_year = int(end[:4]) if end else 2026
+            all_chunks = []
+            for year in range(start_year, end_year + 1):
+                chunk_start = f"{year}-01-01" if year > start_year else start
+                chunk_end = f"{year}-12-31" if year < end_year else (end if end else f"{year}-12-31")
+                try:
+                    df_chunk = jquants_provider.get_index_prices(
+                        index_code="0000",
+                        start_date=chunk_start,
+                        end_date=chunk_end,
+                    )
+                    if df_chunk is not None and len(df_chunk) > 0:
+                        all_chunks.append(df_chunk)
+                except Exception as e:
+                    logger.debug("J-Quants TOPIX %s 取得失敗: %s", year, e)
+            if all_chunks:
+                df_topix = pd.concat(all_chunks, ignore_index=True)
+                if "close" in df_topix.columns:
+                    df_topix["date"] = pd.to_datetime(df_topix["date"])
+                    df_topix = df_topix.sort_values("date").drop_duplicates(subset=["date"])
+                    close_series = df_topix.set_index("date")["close"]
+                    logger.info("J-Quants: TOPIX 指数取得成功 (%d日)", len(close_series))
         except Exception as e:
             import traceback as _tb
             logger.warning("J-Quants TOPIX 指数取得失敗: %s\n%s", e, _tb.format_exc())
