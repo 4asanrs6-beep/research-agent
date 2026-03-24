@@ -735,6 +735,10 @@ def _render_presets():
                     st.session_state["form_start"] = _d.fromisoformat(p.get("start", "2015-01-01"))
                     st.session_state["form_end"] = _d.fromisoformat(p.get("end", "2025-12-31"))
                     st.session_state["form_us"] = p.get("us_universe", "US_11")
+                    st.session_state["form_accumulate"] = p.get("accumulate", False)
+                    st.session_state["form_net_exposure"] = p.get("net_exposure", 100)
+                    st.session_state["form_ne_mode"] = p.get("ne_mode", "trim")
+                    st.session_state["form_ne_skip"] = p.get("ne_skip", 0)
                     st.success(f"「{selected}」を読み込みました")
                     st.rerun()
                 if st.button("削除", key="delete_preset"):
@@ -768,6 +772,10 @@ def _render_presets():
                         "start": cfg.start_date,
                         "end": cfg.end_date,
                         "us_universe": cfg.us_universe,
+                        "accumulate": cfg.accumulate_us_returns,
+                        "net_exposure": int(cfg.net_exposure_limit * 100),
+                        "ne_mode": cfg.net_exposure_mode,
+                        "ne_skip": cfg.net_exposure_skip,
                     }
                     _save_presets(presets)
                     st.success(f"「{preset_name}」を保存しました")
@@ -1257,6 +1265,10 @@ def _render_setup_tab():
                     "gap": gap_pct_save, "prior_end": cfg.prior_end_date,
                     "start": cfg.start_date, "end": cfg.end_date,
                     "us_universe": cfg.us_universe,
+                    "accumulate": cfg.accumulate_us_returns,
+                    "net_exposure": int(cfg.net_exposure_limit * 100),
+                    "ne_mode": cfg.net_exposure_mode,
+                    "ne_skip": cfg.net_exposure_skip,
                 }
                 _save_presets(presets)
                 st.success(f"「{preset_name}」を保存しました")
@@ -1382,6 +1394,7 @@ def _render_setup_tab():
         accumulate_us = st.checkbox(
             "JP休場中の米国リターンを累積してシグナルに反映",
             value=False,
+            key="form_accumulate",
             help="JP休場中に発生した複数日分の米国リターンを累積し、休場明けのシグナル入力に使用します。OFFの場合は直前1日のみ使用。",
         )
 
