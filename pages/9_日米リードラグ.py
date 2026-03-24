@@ -41,7 +41,7 @@ STRATEGY_LABELS = {
     "GAP_10": "GAP_10%",
     "GAP_20": "GAP_20%",
     "GAP_30": "GAP_30%",
-    "K3K4_GAP": "K3K4+GAP_50%",
+    "K3K4_GAP": "K3K4+GAP",
     "GAP_CUSTOM": "GAP (手動設定)",
 }
 
@@ -1696,18 +1696,22 @@ def _render_results_tab():
         }
 
     # TOPIX行
-    if has_bm:
+    if has_bm and len(bm_valid) > 0:
         from core.lead_lag.strategy import compute_metrics as _cm_bm
         bm_m = _cm_bm(bm_valid.values, bm_valid.index)
         rows.append(_make_perf_row(bm_m, "TOPIX (ベンチマーク)"))
+    elif not has_bm:
+        st.caption("TOPIX ベンチマークデータが取得できませんでした。")
 
+    gap_pct_display = int(result.config.gap_threshold * 100) if result.config.gap_threshold < 1.0 else None
     for name in show_keys:
         if name in strategies:
             m = strategies[name].metrics
             label = STRATEGY_LABELS.get(name, name)
-            if name == "GAP_CUSTOM":
-                threshold_pct = int(result.config.gap_threshold * 100)
-                label = f"GAP_{threshold_pct}% (NE制限込み)"
+            if name == "GAP_CUSTOM" and gap_pct_display is not None:
+                label = f"GAP_{gap_pct_display}% (NE制限込み)"
+            elif name == "K3K4_GAP" and gap_pct_display is not None:
+                label = f"K3K4+GAP_{gap_pct_display}% (NE制限込み)"
             rows.append(_make_perf_row(m, label))
 
     if rows:
