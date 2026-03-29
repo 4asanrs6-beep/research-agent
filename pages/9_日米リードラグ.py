@@ -739,19 +739,10 @@ def _list_saved_results() -> list[dict]:
 
 
 def _ensure_ll_result():
-    """セッションに ll_result がなければ、最新の保存結果を自動読み込みする。"""
-    if "ll_result" in st.session_state:
-        return
-    # 「新しい実験を開始」でクリアされた直後は復元しない
-    if st.session_state.get("ll_cleared"):
-        return
-    saved = _list_saved_results()
-    if saved:
-        try:
-            result = _load_result_from_disk(saved[0]["path"])
-            st.session_state["ll_result"] = result
-        except Exception:
-            pass
+    """セッションに ll_result がなければ何もしない。
+    ディスクからの自動復元は行わない（明示的な読み込み操作が必要）。
+    """
+    pass
 
 
 # ---------------------------------------------------------------------------
