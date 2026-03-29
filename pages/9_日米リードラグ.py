@@ -742,6 +742,9 @@ def _ensure_ll_result():
     """セッションに ll_result がなければ、最新の保存結果を自動読み込みする。"""
     if "ll_result" in st.session_state:
         return
+    # 「新しい実験を開始」でクリアされた直後は復元しない
+    if st.session_state.get("ll_cleared"):
+        return
     saved = _list_saved_results()
     if saved:
         try:
@@ -1439,6 +1442,7 @@ def _render_setup_tab():
                 st.session_state.pop("ll_thread", None)
                 st.session_state.pop("ll_progress", None)
                 st.session_state.pop("ll_interpretation", None)
+                st.session_state["ll_cleared"] = True
                 st.rerun()
         return
 
@@ -1632,6 +1636,7 @@ def _render_setup_tab():
         submitted = st.form_submit_button("バックテストを実行", type="primary")
 
     if submitted:
+        st.session_state.pop("ll_cleared", None)
         config = LeadLagConfig(
             start_date=str(start_date),
             end_date=str(end_date),
