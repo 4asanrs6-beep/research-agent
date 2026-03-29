@@ -1,0 +1,62 @@
+{
+  "review_type": "plan",
+  "decision": "revise",
+  "overall_score": 0.66,
+  "scores": {
+    "requirement_compliance": 0.62,
+    "feasibility": 0.79,
+    "testability": 0.58,
+    "maintainability": 0.73,
+    "scope_appropriateness": 0.59
+  },
+  "issues": [
+    {
+      "severity": "major",
+      "category": "requirement_gap",
+      "description": "Stage 2の中心問いは『turnoverが何を捉えているか』の特定ですが、計画は実質的に `turnover + margin_ratio` の追加回帰です。信用残比率は信用“フロー”ではなく信用“ストック”の代理なので、これだけでは『信用由来の回転率 vs 現物由来の回転率』の分解になっていません。turnoverが消えても、信用短期売買を捉えたとは限らず、単に高信用残銘柄の別特性を吸っただけの可能性が残ります。",
+      "suggestion": "結論を『信用投機の直接分解』ではなく『信用残ストックでどこまでturnover効果を吸収できるか』に弱めて事前登録してください。その上で、解釈は限定的と明記し、少なくとも `margin_ratio` 単独追加・交互作用追加・`turnover` 残差化後の回帰の3本を並べて、どの部分が吸収されたのかを切り分けるべきです。"
+    },
+    {
+      "severity": "major",
+      "category": "testability",
+      "description": "Stage 1との比較可能性の定義が弱いです。`margin_ratio` 欠損行をメイン回帰で除外すると、Stage 1よりサンプルが縮みます。その状態で『turnover係数が±50%以内なら再現』としても、差が設計変更ではなくサンプル変更由来なのか判別できません。",
+      "suggestion": "再現確認を2段階に分けてください。(1) Stage 1スクリプトをそのまま再実行して既報値を再現、(2) Stage 2と同じ“margin非欠損サンプル”だけに制限した `model_s1_matched` を走らせ、その上で `model_s2a/s2b` と比較する。比較対象は必ず matched sample に固定するべきです。"
+    },
+    {
+      "severity": "major",
+      "category": "blind_spot",
+      "description": "多重共線性チェックが計画から落ちています。元の `cq3 v2` は VIF を捨てる条件に含めており、今回の `margin_ratio = margin_buy_balance / avg_volume` は turnover や size と機械的に相関しやすい定義です。`turnover消失+margin有意` が多重共線性でも起こり得ます。",
+      "suggestion": "事前に `turnover`, `margin_ratio`, `turnover*margin_ratio`, `vol`, `scale` の VIF または条件数のゲートを追加してください。少なくとも `VIF > 10` を要注意、`VIF > 5` でも解釈を弱める、というルールを固定するべきです。"
+    },
+    {
+      "severity": "major",
+      "category": "requirement_gap",
+      "description": "サイズ層別の設計が弱いです。計画では大型株・中小型株で `model_s1` を回すだけですが、これでは『サイズ交絡を排除した上で margin proxy が turnover を吸収するか』を見られません。Stage 2の主問いに対して、サイズ検証が補助ではなく未完成です。",
+      "suggestion": "サイズ層別でも `model_s1` だけでなく `model_s2a` まで回してください。最低限、各サイズ群で `turnover` の係数変化率と `margin_ratio` の符号・p値を報告し、proxy の効き方がサイズ依存かどうかを確認する必要があります。"
+    },
+    {
+      "severity": "minor",
+      "category": "feasibility",
+      "description": "判定基準の `turnover p は Stage 1の p=0.026 と同水準（有意のまま）` は曖昧です。p値はサンプル数に敏感なので、同水準を要求すると必要以上に不安定になります。",
+      "suggestion": "p値の絶対比較ではなく、`符号維持`, `効果量変化率`, `95%CI`, `増分R2`, `matched sampleでの係数差` を主判定に置いてください。p値は補助指標に落とした方が運用しやすいです。"
+    },
+    {
+      "severity": "minor",
+      "category": "over_engineering",
+      "description": "交互作用 `turnover*margin_ratio` まで一度に入れると、サンプル縮小と共線性がある中で解釈が散りやすいです。現段階では main effect の切り分けより先に複雑化しています。",
+      "suggestion": "順序を `matched model_s1` → `+ margin_ratio` → 必要なら交互作用、に厳格化してください。交互作用は main effect の方向が安定してから追加する方が過剰設計を避けられます。"
+    },
+    {
+      "severity": "minor",
+      "category": "blind_spot",
+      "description": "Stage 1メモで補助確認予定だった 2-way cluster SE の扱いがStage 2計画にありません。主判定に入れる必要はありませんが、符号や有意性が大きく崩れる場合の解釈ルールが未定です。",
+      "suggestion": "2-way cluster は補助検証として固定し、主判定を覆さないが、符号反転または効果消失なら『結論を弱める』という扱いを事前に明記してください。"
+    }
+  ],
+  "strengths": [
+    "Stage 1のスクリプトを最小改変で使う方針は実装容易性が高く、差分の追跡もしやすいです。",
+    "『まず Stage 1再現、再現できなければ中止』というゲート自体は妥当です。",
+    "サイズ交絡をStage 2で同時に確認しようとしている点は、Stage 1レビューで残った論点に対応しています。"
+  ],
+  "revision_guidance": "採択前に3点だけ直すべきです。第1に、問いを『信用由来vs現物由来の直接分解』から『信用残ストックproxyでturnover効果をどこまで説明できるか』へ弱めること。第2に、比較は必ずmargin非欠損のmatched sampleで行い、Stage 1再現とStage 2比較を分離すること。第3に、VIFゲートとサイズ層別の `model_s2a` を追加し、proxy追加後のturnover変化を各サイズで確認すること。これならStage 1との比較可能性、proxy妥当性、判定基準の曖昧さがかなり解消されます。"
+}

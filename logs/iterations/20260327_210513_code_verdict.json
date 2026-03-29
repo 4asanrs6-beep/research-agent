@@ -1,0 +1,50 @@
+{
+  "review_type": "code",
+  "decision": "revise",
+  "overall_score": 0.66,
+  "scores": {
+    "requirement_compliance": 0.68,
+    "feasibility": 0.72,
+    "testability": 0.61,
+    "maintainability": 0.64,
+    "scope_appropriateness": 0.67
+  },
+  "issues": [
+    {
+      "severity": "major",
+      "category": "testability",
+      "description": "検証期間での合格条件が「いずれかのラグで p < threshold」になっており、発見期間で有意だったラグを再現しているかを確認していません。そのため、前半では t+3 が有意、後半では t+1 だけ有意でも通過し、クロスバリデーションとしての再現確認が弱くなっています。",
+      "suggestion": "検証は少なくとも発見期間の `peak_lag` または発見時に有意だったラグ集合に限定して判定してください。さらに `car_consistency` を単なる付加情報ではなく、通過条件に含めるか、少なくとも別フラグで厳格再現を区別してください。"
+    },
+    {
+      "severity": "major",
+      "category": "blind_spot",
+      "description": "`run_cross_validated_scan` は `fdr_correction=True` を前提にした説明ですが、実際の `run_event_study` 側では `len(results) > 100` のときしか FDR が適用されません。半分期間に分割した結果ペア数が 100 以下になると、呼び出し側の意図と異なる検定条件で discovery が走ります。",
+      "suggestion": "`run_event_study` 側で `fdr_correction=True` なら件数に関係なく常に FDR を適用するか、少なくとも `CrossValidatedResult` に discovery で実際に使われた補正方法を明示してください。現在の暗黙条件は再現性と保守性を下げます。"
+    },
+    {
+      "severity": "major",
+      "category": "feasibility",
+      "description": "分割後の `min_events=min_events // 2` は固定で、期間分割によるイベント密度の偏りを考慮していません。前半・後半でボラティリティや営業日数が偏ると、片側だけイベント不足で脱落しやすく、結果が期間依存になります。",
+      "suggestion": "絶対値の半減ではなく、期間長に比例した下限や `max(最低保証, round(min_events * split_ratio))` のようなルールにしてください。加えて、発見/検証で実際に使われたイベント数不足の件数を結果に含めると診断しやすくなります。"
+    },
+    {
+      "severity": "minor",
+      "category": "maintainability",
+      "description": "`ValidatedPair` には discovery/validation の辞書がそのまま格納されますが、どのラグが採用ラグなのか、どの条件で検証通過したのかが構造上明示されていません。利用側が `peak_lag` と各 dict を都度突き合わせる必要があり、後続処理で解釈ミスを起こしやすいです。",
+      "suggestion": "`validated_lag`、`validation_passed_on_peak_lag`、`discovery_significant_lags` などの明示フィールドを追加し、通過理由をデータ構造に埋め込んでください。"
+    },
+    {
+      "severity": "minor",
+      "category": "testability",
+      "description": "この実装から期待される重要ケースに対するテスト観点がコード上で読み取りにくいです。特に「前半のみ有意」「後半で別ラグのみ有意」「符号逆転」「イベント数不足」の扱いが仕様として固定されていません。",
+      "suggestion": "少なくとも 1) 同一ラグ再現で通過、2) 別ラグ有意では不通過、3) 符号逆転では不通過、4) discovery 0件で早期終了、の単体テストを追加してください。"
+    }
+  ],
+  "strengths": [
+    "discovery と validation を明示的に分離し、結果も `CrossValidatedResult` に保持しているため、解析の追跡性は確保しやすいです。",
+    "進捗コールバックや早期終了分岐が入っており、長時間スキャン処理としての運用性は悪くありません。",
+    "validation では discovery で見つかったペアだけを再評価する構成になっており、全探索を繰り返さない点は計算量の面で妥当です。"
+  ],
+  "revision_guidance": "クロスバリデーションの判定基準をまず厳密化してください。具体的には、発見期間で有意だったラグに対してのみ検証を行い、同一ラグ・同方向の再現を通過条件にすることが最優先です。そのうえで、FDR が実際に適用されたかを discovery 結果に明示し、分割後 `min_events` の扱いを期間長依存で安定化してください。最後に、上記の境界ケースを固定する単体テストを追加すれば、この実装はかなり信頼できる形になります。"
+}

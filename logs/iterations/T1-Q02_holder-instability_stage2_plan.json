@@ -1,0 +1,56 @@
+{
+  "plan": {
+    "approach": "Stage 1のスクリプトを最小改変。問いを『信用残ストックproxyでturnover効果をどこまで説明できるか』に限定",
+    "question_scope": "信用売買代金が取れないため、『信用由来vs現物由来の直接分解』ではなく、『信用残比率を追加したときturnover係数がどう変化するか』を見る。解釈は限定的",
+    "data_constraint": "J-Quantsからは信用売買代金が取れない。信用残比率（margin_buy_balance/20日平均出来高）で代理",
+    "files": [
+      {
+        "path": "scripts/run_cq3_new_stage2.py",
+        "action": "create",
+        "description": "Stage 1をベースに改変。信用残比率を追加。matched sampleで比較。サイズ層別でもmodel_s2aまで実行"
+      }
+    ],
+    "regression_models_in_order": [
+      "step1: model_s1_full -- Stage 1と同一モデルを全サンプルで再現確認",
+      "step2: model_s1_matched -- margin非欠損サンプルに限定してmodel_s1を再実行（比較のベースライン）",
+      "step3: model_s2a -- matched sampleでmargin_ratioを追加。turnover係数の変化を観察",
+      "step4: 交互作用は step3の結果を見てから判断。main effectが安定していれば追加",
+      "step5_aux: サイズ層別（大型/中小型）でmodel_s1とmodel_s2aの両方を実行"
+    ],
+    "vif_gate": "turnover, margin_ratio, volのVIFを必ず報告。VIF>10なら要注意、VIF>5でも解釈を弱める",
+    "pass_criteria": {
+      "reproduction_gate": "step1でStage 1の数値を再現（turnover符号負、vol有意、beta非有意）。再現できなければ中止",
+      "matched_sample_gate": "step2のmatched sampleでturnover係数がstep1の±50%以内に収まること",
+      "main_interpretation": {
+        "turnover残る+margin_ratio非有意": "turnoverは信用残ストックでは説明できない。現物短期売買or他の要因が本体の可能性",
+        "turnover残る+margin_ratio有意": "両方独立に効く。信用ストックと回転率は別チャネル",
+        "turnover消える+margin_ratio有意": "turnoverは信用残ストックの代理変数だった可能性。ただしストック=フローではないため解釈は限定的",
+        "turnover消える+margin_ratio非有意": "多重共線性の問題。VIFを確認"
+      },
+      "size_check": "大型株でもturnover効果が残ればサイズ交絡を排除。サイズ層別ではmodel_s2aまで実行し、margin_ratio追加後の変化もサイズ別に確認"
+    },
+    "auxiliary_conflict_rule": "2-way cluster SEは補助検証。主判定を覆さないが、符号反転または効果消失なら結論を弱める",
+    "test_method": "step1でStage 1の数値再現 -> step2でmatched sampleベースライン -> step3で追加変数の効果を観察",
+    "implementation_order": [
+      "1. run_cq3_new_stage1.pyをコピー",
+      "2. 信用残データ取得を追加（run_cq3.pyから流用）",
+      "3. build_panel_with_margin(): 信用残比率を追加",
+      "4. run_regression_with_vars(): 汎用化",
+      "5. step1: 全サンプルでStage 1再現",
+      "6. step2: matched sampleでベースライン",
+      "7. step3: margin_ratio追加+VIF報告",
+      "8. step5_aux: サイズ層別（model_s1+model_s2a両方）",
+      "9. 結果表示+JSON保存",
+      "10. Codexコードレビュー"
+    ],
+    "estimated_complexity": "low",
+    "codex_review_fixes": [
+      "問いを『信用残ストックproxyでturnoverをどこまで説明できるか』に弱めた",
+      "比較はmatched sample（margin非欠損）に固定。Stage 1再現とStage 2比較を分離",
+      "VIFゲート追加（VIF>10で要注意、>5で解釈弱め）",
+      "サイズ層別でmodel_s2aまで実行",
+      "交互作用はmain effect安定後にのみ追加（過剰設計防止）",
+      "2-way cluster SEは補助。符号反転/効果消失なら結論を弱める"
+    ]
+  }
+}

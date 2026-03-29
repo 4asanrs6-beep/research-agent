@@ -1,0 +1,11 @@
+{
+  "verdict": "approve",
+  "issues": [
+    {
+      "severity": "minor",
+      "description": "`matched sample` の安定性チェックがまだ診断表示中心で、計画にあった `matched_sample_gate` が採否ロジックや構造化出力に十分反映されていません。今回修正した3件の major は解消されていますが、`full -> matched` で係数が大きく崩れた場合の扱いが機械的に追えません。",
+      "suggestion": "`turnover` 係数の変化率が閾値を超えたときに `comparison_not_stable` フラグを JSON に保存し、`interpretation` にも反映してください。あわせて `2-way cluster` の conflict 判定も文字列だけでなく構造化して残すと監査しやすいです。"
+    }
+  ],
+  "overall_score": 8
+}

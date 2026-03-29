@@ -1,0 +1,38 @@
+```json
+{
+  "verdict": "revise",
+  "issues": [
+    {
+      "severity": "critical",
+      "description": "multi_perspective.md の q3 v2 で確定している統制条件と主要係数が計画に反映されていません。v2/decision_summary では『vol・turnover・beta・信用残の4係数を上方/下方で比較』『VIX変化で層別化』『サイズ層別+ETF/指数採用ダミー追加』が条件ですが、現計画の回帰式は `beta + vol + turnover + scale_dummies + ret5d` で、信用残も VIX 層別も ETF ダミーも抜けています。",
+      "suggestion": "主分析を v2 の確定仕様に合わせて修正してください。最低でも `margin_ratio(or 既存の信用残proxy)`, `VIX change stratification`, `ETF/index inclusion dummy` を追加し、4係数比較の対象を `vol/turnover/beta/credit` に戻すべきです。ret5d は統制として残してよいですが、比較対象には含めない方が設計と整合します。"
+    },
+    {
+      "severity": "major",
+      "description": "対称性判定が `abs(up)/abs(down) >= 50%` のヒューリスティックだけで、係数差の統計的不確実性を扱っていません。上方ショックはサンプルが少なくなりやすく、比率だけだと『非有意差を非対称と誤判定』しやすいです。",
+      "suggestion": "表示用には上下別回帰を維持しつつ、判定用には pooled panel で `direction × variable` 交互作用を入れ、差分係数の p 値または信頼区間を併記してください。少なくとも `coef_up - coef_down` のブートストラップCIを追加するべきです。"
+    },
+    {
+      "severity": "major",
+      "description": "下方再現ゲートが『vol有意、turnover有意、beta非有意』という有意性パターンのみで、元実験との整合確認として弱いです。イベント閾値を複数に変えると有意性はサンプル数に依存して揺れやすく、バグ検知ゲートとして不十分です。",
+      "suggestion": "再現ゲートは `符号一致`, `係数レンジ`, `p値レンジ`, `有効イベント数`, `n_obs` をセットで比較してください。特にベース閾値（例: -2σ）では holder-instability Stage 1/2 の既知結果と係数オーダーまで照合する方が安全です。"
+    },
+    {
+      "severity": "major",
+      "description": "上方サンプル最低日数15日は、q3 v2 が要求する VIX 層別まで行う前提では低すぎます。さらに 3閾値 × 2方向 × サイズ層別まで切ると、セルによっては推定不能でも見かけ上の判定が出てしまいます。",
+      "suggestion": "各セルごとに最小イベント日数と最小観測数を定義してください。例えば `main analysis >= 20 events`, `VIX/size stratified >= 10-15 events per cell`, 未達セルは『判定保留』に固定するのが妥当です。"
+    },
+    {
+      "severity": "minor",
+      "description": "複数閾値すべてで同じ結論を要求するだけだと、閾値間でほぼ同じ日付集合を使っている点が考慮されず、ロバストネスの情報量がやや限定的です。",
+      "suggestion": "閾値ロバストネスは『3閾値で方向と大まかな強弱が一貫』に加え、イベント集合の重なり率も記録してください。可能なら fixed threshold（±2%, ±1.5%）と sigma threshold（±1σ）を分けて解釈すると見通しが良いです。"
+    },
+    {
+      "severity": "minor",
+      "description": "既存 Stage 2 で確認された『大型でturnover集中、中小型では信用残寄り』というサイズ依存を、最終判定ロジックではどう扱うかが未定義です。全体判定だけ先に置くと、異質性を平均化して解釈を誤る可能性があります。",
+      "suggestion": "全体判定の前に『全体』『大型』『中小型』の3層を並列に出し、どの層の対称性を主判定にするかを事前登録してください。推奨は全体を主、サイズ層別を機構解釈用の補助判定です。"
+    }
+  ],
+  "overall_score": 5
+}
+```

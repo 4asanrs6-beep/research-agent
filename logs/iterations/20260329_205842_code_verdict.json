@@ -1,0 +1,36 @@
+{
+  "verdict": "revise",
+  "issues": [
+    {
+      "severity": "critical",
+      "description": "設計計画の主判定である pooled panel の `direction x variable` 交互作用検定が未実装です。計画では交互作用の p 値を対称性の主判定に使う想定ですが、実装は上方/下方を別回帰で推定した後、係数比率 `ratio >= 0.5` と同符号だけで対称/非対称を表示しています（`logs/iterations/symmetry_test_plan.json:15-17`, `scripts/run_symmetry_test.py:365-382`）。このままでは『差が統計的に有意か』に答えられません。",
+      "suggestion": "上方・下方を結合した pooled panel を作り、`direction`, `direction*vol`, `direction*turnover`, `direction*beta`, `direction*margin_ratio` を入れた回帰を追加してください。主判定は各交互作用係数の p 値に置き、50%ルールは補助表示に限定してください。"
+    },
+    {
+      "severity": "major",
+      "description": "ロバストネス閾値が計画と不一致です。計画は `±2%`, `±1.5%`, `±1sigma` ですが、実装は `2.0sigma`, `1.5pct`, `2.0pct` になっています（`logs/iterations/symmetry_test_plan.json:44-45`, `scripts/run_symmetry_test.py:287-290`）。イベント集合自体が変わるため、計画との整合性がありません。",
+      "suggestion": "`2.0sigma` を `1.0sigma` に修正し、出力でも fixed threshold と sigma threshold を分けて解釈できるようにしてください。"
+    },
+    {
+      "severity": "major",
+      "description": "サンプルゲートが計画と不一致です。計画は主分析で各方向 `>=20` イベント日ですが、実装は生イベント数で `<15` を先に弾き、回帰直前でも下方 `<20`・上方 `<15` と方向で基準が異なります（`logs/iterations/symmetry_test_plan.json:26`, `scripts/run_symmetry_test.py:309-333`）。これでは上方だけ緩い基準で通過し、比較の対称性が崩れます。",
+      "suggestion": "主分析は上方・下方とも `panel_matched['event_date'].nunique() >= 20` に統一してください。事前の `len(events) < 15` 判定は削除するか補助ログに留めてください。"
+    },
+    {
+      "severity": "major",
+      "description": "再現ゲートが未実装です。計画では `2sigma 下方` が Stage 1 の符号・係数オーダー・有効イベント日数を満たさなければ中止する仕様ですが、スクリプト内に照合処理がありません（`logs/iterations/symmetry_test_plan.json:30-41`、`scripts/run_symmetry_test.py` 全体）。設計上の捨てる条件がコードに落ちていません。",
+      "suggestion": "下方 `2sigma` 実行後に Stage 1 基準値との比較を追加し、不一致なら `decision_status='fail_reproduction'` で後続の対称性判定を止めてください。"
+    },
+    {
+      "severity": "major",
+      "description": "統計推論がまだ弱いです。標準誤差は `event_date` の 1 方向クラスタのみで、同一銘柄が複数イベント日に繰り返し出るパネル構造を十分に反映していません（`scripts/run_symmetry_test.py:227`）。係数差の検定を追加しても、p 値が過小評価される恐れがあります。",
+      "suggestion": "少なくとも `event_date` と `code` の 2 方向クラスタ、または銘柄側クラスタを含む頑健性確認を追加してください。主判定に使う p 値の推定法を計画に明記したうえで合わせるべきです。"
+    },
+    {
+      "severity": "minor",
+      "description": "サイズ層別の大型判定が `Core30+Large70` を意図している一方、実装は全ダミー 0 を大型側に入れており、未知カテゴリも大型に混入し得ます（計画: `logs/iterations/symmetry_test_plan.json:21-24`, 実装: `scripts/run_symmetry_test.py:398-403`）。分類ノイズが層別結果を汚します。",
+      "suggestion": "`Core30` を明示的に保持するか、未知カテゴリを除外してください。少なくとも『全ダミー 0 = Core30』という仮定が本当に成り立つか確認が必要です。"
+    }
+  ],
+  "overall_score": 4
+}

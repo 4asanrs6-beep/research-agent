@@ -1,0 +1,143 @@
+```json
+{
+  "review_type": "idea",
+  "decision": "revise",
+  "overall_score": 0.62,
+  "scores": {
+    "requirement_compliance": 0.74,
+    "feasibility": 0.68,
+    "testability": 0.66,
+    "maintainability": 0.61,
+    "scope_appropriateness": 0.42
+  },
+  "issues": [
+    {
+      "severity": "major",
+      "category": "blind_spot",
+      "description": "cq3は信用買残そのものではなく、ハイベータ・高回転・個人主導フローの代理変数を見ているだけの可能性が高い。レッドチームの偏相関・統制回帰の攻撃は過剰ではなく、最初に潰すべき代替仮説として妥当。",
+      "suggestion": "β、サイズ、ボラ、売買代金回転率、個人フロー近似を先に統制し、信用買残の増分が残差説明力を持つかをゲート条件に置く。通らなければ即停止する。"
+    },
+    {
+      "severity": "major",
+      "category": "testability",
+      "description": "cq5は小型株の遅延効果と非同期取引ノイズの識別が曖昧で、終値ベースだけだと見かけのラグ相関を誤認する危険が大きい。レッドチームのVWAP置換テスト要求は妥当。",
+      "suggestion": "終値、VWAP、出来高加重リターンの3定義で同方向の結果が残るかを最低条件にし、半減するなら仮説を『遅延』ではなく『計測ノイズ』として棄却する。"
+    },
+    {
+      "severity": "major",
+      "category": "over_engineering",
+      "description": "q15は検出は容易でもP/L接続が弱く、VIX条件付きで消えるなら独立シグナルとしての価値は乏しい。現時点で追うと研究ポートフォリオの焦点を散らす。",
+      "suggestion": "独立した意思決定改善かリスク制御改善に直結する証拠が出るまで、探索対象から外す。"
+    },
+    {
+      "severity": "major",
+      "category": "requirement_gap",
+      "description": "cq2はナラティブの定義が事後的でコード化不能というPMの懸念が重い。SOX、グロース、USD/JPYで高い説明力が出るなら、説明はできても独立仮説としては弱い。",
+      "suggestion": "定量的に事前定義できる辞書・分類規則がない限りskipとし、再提案時は観測可能変数への写像を先に提示させる。"
+    },
+    {
+      "severity": "minor",
+      "category": "blind_spot",
+      "description": "q11は有望だが、『大型グローバル vs 中小型内需』の第一主成分再記述に落ちるリスクは残る。レッドチームのPCA攻撃は一部妥当だが、過剰とまでは言えない。",
+      "suggestion": "サイズ、海外売上比率、業種、β、為替感応度を統制した後でも残る差分を検証し、第一主成分に吸収されないサブ構造だけを採用する。"
+    }
+  ],
+  "strengths": [
+    "全体として、レッドチームは『まず安い反証を通せ』という正しい順序を提示しており、cq3・cq5・cq2への攻撃は特に有効。",
+    "q11は既存コードへの統合容易性が高く、仮にアルファが薄くても実装・検証コストに対する学習効率が良い。",
+    "cq3とcq5は完全否定までは不要で、条件付きゲートを明示すれば小コストで白黒を付けられる。"
+  ],
+  "revision_guidance": "研究キューを絞るべき。q11のみを明確なpursue、cq3とcq5は反証テスト先行のconditional、cq2とq15はskipに落とす。特にhigh攻撃を受けた仮説は『独立説明力が残るか』を最初の1本で判定し、通らなければ深掘りしない。",
+  "final_adjudication": {
+    "red_team_assessment": {
+      "cq3": {
+        "judgment": "妥当",
+        "reason": "代理変数批判は核心。独立説明力が消えるなら仮説の中核が崩れる。high評価は妥当。"
+      },
+      "cq5": {
+        "judgment": "妥当",
+        "reason": "非同期取引ノイズは小型株ラグの典型的代替仮説で、VWAP比較は安価かつ決定的。high評価は妥当。"
+      },
+      "q11": {
+        "judgment": "やや妥当だが一部過剰",
+        "reason": "第一主成分にかなり吸収される懸念はあるが、統合容易性と実務接続が高く、残差構造の価値までは否定していない。medium相当。"
+      },
+      "q15": {
+        "judgment": "妥当",
+        "reason": "VIX条件付きで消えるなら独立仮説ではない。ただし元々低優先であり、攻撃の意味は『skip確認』に近い。"
+      },
+      "cq2": {
+        "judgment": "妥当",
+        "reason": "事後ラベリング批判とコード化不能批判が同時に成立している。high評価は妥当。"
+      }
+    },
+    "question_decisions": [
+      {
+        "id": "q11",
+        "decision": "pursue",
+        "rationale": "5問の中で最も実装効率が高く、PMが最優先に格上げした判断は合理的。レッドチームの攻撃は致命傷ではなく、統制後に残差が残るかの問題に縮約できる。",
+        "minimum_win_condition": "サイズ、β、業種、海外売上比率、USD/JPY感応度を統制した後でも、主要評価指標で一貫した残差差分が残ること。既存コードへ低摩擦で統合でき、サンプル分割後も符号が維持されること。"
+      },
+      {
+        "id": "cq3",
+        "decision": "conditional",
+        "rationale": "需給仮説として魅力はあるが、独立説明力の不在リスクが高い。探索してよいが、反証テストに通るまで昇格させない。"
+      },
+      {
+        "id": "cq5",
+        "decision": "conditional",
+        "rationale": "小コストで検証可能だが、ノイズ仮説が強い。『探索的pursue』より一段厳しく、反証テスト専用枠が妥当。"
+      },
+      {
+        "id": "q15",
+        "decision": "skip",
+        "rationale": "検出容易でもP/L接続が弱く、独立性も乏しい。今の研究キューに入れる理由が薄い。",
+        "revival_condition": "VIX統制後も残り、かつレジーム認識がエントリー/ヘッジ/ポジションサイズのいずれかで明確な改善を生むこと。"
+      },
+      {
+        "id": "cq2",
+        "decision": "skip",
+        "rationale": "コード化不能と事後ラベリングの二重問題があり、現状では研究仮説ではなく解釈ラベルに近い。",
+        "revival_condition": "ナラティブを事前定義可能な観測変数へ写像でき、SOX・グロース・USD/JPY統制後にも独立寄与が残ること。"
+      }
+    ],
+    "conditional_gates": [
+      {
+        "id": "cq3",
+        "gate": "β、サイズ、ボラ、回転率、スタイル因子統制後にも信用買残増分の説明力が残ること。偏相関が有意でなければskipへ移行。"
+      },
+      {
+        "id": "cq5",
+        "gate": "終値ではなくVWAP/出来高加重定義でもラグ効果が残ること。相関が大幅減衰するなら計測ノイズとしてskipへ移行。"
+      }
+    ],
+    "priority_order": [
+      {
+        "rank": 1,
+        "id": "q11",
+        "status": "pursue"
+      },
+      {
+        "rank": 2,
+        "id": "cq3",
+        "status": "conditional"
+      },
+      {
+        "rank": 3,
+        "id": "cq5",
+        "status": "conditional"
+      },
+      {
+        "rank": 4,
+        "id": "q15",
+        "status": "skip"
+      },
+      {
+        "rank": 5,
+        "id": "cq2",
+        "status": "skip"
+      }
+    ]
+  }
+}
+```

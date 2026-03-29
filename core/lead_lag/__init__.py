@@ -8,6 +8,12 @@ import logging
 
 from .config import LeadLagConfig
 from .strategy import BacktestResult
+from .signal_attribution import (
+    AttributionResult,
+    compute_signal_attribution,
+    summarize_attribution,
+    get_coupling_heatmap_data,
+)
 
 logger = logging.getLogger(__name__)
 

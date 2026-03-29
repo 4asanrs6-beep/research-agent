@@ -1,0 +1,45 @@
+```json
+{
+  "review_type": "idea",
+  "decision": "reject",
+  "overall_score": 0.14,
+  "scores": {
+    "requirement_compliance": 0.1,
+    "feasibility": 0.3,
+    "testability": 0.1,
+    "maintainability": 0.1,
+    "scope_appropriateness": 0.1
+  },
+  "issues": [
+    {
+      "severity": "critical",
+      "category": "requirement_gap",
+      "description": "レビュー対象が単なる `{\"test\": \"hello\"}` であり、何を達成したいアイデアなのか、対象課題、利用者価値、期待する成果が一切定義されていません。idea評価に必要な要件適合性を判定できる材料が不足しています。",
+      "suggestion": "少なくとも『解決したい課題』『想定ユーザー』『提案内容』『期待効果』を文章で明記し、JSONなら `problem` `proposal` `target_user` `expected_outcome` などの項目を追加してください。"
+    },
+    {
+      "severity": "major",
+      "category": "blind_spot",
+      "description": "新規性や実現可能性を判断するための前提条件がなく、既存手段との差分や採用理由が不明です。",
+      "suggestion": "既存案との違い、なぜその案を採るのか、実現に必要な前提条件を1-3点で明示してください。"
+    },
+    {
+      "severity": "major",
+      "category": "testability",
+      "description": "アイデアが成功したと判断する評価指標や検証方法が定義されていないため、良し悪しを確認できません。",
+      "suggestion": "成功条件を `success_metrics` や `validation_method` として追加し、例えば『ユーザー作業時間を何%削減する』のように測定可能な形で示してください。"
+    },
+    {
+      "severity": "minor",
+      "category": "over_engineering",
+      "description": "情報量が極端に少なく、過剰設計ではない一方で、評価可能な最小要件すら満たしていないためスコープ設定として不適切です。",
+      "suggestion": "簡潔さは維持しつつ、1画面で読める程度の最小限の説明を補って、評価に必要な粒度へ引き上げてください。"
+    }
+  ],
+  "strengths": [
+    "表現が最小限で、形式自体は機械可読なJSONになっている",
+    "試験的なたたき台としては編集しやすい"
+  ],
+  "revision_guidance": "この案は現状ではアイデアとして評価不能です。次の修正では、`hello` のようなプレースホルダを具体的な提案内容に置き換え、課題・対象ユーザー・提案内容・期待効果・検証方法を最低限追加してください。その上で、既存案との差分と実現条件を1-2文で補足すれば、idea評価の土台になります。"
+}
+```

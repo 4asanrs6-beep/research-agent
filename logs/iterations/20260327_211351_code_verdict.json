@@ -1,0 +1,38 @@
+{
+  "review_type": "code",
+  "decision": "revise",
+  "overall_score": 0.71,
+  "scores": {
+    "requirement_compliance": 0.8,
+    "feasibility": 0.78,
+    "testability": 0.62,
+    "maintainability": 0.7,
+    "scope_appropriateness": 0.74
+  },
+  "issues": [
+    {
+      "severity": "major",
+      "category": "testability",
+      "description": "`pair.n_events` だけを `peak_lag` 基準の有効件数に変更した一方で、`direction_hit_rate` は引き続き `t+1` が取得できたイベント全体で計算されています。`build_summary_table` と `build_cv_summary_table` ではこの2つが同じ行に並ぶため、利用者は同一母数の指標だと誤解しやすく、`peak_lag != 1` のケースで解釈がずれます。",
+      "suggestion": "`direction_hit_rate` も `peak_lag` 基準で再計算するか、別フィールドとして `n_direction_hits_base` のような母数を明示してください。少なくともテーブル出力では母数が異なることを列名またはコメントで示すべきです。"
+    },
+    {
+      "severity": "major",
+      "category": "requirement_gap",
+      "description": "`n_events` の算出が `np.isfinite(peak_arr)` ベースのため、`cum_ret = np.nansum(...)` によって全期間が `NaN` のイベントでも `0.0` として数えられる可能性があります。これでは「peak_lag の有効件数」を厳密に表せず、欠損データを含む銘柄で件数が過大計上されます。",
+      "suggestion": "`car_by_lag` に値を追加する前に、`jp_rets[idx + 1: idx + lag + 1]` の有効日数を検査し、少なくとも1件以上または全日有効など明確な基準を満たす場合だけ採用してください。`n_events` はその採用済みサンプル数をそのまま使う形に寄せると一貫します。"
+    },
+    {
+      "severity": "minor",
+      "category": "maintainability",
+      "description": "`pair.n_events = 0` を一度設定して後段で上書きする実装は、`n_events` の意味が途中で変わった経緯を知らないと読み取りづらいです。今後別の集計指標を追加した際に再び古い意味へ戻す変更が混入しやすくなります。",
+      "suggestion": "`peak_lag_sample_count` のような局所変数で確定させてから `PairResult` に代入するか、`PairResult` 自体に `peak_lag_n_events` のような明示的な名前を導入してください。あわせてこの変更点を固定する単体テストを追加すると保守しやすくなります。"
+    }
+  ],
+  "strengths": [
+    "`peak_lag` 確定後にそのラグのサンプル数で `n_events` を設定する方針自体は、従来の全イベント数より集計の意味が明確です。",
+    "`valid_lags == 0` の場合を早期 `continue` しており、統計量未計算のペアを結果に混ぜない点は安全です。",
+    "CV側でも `discovery_n_events` / `validation_n_events` に同じ値が流れるため、修正の反映範囲は一貫しています。"
+  ],
+  "revision_guidance": "`n_events` の定義を `peak_lag` の実サンプル数として厳密化し、その母数と整合しない指標を整理してください。具体的には、1) `car_by_lag` 追加条件に欠損ウィンドウの扱いを明文化する、2) `direction_hit_rate` の母数を `n_events` と合わせるか別指標として分離する、3) `peak_lag=5 で t+1 欠損あり/途中 NaN あり` のケースを含むテストを追加する、の3点を行えばこの修正は安定します。"
+}

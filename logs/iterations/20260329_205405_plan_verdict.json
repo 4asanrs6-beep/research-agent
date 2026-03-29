@@ -1,0 +1,26 @@
+{
+  "verdict": "revise",
+  "issues": [
+    {
+      "severity": "critical",
+      "description": "修正内容は `logs/iterations/symmetry_test_plan.json` には反映されていますが、実装対象の `scripts/run_symmetry_test.py` がまだ存在せず、コードとしては確認できません。現時点では『修正済みの計画』であって『修正済みの実装』ではありません。",
+      "suggestion": "まず `scripts/run_symmetry_test.py` を作成し、計画にある4点を JSON 出力まで含めて実装してください。その後にコードレビューを再実施するのが妥当です。"
+    },
+    {
+      "severity": "major",
+      "description": "VIX 層別の定義が v2 確定仕様とずれています。計画では `VIX事前水準の中央値で2群` ですが、v2 文面は `VIX変化で層別化` でした。これは情報環境の統制として別物です。",
+      "suggestion": "VIX の事前水準ではなく、少なくとも `event_date 直前のVIX変化` を使う形に修正し、必要なら『水準層別は補助分析』として分離してください。"
+    },
+    {
+      "severity": "major",
+      "description": "再現ゲートは強化されていますが、係数オーダー判定が `vol` と `turnover` のみで、今回追加した `margin_ratio` を含む4係数比較とは整合していません。",
+      "suggestion": "再現ゲートと対称性比較の対象変数セットをそろえ、`vol / turnover / beta / margin_ratio` の4係数について少なくとも符号・比較対象・除外条件を明文化してください。"
+    },
+    {
+      "severity": "minor",
+      "description": "最小サンプル条件は主分析20日・層別10日で明文化されており、前回指摘への対応としては妥当です。ただし『未達時は判定保留』を出力 JSON にどう残すかまでは未定義です。",
+      "suggestion": "各セルに `sample_gate_pass` と `decision_status=pass/hold` を保存して、後から監査できるようにしてください."
+    }
+  ],
+  "overall_score": 6
+}

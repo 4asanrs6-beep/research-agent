@@ -1,0 +1,30 @@
+{
+  "review_type": "code",
+  "decision": "approve",
+  "verdict": "approve",
+  "overall_score": 0.83,
+  "overall_score_10": 8.3,
+  "scores": {
+    "requirement_compliance": 0.88,
+    "feasibility": 0.82,
+    "testability": 0.8,
+    "maintainability": 0.78,
+    "scope_appropriateness": 0.86
+  },
+  "issues": [
+    {
+      "severity": "minor",
+      "category": "testability",
+      "description": "`scripts/run_cq3_new_stage1.py:228-237` で再現確認の表示文言は `vol p=0.026±0.02` と `beta p>0.80` を示していますが、実際のハードゲートは `vol_p_a > 0.10` と `beta_p_a < 0.10` だけです。前回指摘の「有意化/非有意化で中止」は満たしていますが、コード上の実判定とログ上の基準がずれており、再現失敗の判定根拠を後から追いにくい状態です。",
+      "suggestion": "表示文言を実装済みゲートに合わせるか、逆に表示している閾値どおりに条件式も厳密化してください。少なくとも docstring・print 文・実条件の3箇所は一致させるべきです。"
+    }
+  ],
+  "strengths": [
+    "前回の critical 2件は解消されています。`scripts/run_cq3_new_stage1.py:86-148` でパネルを自前構築し、`margin_event_study.run_margin_event_study` を使わず信用残も完全に外しています。",
+    "前回の major 3件も解消されています。`scripts/run_cq3_new_stage1.py:197-204,259-279` でイベント日を全期間で固定し、その surviving event を前半/後半に分割して確認しています。",
+    "`scripts/run_cq3_new_stage1.py:213-221` で Model A/B を実推定し、`R2_B - R2_A` を増分R²として計算しています。",
+    "`scripts/run_cq3_new_stage1.py:231-239` で beta 有意化・vol 非有意化をハードゲート化しており、前回の『警告だけで進む』問題は解消されています。",
+    "`scripts/run_cq3_new_stage1.py:204` の `panel[\"event_date\"].nunique()` への修正により、有効イベント数の数え方も妥当になっています。"
+  ],
+  "revision_guidance": ""
+}

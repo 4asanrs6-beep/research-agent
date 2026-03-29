@@ -1,0 +1,70 @@
+{
+  "plan": {
+    "approach": "run_symmetry_test.pyを直接拡張（別スクリプトにコピーしない）。出来高シェアを注目集中proxyとして再定義+反転テストを事前変数ベースに修正",
+    "files": [
+      {
+        "path": "scripts/run_symmetry_test.py",
+        "action": "modify",
+        "description": "既存スクリプトにT1-Q04の分析を追加。--q04フラグで有効化。共通パネル+回帰関数はそのまま使い、出来高シェアと反転テストだけ追加"
+      }
+    ],
+    "functions": [
+      {
+        "name": "add_abnormal_volume_share",
+        "signature": "def add_abnormal_volume_share(panel, jp_prices_raw, baseline_window=60, event_window=5) -> pd.DataFrame",
+        "purpose": "注目集中proxy = ショック直前5日の出来高シェア / 過去60日平均出来高シェア。サイズproxyとの混同を避けるため、恒常的シェアではなく異常シェア（ベースラインからの乖離）を使う"
+      },
+      {
+        "name": "compute_post_event_car",
+        "signature": "def compute_post_event_car(jp_returns, topix_returns, panel, windows=[5,10,20]) -> pd.DataFrame",
+        "purpose": "ショック後5/10/20日の累積超過リターン(CAR)をパネルに追加"
+      },
+      {
+        "name": "run_reversal_test",
+        "signature": "def run_reversal_test(panel, windows=[5,10,20]) -> dict",
+        "purpose": "事前説明変数（vol/turnover/abnormal_volume_share）の高低群でpost-event CARを比較。当日excess_retを統制した回帰で平均回帰と分離"
+      }
+    ],
+    "volume_share_definition": {
+      "numerator": "銘柄の直近5日平均出来高シェア（=銘柄出来高/全銘柄出来高合計の5日平均）",
+      "denominator": "同銘柄の過去60日平均出来高シェア",
+      "variable": "abnormal_volume_share = numerator / denominator - 1。0なら平常、正なら直近で注目が集中",
+      "rationale": "恒常的な出来高シェアはサイズproxyと同義。異常シェアならショック前の注目急増を捉える"
+    },
+    "reversal_test_design": {
+      "group_by": "事前説明変数（vol高低、turnover高低、abnormal_volume_share高低）で群分け",
+      "outcome": "post-event CAR（5/10/20日）",
+      "control": "当日excess_retを統制した回帰で将来CARを説明。単純な平均回帰の排除",
+      "key_prediction": "turnover高群のCARが正（反転）ならパニック由来の需給歪み。vol高群のCARがゼロなら構造的増幅（反転しない）"
+    },
+    "pass_criteria": {
+      "volume_share": "abnormal_volume_shareがturnoverに追加説明力を持つか。p<0.10かつ増分R2>=0.1%",
+      "reversal": "事前変数高群のpost-event CARが有意に正（反転）か",
+      "placebo": "上方ショック日で同じvolume_share効果が出ないことを確認（Q3のデータを流用）",
+      "effect_size": "abnormal_volume_shareの係数が経済的に意味のあるサイズか（超過下落の10%以上を説明）"
+    },
+    "reproduction_gate": {
+      "condition": "Q3下方モデルを同一サンプルで再現。イベント日数/観測数/vol係数/turnover係数を照合",
+      "same_sample": "model_baseとmodel_vsで同一サンプル（欠損脱落なし）を使用。脱落があれば報告"
+    },
+    "implementation_order": [
+      "1. run_symmetry_test.pyに--q04フラグを追加",
+      "2. add_abnormal_volume_share(): 異常出来高シェア計算",
+      "3. compute_post_event_car(): ショック後CAR計算",
+      "4. model_base再現（同一サンプルゲート）",
+      "5. model_vs（abnormal_volume_share追加）+VIF+増分R2",
+      "6. placebo（上方ショックで同じ効果が出ないか確認）",
+      "7. run_reversal_test(): 事前変数ベースの群別反転テスト（当日excess_ret統制）",
+      "8. 結果表示+JSON保存",
+      "9. Codexコードレビュー"
+    ],
+    "estimated_complexity": "medium",
+    "codex_review_fixes": [
+      "別スクリプトへのコピー -> 既存スクリプトを直接拡張（--q04フラグ）",
+      "反転テスト -> 事前説明変数で群分け+当日excess_ret統制で平均回帰と分離",
+      "volume_share -> 異常出来高シェア（ベースラインからの乖離）に再定義",
+      "placebo+最小効果量閾値を追加",
+      "同一サンプルゲートを明示"
+    ]
+  }
+}

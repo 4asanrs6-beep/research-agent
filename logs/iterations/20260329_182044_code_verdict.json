@@ -1,0 +1,31 @@
+{
+  "verdict": "revise",
+  "issues": [
+    {
+      "severity": "critical",
+      "description": "`scripts/run_cq3_new_stage1.py` の主回帰は、計画の Model B（`excess_ret ~ beta + vol + turnover + scale_dummies + ret5d`）ではなく、`core/stock_allocation/margin_event_study.py` の元のフルモデルをそのまま使っており、`margin_chg_rate` を依然として回帰に含めています。さらにパネル構築時に `margin_chg_rate` が欠損だと行が落ちるため、推定されている turnover 係数は「信用残を外した独自効果」ではありません。",
+      "suggestion": "`turnover` を主判定に使うなら、少なくとも Stage 1 用に `margin_chg_rate` を説明変数・行選別条件の両方から外した回帰を実装してください。既存関数を流用するなら、Model A/B を明示的に組めるように `run_margin_event_study` を分離するのが必要です。"
+    },
+    {
+      "severity": "critical",
+      "description": "期間前半/後半チェックの実装が計画と一致していません。現在は各サブ期間で `run_margin_event_study` を再実行しており、その内部でイベント閾値（平均・標準偏差）が期間ごとに再計算されるため、全期間で定義したイベント集合を単純に二分していません。anti-snooping 条件の「同じ設計・同じイベント集合での再現性確認」になっておらず、判定が別の実験に変わっています。",
+      "suggestion": "全期間で確定したイベント日を先に固定し、そのイベント日集合を前半/後半に分けて同じモデルを推定してください。サブ期間ごとにイベント再抽出する実装はやめるべきです。"
+    },
+    {
+      "severity": "major",
+      "description": "計画の pass criterion `(6) turnover の増分 R² >= 0.1%` が実装されていません。`run_model_a()` は未使用で、実際には t 値から近似した partial R² を使って判定しています。これは計画された指標そのものではなく、通過/不通過が変わりえます。",
+      "suggestion": "Model A（turnover なし）と Model B（turnover あり、ただし信用残なし）を同じサンプルで実際に推定し、`R²_B - R²_A` をそのまま判定に使ってください。近似値で代用しない方がよいです。"
+    },
+    {
+      "severity": "major",
+      "description": "再現確認の acceptance criteria が実質的にゲートになっていません。`vol_p` の許容幅、観測数 ±1%、イベント日数、SE タイプ一致などは警告表示に留まり、条件未達でも主判定へ進みます。計画では「満たさなければパネル構築にバグ」として止める設計でした。",
+      "suggestion": "再現条件を満たさない場合は Stage 1 判定を実行せず、その時点で失敗終了にしてください。少なくともイベント日数、観測数、`vol_p`、`beta_p` はハードチェックにすべきです。"
+    },
+    {
+      "severity": "major",
+      "description": "`イベント数>=20` の判定に `result.n_events` を使っていますが、`core/stock_allocation/margin_event_study.py` ではこれは生のイベント候補数であり、実際にパネルに残った有効イベント日数ではありません。クラスタ SE の信頼性に関わるのは有効クラスタ数なので、現在の実装はサンプルサイズを過大評価する可能性があります。",
+      "suggestion": "判定には `panel['event_date'].nunique()` に相当する有効イベント日数を使ってください。分割期間チェック側も同様に raw event count ではなく surviving event count に揃えるべきです。"
+    }
+  ],
+  "overall_score": 3
+}

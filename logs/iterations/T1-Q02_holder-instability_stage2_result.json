@@ -1,0 +1,53 @@
+{
+  "experiment": "cq3_new_stage2",
+  "question": "信用残ストックproxyでturnover効果をどこまで説明できるか",
+  "step1_reproduction": {
+    "turnover_coef": -0.0025636058399094363,
+    "vol_p": 0.0004343805966301407,
+    "beta_p": 0.5761152999349362,
+    "pass": true
+  },
+  "step2_matched_baseline": {
+    "n_obs": 8974,
+    "n_events": 45,
+    "turnover_coef": -0.0025636058399094363,
+    "turnover_p": 0.025736386603993373
+  },
+  "step3_margin_added": {
+    "turnover_coef": -0.002510296369635677,
+    "turnover_p": 0.028942438426795048,
+    "margin_ratio_coef": -0.0005653028816000406,
+    "margin_ratio_p": 0.44751476190646533,
+    "incremental_r2": 0.00012397993566048982,
+    "vifs": {
+      "turnover": 1.0701433781751781,
+      "margin_ratio": 1.0154889396966995,
+      "vol": 1.0749919170746873,
+      "beta": 1.0821119109636408,
+      "ret5d": 1.072377100754894
+    }
+  },
+  "interpretation": "turnover残る+margin非有意: turnoverは信用残ストックでは説明できない",
+  "size_stratified": {
+    "large": {
+      "n_obs": 4474,
+      "n_events": 45,
+      "s1_turnover_coef": -0.005028725249711763,
+      "s1_turnover_p": 0.011875199209910954,
+      "s2a_turnover_coef": -0.005102015522807558,
+      "s2a_turnover_p": 0.010445878037078362,
+      "s2a_margin_coef": 0.0008668721099305976,
+      "s2a_margin_p": 0.4213209799419183
+    },
+    "small": {
+      "n_obs": 4500,
+      "n_events": 45,
+      "s1_turnover_coef": -0.00026509157492328656,
+      "s1_turnover_p": 0.7814437185868108,
+      "s2a_turnover_coef": -0.00010037210499368442,
+      "s2a_turnover_p": 0.9175831546241647,
+      "s2a_margin_coef": -0.0013780589565713475,
+      "s2a_margin_p": 0.04980383549247387
+    }
+  }
+}

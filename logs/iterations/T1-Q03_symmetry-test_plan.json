@@ -1,0 +1,70 @@
+{
+  "plan": {
+    "approach": "run_cq3_new_stage1.pyベース。上方/下方で2回走らせて4係数比較。v2確定仕様を完全反映",
+    "files": [
+      {
+        "path": "scripts/run_symmetry_test.py",
+        "action": "create",
+        "description": "Stage 1/2のコードを流用。上方/下方イベントで同一回帰を走らせ、4係数（vol/turnover/beta/margin_ratio）を比較。サイズ層別+VIX層別も実施"
+      }
+    ],
+    "regression_model": "excess_ret ~ beta + vol + turnover + margin_ratio + scale_dummies + ret5d（v2確定仕様の4係数を含む）",
+    "comparison_target": "vol, turnover, beta, margin_ratioの4係数を上方/下方で比較。ret5dは統制変数として残すが比較対象外",
+    "symmetry_判定": {
+      "display": "上方/下方別に推定し係数を並べる",
+      "statistical_test": "pooled panelでdirection x variable交互作用を入れ、差分係数のp値を併記",
+      "heuristic": "abs(上方coef)/abs(下方coef)が50%以上かつ同符号なら対称（表示用）",
+      "主判定": "交互作用のp値。p>0.10なら対称（差が非有意）、p<0.10なら非対称"
+    },
+    "stratification": {
+      "vix_層別": "イベント日直前のVIX変化（前日比）の中央値で2群に分け、各群で上方/下方比較。VIX事前水準での層別は補助分析",
+      "サイズ層別": "大型（Core30+Large70）/ 中小型（Mid400+Small）。scaleダミーは除外",
+      "主判定": "全体を主、サイズ/VIX層別は補助（機構解釈用）",
+      "層別の結果は全体判定を覆さない": "ただし全体と矛盾する場合は結論を弱める"
+    },
+    "minimum_sample_requirements": {
+      "main_analysis": "各方向>=20イベント日",
+      "vix_stratified": "各セル>=10イベント日。未達なら判定保留",
+      "size_stratified": "各セル>=10イベント日。未達なら判定保留"
+    },
+    "reproduction_gate": {
+      "condition": "下方ショック（-2sigma）の結果がholder-instability Stage 1と照合",
+      "checks": [
+        "vol符号: 負",
+        "turnover符号: 負",
+        "beta: 非有意(p>0.10)",
+        "margin_ratio: 非有意(p>0.10、Stage 2全体と一致)",
+        "vol係数: Stage 1の-0.0199と同オーダー(+-50%以内)",
+        "turnover係数: Stage 1の-0.00256と同オーダー(+-50%以内)",
+        "有効イベント日数: Stage 1の45日と+-5日以内"
+      ],
+      "failure": "いずれかに抵触したら中止"
+    },
+    "robustness": {
+      "thresholds": ["+-2%", "+-1.5%", "+-1sigma"],
+      "consistency_rule": "3閾値で対称/非対称の方向が一致するか。イベント集合の重なり率も記録",
+      "fixed_vs_sigma": "fixed threshold(+-2%, +-1.5%)とsigma threshold(+-1sigma)を分けて解釈"
+    },
+    "data_requirements": "Stage 2と同一データ（S&P500, JP株, TOPIX, 信用残）+VIX日次データ（yfinanceで^VIXを取得）",
+    "implementation_order": [
+      "1. run_cq3_new_stage1.pyをコピー",
+      "2. VIXデータ取得をfetch_dataに追加",
+      "3. extract_events(): 上方/下方+閾値をパラメータ化",
+      "4. build_panelにmargin_ratio追加（Stage 2のadd_margin_ratioを流用）",
+      "5. 下方再現ゲート（Stage 1の数値と照合）",
+      "6. 上方/下方別回帰 + pooled交互作用回帰",
+      "7. VIX層別 + サイズ層別",
+      "8. 複数閾値ループ",
+      "9. 結果表示+JSON保存",
+      "10. Codexコードレビュー"
+    ],
+    "estimated_complexity": "medium",
+    "codex_review_fixes": [
+      "v2確定仕様を完全反映: margin_ratio追加、VIX層別追加、4係数比較",
+      "対称性判定: pooled交互作用のp値を主判定に。ヒューリスティック50%は表示用",
+      "再現ゲート: 符号+係数オーダー+イベント日数のセット照合",
+      "最小サンプル: 主分析>=20日、層別>=10日、未達は判定保留",
+      "サイズ層別: 全体を主判定、層別は補助"
+    ]
+  }
+}

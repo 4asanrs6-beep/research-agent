@@ -1,0 +1,91 @@
+{
+  "experiment": "cq3_new_stage1",
+  "design": "前回cq3 v2と同一パネル。信用残除外。turnover主判定",
+  "reproduction": {
+    "vol_p": 0.0005524033753670492,
+    "beta_p": 0.5611273080977742,
+    "pass": true
+  },
+  "model_a": {
+    "r2": 0.014011701712640101
+  },
+  "model_b": {
+    "r2": 0.015533734930897158,
+    "incremental_r2": 0.0015220332182570573,
+    "turnover_coef": -0.0025636058399094363,
+    "turnover_p": 0.025736386603993373,
+    "turnover_t": -2.2301665715683603
+  },
+  "split_period": {
+    "first_half": {
+      "turnover_coef": -0.0022686412611083577,
+      "turnover_p": 0.17621655486372212,
+      "n_events": 22,
+      "n_obs": 4397
+    },
+    "second_half": {
+      "turnover_coef": -0.002583032379963545,
+      "turnover_p": 0.08246972806959718,
+      "n_events": 23,
+      "n_obs": 4577
+    }
+  },
+  "judgment": {
+    "primary": {
+      "sign_ok": true,
+      "p_ok": true,
+      "events_ok": true
+    },
+    "anti_snooping": {
+      "both_neg": true,
+      "fh_suf": true,
+      "sh_suf": true,
+      "incr_ok": "True"
+    }
+  },
+  "verdict": "Stage 1通過。Stage 2に進む",
+  "n_effective_events": 45,
+  "n_observations": 8974,
+  "all_coefficients": {
+    "turnover": {
+      "coef": -0.0025636058399094363,
+      "p": 0.025736386603993373,
+      "t": -2.2301665715683603
+    },
+    "beta": {
+      "coef": -0.0015000006141955263,
+      "p": 0.5761152999349362,
+      "t": -0.5590680189679591
+    },
+    "vol": {
+      "coef": -0.019919466130889473,
+      "p": 0.0004343805966301407,
+      "t": -3.5182636297268863
+    },
+    "scale_large70": {
+      "coef": 0.0007984492009581598,
+      "p": 0.26541884048019837,
+      "t": 1.1136745285394922
+    },
+    "scale_mid400": {
+      "coef": 0.002897038744497223,
+      "p": 0.025694515254702618,
+      "t": 2.230797958361431
+    },
+    "scale_small1": {
+      "coef": 0.0,
+      "p": NaN,
+      "t": NaN
+    },
+    "scale_small2": {
+      "coef": 0.0,
+      "p": NaN,
+      "t": NaN
+    },
+    "ret5d": {
+      "coef": 0.012990818985500929,
+      "p": 0.7426777596573086,
+      "t": 0.32830937076978994
+    }
+  }
+}

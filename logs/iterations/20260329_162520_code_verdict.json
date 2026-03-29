@@ -1,0 +1,41 @@
+{
+  "verdict": "reject",
+  "issues": [
+    {
+      "severity": "critical",
+      "description": "スクリプト本体に構文破綻が見えます。少なくとも `conclusion = ...` の分岐と `print(f\"イベント閾値: ...` 付近で文字列が閉じておらず、このままでは実行不能です。統計レビュー以前に Stage 1 を走らせられません。",
+      "suggestion": "まず文字化け・壊れた文字列リテラルを修復し、`python -m py_compile` で構文チェックを通してください。その後に統計仕様を再レビューするのが前提です。"
+    },
+    {
+      "severity": "major",
+      "description": "残差化の実装が統計的に不正確です。`turnover_on_vol = OLS(turnover ~ vol)` で残差回転率を作っていますが、最終モデルでは `beta`、`ret5d`、サイズダミーも同時に入っています。残差化を使って『統制後の独立効果』を見たいなら、回転率は最終モデルの他の説明変数すべてに対して残差化する必要があります。現状の `residual_turnover` は『vol のみを除いた回転率』であって、完全な偏回帰係数ではありません。",
+      "suggestion": "残差化を使うなら Frisch-Waugh-Lovell に合わせて `turnover ~ beta + vol + scale dummies + ret5d` の残差を使ってください。あるいは単純にフルモデルの `turnover` 係数を主判定にし、残差モデルは補助分析に下げてください。"
+    },
+    {
+      "severity": "major",
+      "description": "demean が不完全です。`excess_ret`, `turnover`, `vol`, `beta`, `ret5d` しかイベント日平均を引いておらず、サイズダミーは raw のまま OLS に入っています。イベント日固定効果を demean で実装するなら、最終回帰に入る全説明変数を同じ変換に通さないと fixed effect 回帰と一致しません。",
+      "suggestion": "少なくとも最終回帰に投入する全列を event_date ごとに demean してください。サイズダミーを入れるならそれも demean 対象です。もしくは明示的に `C(event_date)` を入れた回帰へ切り替えて、実装ミス余地を減らしてください。"
+    },
+    {
+      "severity": "major",
+      "description": "クラスターSEが `event_date` の1方向のみです。同じ銘柄が複数イベント日に繰り返し出るパネルなので、銘柄方向の誤差相関を無視すると p 値を過小評価しやすいです。レビュー観点の『クラスターSE』としては不十分です。",
+      "suggestion": "最低でも `event_date` × `code` の2-way cluster を検討してください。難しければ銘柄で集計したイベント平均へ落とす、もしくは block bootstrap で頑健性確認を入れてください。"
+    },
+    {
+      "severity": "major",
+      "description": "判定基準が弱いです。`p < 0.10` だけで Stage 1 通過にしており、効果量・符号安定性・有効イベント数の下限がゲートに入っていません。しかも SE は1-way cluster なので、その 10% 有意を通過条件にするのは甘すぎます。",
+      "suggestion": "Stage 1 の通過条件を `2-way cluster もしくは bootstrap で有意`, `符号が事前仮説と一致`, `効果量の最小閾値`, `有効イベント数の下限` を満たす形に再定義してください。"
+    },
+    {
+      "severity": "minor",
+      "description": "Winsorize の順序と対象がやや雑です。demean 後の変数だけを全体 1%-99% でクリップしており、イベントごとの分布差や raw 変数での極端値確認ができません。結論を変えるほどではないですが、係数の安定性確認としては弱いです。",
+      "suggestion": "raw と demean 後の両方で感度分析を出してください。Winsorize なし / 0.5% / 1% の比較を最低限残すと良いです。"
+    },
+    {
+      "severity": "minor",
+      "description": "明確な将来情報リーケージは見当たりませんが、イベント抽出閾値を全期間の S&P500 平均・標準偏差で定義しており、サンプル外運用を意識した設計ではありません。検証研究としては許容範囲でも、将来の戦略化にはそのまま使えません。",
+      "suggestion": "研究目的なら注記を追加してください。戦略化を見据えるなら expanding window でイベント閾値を作る版も別途確認してください。"
+    }
+  ],
+  "overall_score": 3
+}

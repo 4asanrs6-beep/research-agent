@@ -1,0 +1,62 @@
+{
+  "plan": {
+    "approach": "前回cq3 v2と同一設計・同一サンプルで信用残だけ外した最小改変",
+    "files": [
+      {
+        "path": "scripts/run_cq3_new_stage1.py",
+        "action": "create",
+        "description": "run_cq3.pyをベースに最小改変。margin_event_study.run_margin_event_studyをそのまま呼び、返ってきたall_coefficientsからturnoverの係数を主判定に使う。信用残の結果は無視。新規モジュールは作らない"
+      }
+    ],
+    "design_principle": "前回cq3 v2と同一パネル・同一SE（event_date 1-way cluster）・同一前処理で走らせ、turnoverの係数だけを見る。新しいことは何もしない。前回の副産物を正式に確認するだけ",
+    "what_changes_from_cq3_v2": "何も変えない。同じ関数を呼び、同じ回帰を走らせ、turnoverの係数（前回は統制変数として報告済み: p=0.008）が再現するか確認する",
+    "regression_models": {
+      "model_a": "excess_ret ~ beta + vol + scale_dummies + ret5d（turnoverなし）",
+      "model_b": "excess_ret ~ beta + vol + turnover + scale_dummies + ret5d（前回cq3 v2のフルモデルから信用残だけ外したもの）"
+    },
+    "se_type": "event_date 1-way cluster SE（前回と同一。2-way clusterは補助分析に格下げ）",
+    "pass_criteria": {
+      "primary": [
+        "turnover係数が負（高回転→超過下落大の事前仮説）",
+        "1-way cluster SEでp<0.10",
+        "イベント数≥20"
+      ],
+      "anti_snooping": [
+        "期間を前半/後半に2分割し、両方で符号が一致（負）",
+        "各期間でturnover係数の絶対値が全期間係数の25%以上（片方が実質ゼロなら不採択）",
+        "turnoverの増分R²が0.1%以上"
+      ]
+    },
+    "fail_condition": "主判定3条件のいずれかを満たさない → Stage 2に進まない",
+    "auxiliary_analyses": [
+      "2-way cluster SE（event_date × code）で主判定のp値がどう変わるか報告（主判定は変えない）",
+      "ポートフォリオソート（ボラ3分位×回転率2分位）— 主判定通過後のみ実施"
+    ],
+    "auxiliary_conflict_rule": "補助分析は主判定を覆さない。ただし補助分析で符号反転または効果消失が出た場合は結論を'要注意'に弱め、Stage 2進行判断は人間に委ねる",
+    "acceptance_criteria_for_reproduction": {
+      "event_days": "前回と同一（50日）。±0日",
+      "observations": "前回と±1%以内",
+      "vol_coef_p": "前回p=0.026と±0.02以内",
+      "beta_coef_p": "前回p=0.90と±0.10以内（非有意のまま）",
+      "se_type": "event_date 1-way cluster（前回と同一）"
+    },
+    "test_method": "前回cq3 v2と同一データで走らせ、上記acceptance_criteriaを満たすことを確認。満たさなければパネル構築にバグ",
+    "implementation_order": [
+      "1. run_cq3.pyをコピーしてrun_cq3_new_stage1.pyを作成",
+      "2. 信用残データ取得部分を削除（不要だが、margin_event_studyの引数にはダミーを渡す）",
+      "3. 結果表示部分を変更：turnoverの係数を主判定として表示",
+      "4. Model A（turnoverなし）の回帰を追加し、増分R²を計算",
+      "5. 期間2分割の再現性チェックを追加",
+      "6. JSON出力フォーマットを変更",
+      "7. Codexにコードレビューを依頼"
+    ],
+    "estimated_complexity": "low",
+    "codex_review_round1_fixes": [
+      "比較可能性: 前回と完全同一設計に変更。新規モジュール作成を取りやめ",
+      "2-way cluster: 補助分析に格下げ。主判定は1-way cluster",
+      "判定基準: 期間2分割の符号一致と増分R²下限を追加",
+      "実装範囲: 最小改変に縮小。portfolio sortは主判定通過後に追加",
+      "前回再現: 前回の係数再現を最初の受け入れ条件に設定"
+    ]
+  }
+}

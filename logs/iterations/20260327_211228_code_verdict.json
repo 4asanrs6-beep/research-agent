@@ -1,0 +1,40 @@
+```json
+{
+  "review_type": "code",
+  "decision": "revise",
+  "overall_score": 0.72,
+  "scores": {
+    "requirement_compliance": 0.68,
+    "feasibility": 0.84,
+    "testability": 0.73,
+    "maintainability": 0.69,
+    "scope_appropriateness": 0.82
+  },
+  "issues": [
+    {
+      "severity": "major",
+      "category": "requirement_gap",
+      "description": "`run_event_study()` の `n_events` 算出がコメントと要件に一致していません。`# n_eventsはpeak_lagの有効件数を使用` とありますが、実装は `lags[0]` の `car_by_lag` を数えており、ピークラグの有効件数になっていません。ラグごとに有効件数が異なるため、CV結果の `discovery_n_events` / `validation_n_events` も誤表示になります。",
+      "suggestion": "`pair.peak_lag` 決定後に `car_by_lag[pair.peak_lag]` の有限値件数で `pair.n_events` を設定してください。あるいは統計計算時に `valid_event_count_by_lag` を保持し、`peak_lag` に対応する件数を使う実装に変えてください。"
+    },
+    {
+      "severity": "minor",
+      "category": "testability",
+      "description": "今回の修正意図である「NaN防御」と「有効件数化」を固定する回帰テスト観点がコード上から見えません。特に、`lag=1` と `peak_lag` で有限サンプル数が異なるケースを作らないと、上記バグは簡単に見逃されます。",
+      "suggestion": "単体テストで、`jp_rets` の一部ラグ区間に `NaN` を混ぜた人工データを使い、`pair.n_events` が `peak_lag` の有限件数と一致すること、`NaN` を含むラグだけが除外されることを検証してください。"
+    },
+    {
+      "severity": "minor",
+      "category": "maintainability",
+      "description": "`peak_cars` という変数名が実際にはピークラグではなく `lags[0]` のCAR配列を指しており、コメントと実装の不一致をさらに見えにくくしています。",
+      "suggestion": "ピークラグ確定前は `cars_at_first_lag` など実態に合う名前にするか、`peak_lag` 決定後にのみ `peak_cars` を導入してください。"
+    }
+  ],
+  "strengths": [
+    "`np.isfinite` で `NaN/inf` を落としてから統計量を計算しており、`ttest_1samp` への入力防御としては妥当です。",
+    "分散ゼロ時に `t_stat=0.0, p_val=1.0` にフォールバックしており、数値的な不安定性を抑えています。",
+    "CV側で検証判定を discovery の `peak_lag` に固定しており、別ラグ偶然一致を減らす方針は保守的で良いです。"
+  ],
+  "revision_guidance": "`n_events` を本当に `peak_lag` ベースの有効件数へ修正し、その挙動を固定する回帰テストを追加してください。最低限、1つ目のラグとピークラグで有限サンプル数がズレるケースを作り、`PairResult.n_events` と CV集計のイベント数表示が期待通りになることを確認すべきです。"
+}
+```

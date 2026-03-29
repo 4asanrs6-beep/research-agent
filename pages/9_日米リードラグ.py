@@ -93,6 +93,9 @@ def main():
     st.markdown("# 日米セクター リードラグ戦略")
     st.caption("米国セクターETFの当日リターンから、翌営業日の日本セクターETFの寄引リターンを予測 (中川ら, 2026)")
 
+    # 前回の保存結果を自動読み込み
+    _ensure_ll_result()
+
     # スレッド完了の早期検出 (全タブで結果を使えるようにする)
     ll_thread = st.session_state.get("ll_thread")
     if ll_thread is not None and not ll_thread.is_alive() and "ll_result" not in st.session_state:
@@ -100,13 +103,14 @@ def main():
         if "_result" in prog:
             st.session_state["ll_result"] = prog.pop("_result")
 
-    tab_trade, tab_setup, tab_auto, tab_results, tab_signals, tab_param_compare = st.tabs([
+    tab_trade, tab_setup, tab_auto, tab_results, tab_signals, tab_param_compare, tab_attribution = st.tabs([
         "本日の売買",
         "設定・実行",
         "自動探索",
         "結果比較",
         "シグナル分析",
         "パラメータ比較",
+        "寄与分解",
     ])
 
     with tab_trade:
@@ -126,6 +130,9 @@ def main():
 
     with tab_param_compare:
         _render_param_compare_tab()
+
+    with tab_attribution:
+        _render_attribution_tab()
 
 
 # ---------------------------------------------------------------------------
@@ -688,11 +695,65 @@ def _render_auto_search_tab():
 
 # ---------------------------------------------------------------------------
 # ---------------------------------------------------------------------------
-# プリセット (設定の保存/読み込み)
+# 結果の保存/読み込み (pickle)
 # ---------------------------------------------------------------------------
 import json
+import pickle
 from pathlib import Path
 
+RESULT_DIR = Path("storage/leadlag_results")
+RESULT_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def _save_result_to_disk(result, name: str | None = None) -> str:
+    """BacktestResult を pickle で保存する。"""
+    cfg = result.config
+    if name is None:
+        name = (
+            f"L{cfg.rolling_window}_lam{cfg.lambda_reg}_K{cfg.n_components}"
+            f"_q{cfg.quantile_q}_{cfg.us_universe}"
+        )
+    path = RESULT_DIR / f"{name}.pkl"
+    with open(path, "wb") as f:
+        pickle.dump(result, f, protocol=pickle.HIGHEST_PROTOCOL)
+    return str(path)
+
+
+def _load_result_from_disk(path: str | Path):
+    """pickle から BacktestResult を読み込む。"""
+    with open(path, "rb") as f:
+        return pickle.load(f)
+
+
+def _list_saved_results() -> list[dict]:
+    """保存済み結果の一覧を返す。"""
+    results = []
+    for p in sorted(RESULT_DIR.glob("*.pkl"), key=lambda x: x.stat().st_mtime, reverse=True):
+        results.append({
+            "name": p.stem,
+            "path": str(p),
+            "size_mb": p.stat().st_size / 1024 / 1024,
+            "modified": pd.Timestamp.fromtimestamp(p.stat().st_mtime).strftime("%Y-%m-%d %H:%M"),
+        })
+    return results
+
+
+def _ensure_ll_result():
+    """セッションに ll_result がなければ、最新の保存結果を自動読み込みする。"""
+    if "ll_result" in st.session_state:
+        return
+    saved = _list_saved_results()
+    if saved:
+        try:
+            result = _load_result_from_disk(saved[0]["path"])
+            st.session_state["ll_result"] = result
+        except Exception:
+            pass
+
+
+# ---------------------------------------------------------------------------
+# プリセット (設定の保存/読み込み)
+# ---------------------------------------------------------------------------
 PRESETS_PATH = Path("storage/leadlag_presets.json")
 
 
@@ -1294,6 +1355,12 @@ def _render_setup_tab():
         result = st.session_state["ll_result"]
         st.success("実行完了 - 「結果比較」「シグナル分析」タブで結果を確認できます。")
 
+        # ディスクに自動保存
+        try:
+            saved_path = _save_result_to_disk(result)
+        except Exception as e:
+            pass
+
         # 履歴に自動保存
         if "ll_history" not in st.session_state:
             st.session_state["ll_history"] = []
@@ -1365,13 +1432,35 @@ def _render_setup_tab():
                 _save_presets(presets)
                 st.success(f"「{preset_name}」を保存しました")
 
-        if st.button("新しい実験を開始"):
-            st.session_state.pop("ll_result", None)
-            st.session_state.pop("ll_thread", None)
-            st.session_state.pop("ll_progress", None)
-            st.session_state.pop("ll_interpretation", None)
-            st.rerun()
+        col_new, col_save = st.columns(2)
+        with col_new:
+            if st.button("新しい実験を開始"):
+                st.session_state.pop("ll_result", None)
+                st.session_state.pop("ll_thread", None)
+                st.session_state.pop("ll_progress", None)
+                st.session_state.pop("ll_interpretation", None)
+                st.rerun()
         return
+
+    # --- 保存済み結果の読み込み ---
+    saved = _list_saved_results()
+    if saved:
+        with st.expander(f"保存済みの結果を読み込む ({len(saved)}件)"):
+            for item in saved:
+                col1, col2, col3 = st.columns([4, 2, 1])
+                with col1:
+                    st.text(f"{item['name']}")
+                with col2:
+                    st.caption(f"{item['modified']}  ({item['size_mb']:.1f} MB)")
+                with col3:
+                    if st.button("読込", key=f"load_{item['name']}"):
+                        try:
+                            result = _load_result_from_disk(item["path"])
+                            st.session_state["ll_result"] = result
+                            st.success(f"「{item['name']}」を読み込みました")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"読み込みエラー: {e}")
 
     # --- プリセット保存/読み込み ---
     _render_presets()
@@ -3700,6 +3789,217 @@ def _highlight_best_compare(s):
     else:
         best = vals == vals.max()
     return ["font-weight: bold; color: #FF8000" if v else "" for v in best]
+
+
+# ---------------------------------------------------------------------------
+# 寄与分解タブ (Phase 0)
+# ---------------------------------------------------------------------------
+def _run_attribution_thread(progress_dict: dict, backtest_result, config, sub_periods):
+    """寄与分解をバックグラウンドで実行するスレッド。"""
+    try:
+        from core.lead_lag.signal_attribution import compute_signal_attribution
+
+        def on_progress(msg, pct):
+            progress_dict["message"] = msg
+            progress_dict["pct"] = pct
+
+        attr = compute_signal_attribution(
+            backtest_result=backtest_result,
+            config=config,
+            sub_periods=sub_periods,
+            progress_callback=on_progress,
+        )
+        progress_dict["_result"] = attr
+        progress_dict["pct"] = 1.0
+        progress_dict["message"] = "完了"
+    except Exception as e:
+        import traceback
+        progress_dict["error"] = str(e)
+        progress_dict["detail"] = traceback.format_exc()
+        progress_dict["pct"] = 1.0
+
+
+def _render_attribution_tab():
+    """寄与分解 (Signal Attribution) タブ — Phase 0: ETF伝播ルート候補分析"""
+    st.subheader("寄与分解 — US→JP 因子空間上の結合強度")
+    st.caption(
+        "PCAシグナルを各USセクター→各JPセクターへの寄与に分解します。"
+        "これは因子空間での結合強度であり、経済的因果を直接示すものではありません。"
+    )
+
+    result = st.session_state.get("ll_result")
+    if result is None:
+        st.info("先に「設定・実行」タブでバックテストを実行してください。")
+        return
+
+    if "PCA_SUB" not in result.strategies or result.strategies["PCA_SUB"].signals is None:
+        st.warning("PCA_SUB の結果がありません。run_pca_sub=True で実行してください。")
+        return
+
+    config = result.config
+
+    # --- 期間設定 ---
+    col1, col2 = st.columns(2)
+    with col1:
+        period_years = st.selectbox("期間分割 (年)", [3, 5, 7, 10], index=1, key="attr_period_years")
+    with col2:
+        st.markdown(f"**分析期間:** {result.period_start} — {result.period_end}")
+
+    # --- 実行ボタン ---
+    attr_thread = st.session_state.get("attr_thread")
+    if attr_thread is not None and not attr_thread.is_alive() and "attr_result" not in st.session_state:
+        prog = st.session_state.get("attr_progress", {})
+        if "_result" in prog:
+            st.session_state["attr_result"] = prog.pop("_result")
+        elif "error" in prog:
+            st.error(f"寄与分解エラー: {prog['error']}")
+            if "detail" in prog:
+                with st.expander("詳細"):
+                    st.code(prog["detail"])
+
+    if st.button("寄与分解を実行", type="primary", key="run_attribution"):
+        progress = {"message": "開始...", "pct": 0.0}
+        st.session_state["attr_progress"] = progress
+        st.session_state.pop("attr_result", None)
+
+        t = threading.Thread(
+            target=_run_attribution_thread,
+            args=(progress, result, config, None),
+            daemon=True,
+        )
+        st.session_state["attr_thread"] = t
+        t.start()
+        st.rerun()
+
+    # --- 実行中の進捗表示 ---
+    if attr_thread is not None and attr_thread.is_alive():
+        prog = st.session_state.get("attr_progress", {})
+        import time
+        bar = st.progress(prog.get("pct", 0.0))
+        st.caption(prog.get("message", "実行中..."))
+        time.sleep(1)
+        st.rerun()
+
+    # --- 結果表示 ---
+    attr = st.session_state.get("attr_result")
+    if attr is None:
+        st.info("「寄与分解を実行」ボタンを押してください。")
+        return
+
+    from core.lead_lag.signal_attribution import (
+        summarize_attribution,
+        get_coupling_heatmap_data,
+    )
+
+    # --- 1. 結合強度ヒートマップ ---
+    st.markdown("### 結合強度ヒートマップ")
+    period_options = ["全期間"] + list(attr.period_stability.keys())
+    selected_period = st.selectbox("期間", period_options, key="attr_heatmap_period")
+
+    period_key = None if selected_period == "全期間" else selected_period
+    matrix, us_labels, jp_labels = get_coupling_heatmap_data(attr, period=period_key)
+
+    fig_heatmap = go.Figure(data=go.Heatmap(
+        z=matrix,
+        x=jp_labels,
+        y=us_labels,
+        colorscale="RdBu_r",
+        zmid=0,
+        text=np.round(matrix, 3),
+        texttemplate="%{text}",
+        textfont={"size": 9},
+        colorbar={"title": "結合強度"},
+    ))
+    fig_heatmap.update_layout(
+        title=f"US→JP 結合強度 ({selected_period})",
+        xaxis_title="JP セクター",
+        yaxis_title="US セクター",
+        height=max(400, len(us_labels) * 25 + 150),
+        margin={"l": 200, "r": 50, "t": 50, "b": 150},
+        xaxis={"tickangle": 45},
+    )
+    st.plotly_chart(fig_heatmap, use_container_width=True)
+
+    # --- 2. 安定ペアランキング ---
+    st.markdown("### 安定ペアランキング")
+    st.caption("複数期間で符号が一致し、結合強度が安定しているペア上位")
+
+    top_n = st.slider("表示件数", 10, 50, 20, key="attr_top_n")
+    df_summary = summarize_attribution(attr, top_n=top_n)
+    if not df_summary.empty:
+        st.dataframe(
+            df_summary.style.format({
+                "mean_coupling": "{:+.4f}",
+                "stability_score": "{:.3f}",
+                "period_consistency": "{:.0%}",
+                "avg_IC": "{:+.4f}",
+                "avg_hit_rate": "{:.1%}",
+            }),
+            height=min(700, 35 * len(df_summary) + 40),
+        )
+    else:
+        st.warning("安定ペアが見つかりませんでした。")
+
+    # --- 3. 期間別比較 ---
+    if len(attr.period_stability) >= 2:
+        st.markdown("### 期間別 結合強度の変化")
+
+        period_labels = list(attr.period_stability.keys())
+        n_periods = len(period_labels)
+        cols = st.columns(min(n_periods, 3))
+
+        for idx, label in enumerate(period_labels):
+            with cols[idx % len(cols)]:
+                pdata = attr.period_stability[label]
+                p_matrix = pdata["mean_coupling"]
+                fig_p = go.Figure(data=go.Heatmap(
+                    z=p_matrix,
+                    x=[get_ticker_name(t) for t in attr.jp_tickers],
+                    y=[get_ticker_name(t) for t in attr.us_tickers],
+                    colorscale="RdBu_r",
+                    zmid=0,
+                    zmin=-0.3,
+                    zmax=0.3,
+                    colorbar={"title": ""},
+                ))
+                fig_p.update_layout(
+                    title=f"{label} ({pdata['n_days']}日)",
+                    height=350,
+                    margin={"l": 10, "r": 10, "t": 40, "b": 80},
+                    xaxis={"tickangle": 45, "tickfont": {"size": 8}},
+                    yaxis={"tickfont": {"size": 8}},
+                )
+                st.plotly_chart(fig_p, use_container_width=True)
+
+    # --- 4. ペア別IC ヒートマップ ---
+    if attr.period_stability:
+        st.markdown("### ペア別 予測力 (IC)")
+        ic_period = st.selectbox(
+            "期間", list(attr.period_stability.keys()),
+            key="attr_ic_period",
+        )
+        ic_data = attr.period_stability[ic_period]["ic_by_pair"]
+
+        fig_ic = go.Figure(data=go.Heatmap(
+            z=ic_data,
+            x=[get_ticker_name(t) for t in attr.jp_tickers],
+            y=[get_ticker_name(t) for t in attr.us_tickers],
+            colorscale="RdYlGn",
+            zmid=0,
+            text=np.where(np.isnan(ic_data), "", np.round(ic_data, 3).astype(str)),
+            texttemplate="%{text}",
+            textfont={"size": 9},
+            colorbar={"title": "IC"},
+        ))
+        fig_ic.update_layout(
+            title=f"ペア別 寄与→実現リターン IC ({ic_period})",
+            xaxis_title="JP セクター",
+            yaxis_title="US セクター",
+            height=max(400, len(us_labels) * 25 + 150),
+            margin={"l": 200, "r": 50, "t": 50, "b": 150},
+            xaxis={"tickangle": 45},
+        )
+        st.plotly_chart(fig_ic, use_container_width=True)
 
 
 # ---------------------------------------------------------------------------

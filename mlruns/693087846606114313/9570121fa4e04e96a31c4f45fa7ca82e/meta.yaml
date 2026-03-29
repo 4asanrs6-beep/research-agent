@@ -1,0 +1,14 @@
+artifact_uri: file:C:\Users\PC\Downloads\作業用\20260307\research-agent\mlruns/693087846606114313/9570121fa4e04e96a31c4f45fa7ca82e/artifacts
+end_time: null
+entry_point_name: ''
+experiment_id: '693087846606114313'
+lifecycle_stage: active
+run_id: 9570121fa4e04e96a31c4f45fa7ca82e
+run_name: mlflow_recorder
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1772964472364
+status: 1
+tags: []
+user_id: PC

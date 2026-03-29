@@ -1,0 +1,38 @@
+{
+  "review_type": "code",
+  "decision": "revise",
+  "overall_score": 0.69,
+  "scores": {
+    "requirement_compliance": 0.63,
+    "feasibility": 0.78,
+    "testability": 0.66,
+    "maintainability": 0.67,
+    "scope_appropriateness": 0.73
+  },
+  "issues": [
+    {
+      "severity": "major",
+      "category": "requirement_gap",
+      "description": "`run_cross_validated_scan()` の検証フェーズで `fdr_correction=False` が固定されており、レビュー対象にある「FDR常時適用」と実装が一致していません。現状は発見フェーズだけ多重検定補正し、検証フェーズは生の p 値で通過判定しているため、意図した基準より通過率が高くなります。",
+      "suggestion": "検証フェーズでも FDR を適用するか、少なくとも `peak_lag` のみを対象にした明示的な単一仮説検定に切り替えて、コメント・引数名・実装を同じ方針に揃えてください。"
+    },
+    {
+      "severity": "major",
+      "category": "testability",
+      "description": "`run_event_study()` では `cars` に NaN が混じる可能性があるのに、`len(cars)` で `min_events` 判定し、そのまま `ttest_1samp()` に渡しています。`np.nansum()` は窓内欠損を見えにくくし、`ttest_1samp()` は NaN を含むと NaN を返すため、実際の有効サンプル数と `pair.n_events`・有意判定がずれる可能性があります。",
+      "suggestion": "各 lag ごとに `np.isfinite()` で有効観測のみ残してから平均・t 検定・`min_events` 判定を行ってください。あわせて `n_events` は少なくとも `peak_lag` の有効件数、可能なら lag 別件数として保持すると検証しやすくなります。"
+    },
+    {
+      "severity": "minor",
+      "category": "over_engineering",
+      "description": "`run_event_study()` 内で有意ペア抽出とソートを FDR 分岐の前後で二重に実行しており、前半の処理結果は後半で上書きされています。動作は大きく壊れませんが、選別基準の修正時に片側だけ直して不整合を生みやすい構造です。",
+      "suggestion": "有意ペア抽出を 1 箇所の関数にまとめ、FDR 有無だけを分岐させて最後に一度だけソートする形に整理してください。"
+    }
+  ],
+  "strengths": [
+    "検証フェーズで発見時の `peak_lag` を使って再判定しており、別ラグでの偶然一致を減らす意図は明確です。",
+    "期間分割後の `min_events` を期間比率で再計算しており、分割によるイベント不足をある程度吸収する設計になっています。",
+    "結果オブジェクトが dataclass で整理されていて、後段の集計テーブル生成まで一貫して扱いやすい構造です。"
+  ],
+  "revision_guidance": "修正の優先度は 1) 検証フェーズの多重検定ポリシーを仕様どおりに統一する、2) NaN を除いた有効イベント数ベースで統計量と `n_events` を再計算する、3) `run_event_study()` の有意判定ロジック重複を解消する、の順です。特に 1 と 2 は検証通過件数そのものを変え得るため、先に直してから回帰テストを追加してください。"
+}

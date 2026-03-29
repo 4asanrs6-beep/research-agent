@@ -1,0 +1,52 @@
+```json
+{
+  "review_type": "plan",
+  "decision": "revise",
+  "overall_score": 0.64,
+  "scores": {
+    "requirement_compliance": 0.58,
+    "feasibility": 0.72,
+    "testability": 0.57,
+    "maintainability": 0.63,
+    "scope_appropriateness": 0.68
+  },
+  "issues": [
+    {
+      "severity": "major",
+      "category": "requirement_gap",
+      "description": "multi-perspective v2で確定している「Q3の拡張として一体実装」に対し、計画は `run_attention_penalty.py` を新設して既存関数をコピーする前提です。これだとQ3とQ4の比較条件がコード上で分岐し、再現ゲートを通っても将来の修正で設計差分が混入しやすくなります。",
+      "suggestion": "Q3の既存スクリプトに `volume_share` と reversal 出力を追加する形へ寄せ、同一パネル構築・同一回帰実装・同一出力系で比較できるようにしてください。少なくとも共通関数を切り出し、コピー実装は避けるべきです。"
+    },
+    {
+      "severity": "major",
+      "category": "testability",
+      "description": "反転テストの設計が弱いです。『高超過下落群（上位20%）』を shock 当日の被説明変数で選別すると、翌後続期間の反転は機械的な平均回帰でも生じうるため、『一時的罰則か永続的再評価か』の識別根拠として不十分です。",
+      "suggestion": "shock 当日の下落幅そのものではなく、事前に観測可能な説明変数（turnover 高低、volume_share 高低、vol 高低）で群分けし、その群ごとの post-event CAR を比較してください。必要なら当日 excess_ret を統制した回帰で将来CARを説明し、単純な平均回帰を切り分けてください。"
+    },
+    {
+      "severity": "major",
+      "category": "blind_spot",
+      "description": "`volume_share` の定義が『過去20日の銘柄出来高 / 全銘柄出来高合計』だと、注目集中というより恒常的なサイズ・流動性 proxy になりやすいです。Q4の問いはショック時の attention penalty の追加説明力なので、この定義では turnover と独立な“注目集中”を十分に捉えられない可能性があります。",
+      "suggestion": "少なくとも『ショック日近辺の異常出来高シェア』として定義し直してください。例として、当日出来高シェア、直近ベースライン比で標準化した share、または event-window 内の share 変化量を使い、サイズ proxy との混同を弱めるべきです。"
+    },
+    {
+      "severity": "major",
+      "category": "requirement_gap",
+      "description": "v2側で要求されていた捨てる条件のうち、placebo と効果量閾値が計画に入っていません。p値だけで `volume_share` の採否を決めると、統計的には有意でも実務上は無視できる微小効果を採用する余地が残ります。",
+      "suggestion": "採択条件に『増分説明力の最小効果量』を明示し、placebo（非イベント日、または上方ショック側で同じ効果が出ないことの確認）を追加してください。少なくとも `delta_adj_R2` または係数の経済的閾値を設定すべきです。"
+    },
+    {
+      "severity": "minor",
+      "category": "feasibility",
+      "description": "再現ゲートが有意/非有意の方向確認に寄り過ぎており、サンプル一致や欠損脱落の診断が不足しています。Q3再現に見えても、追加変数の生成過程でイベント日や銘柄数が変わると比較不能になります。",
+      "suggestion": "model_base と model_vs で event日数、観測銘柄数、欠損脱落銘柄数、追加変数利用可能率を必ず併記し、同一サンプル比較をゲート条件に入れてください。"
+    }
+  ],
+  "strengths": [
+    "Q3の下方モデル再現を先に置く設計は妥当で、比較可能性を守ろうとしている点は良いです。",
+    "turnover と volume_share の関係を VIF で診断しようとしているため、多重共線性の見落としは一定程度抑えられます。",
+    "問いを『追加説明力』と『反転するか』の2本に分けているので、分析目的自体は明確です。"
+  ],
+  "revision_guidance": "修正の優先順位は4つです。第1に、Q3拡張の一体実装へ寄せて、別スクリプトへのコピーベース実装をやめてください。第2に、反転テストを『当日の大幅下落銘柄選別』ではなく『事前説明変数で群分けした post-event CAR 比較』へ変更し、平均回帰との混同を避けてください。第3に、volume_share を恒常的サイズ proxy ではなくショック時の attention proxy になるよう再定義してください。第4に、v2の捨てる条件として placebo と最小効果量閾値を明示し、p値だけで採否しない設計にしてください。これらを入れれば approve 圏まで上がります。"
+}
+```

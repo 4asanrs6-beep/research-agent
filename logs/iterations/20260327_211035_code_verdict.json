@@ -1,0 +1,38 @@
+{
+  "review_type": "code",
+  "decision": "revise",
+  "overall_score": 0.73,
+  "scores": {
+    "requirement_compliance": 0.8,
+    "feasibility": 0.78,
+    "testability": 0.68,
+    "maintainability": 0.72,
+    "scope_appropriateness": 0.76
+  },
+  "issues": [
+    {
+      "severity": "major",
+      "category": "testability",
+      "description": "`stats.ttest_1samp(arr_clean, 0)` が全要素同値や分散ゼロのケースで `nan` を返しうるが、そのまま `pair.car_p_value` に格納しているため、`_score_pair()` の `min(p.car_p_value.values())` が `nan` になり、スコア計算とソート順が不安定になる。",
+      "suggestion": "t検定前に `arr_clean` の分散ゼロを検知し、`p=1.0, t=0.0` などの明示値にフォールバックするか、`np.isfinite(p_val)` を満たす場合のみ保存する。`_score_pair()` 側でも有限値のみを対象にする防御を追加する。"
+    },
+    {
+      "severity": "major",
+      "category": "requirement_gap",
+      "description": "`pair.n_events = len(car_by_lag[lags[0]])` は NaN 除外後の有効サンプル数ではなく、先頭ラグに投入された生イベント数を返している。今回の修正意図が「NaN除外」である以上、集計表やCV結果に表示されるイベント数が実際の検定母数とずれる。",
+      "suggestion": "各ラグの `arr_clean` 件数を保持し、少なくとも `peak_lag` の有効件数、または全ラグ共通の最小有効件数を `n_events` として保存する。表示用途と検定用途で必要なら別フィールドに分ける。"
+    },
+    {
+      "severity": "minor",
+      "category": "maintainability",
+      "description": "検証フェーズのコメントでは「各ペアのpeak_lag 1つだけで判定するため単一仮説検定」としている一方、実装上は `run_event_study(..., lags=lags)` で全ラグのCAR/p値を毎回計算している。最終判定は後段で `peak_lag` に絞っているため動作自体は成立するが、コメントだけ読むと実際の計算内容を誤解しやすい。",
+      "suggestion": "コメントを「計算は全ラグ行うが、検証通過判定は discovery の peak_lag のみで行う」に修正するか、実際に `lags=[peak]` の単一ラグ評価へ寄せる。"
+    }
+  ],
+  "strengths": [
+    "有意判定ロジックを末尾に集約しており、FDRあり/なしの分岐が追いやすくなっている。",
+    "NaN除外を各ラグの統計計算直前に入れたことで、欠損を含むイベント列でも検定が落ちにくくなった。",
+    "クロスバリデーション側で discovery の `peak_lag` に固定して validation を判定しており、別ラグでの偶然一致を避ける意図は明確。"
+  ],
+  "revision_guidance": "まず `nan` のp値を保存しない防御を入れてスコアリングとソートの安定性を確保してください。次に `n_events` を NaN除外後の有効件数に合わせて定義し直し、サマリ出力とCV表示が実際の検定母数と一致するようにしてください。最後に、検証フェーズのコメントと実装のズレを解消して、仕様理解時の誤読を防ぐのがよいです。"
+}

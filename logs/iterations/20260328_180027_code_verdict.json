@@ -1,0 +1,50 @@
+{
+  "review_type": "code",
+  "decision": "revise",
+  "overall_score": 0.61,
+  "scores": {
+    "requirement_compliance": 0.72,
+    "feasibility": 0.78,
+    "testability": 0.48,
+    "maintainability": 0.69,
+    "scope_appropriateness": 0.66
+  },
+  "issues": [
+    {
+      "severity": "critical",
+      "category": "testability",
+      "description": "推論設計が弱いです。同一銘柄が複数イベント日に繰り返し出現するパネルなのに、標準誤差は event_date の1方向クラスタだけです。このままだと銘柄内の残差相関を無視して `margin_chg_rate` のt値・p値が過大評価されうるため、v2の『独立説明力があるか』の判定根拠が不安定です。",
+      "suggestion": "少なくとも `event_date` と `code` の2方向クラスタSEを使うか、銘柄固定効果/銘柄クラスタを入れた頑健性確認を追加してください。採択判定に使うp値は、その頑健仕様の結果を基準にすべきです。"
+    },
+    {
+      "severity": "major",
+      "category": "requirement_gap",
+      "description": "`listed_stocks` に存在しない銘柄の scale ダミーがすべて0になり、基準カテゴリ(Core30)として扱われます。これは『サイズ統制を全て実装した』ことにならず、欠損を基準群へ誤分類する設計です。サイズ未付与銘柄が多いと `margin_chg_rate` 係数にバイアスが入ります。",
+      "suggestion": "scale_category が不明な銘柄は除外するか、`scale_unknown` ダミーを追加してください。基準カテゴリは明示的に既知の Core30 のみに限定すべきです。"
+    },
+    {
+      "severity": "major",
+      "category": "blind_spot",
+      "description": "`jp_topix_returns.get(jp_reaction_date, 0)` により、TOPIX欠損日の超過リターンが『個別株リターン - 0』になります。市場調整が外れた観測が混入し、被説明変数の定義がイベントごとに変わります。",
+      "suggestion": "TOPIXが存在しない反応日はそのイベント観測を落としてください。少なくとも 0 代入は避け、欠損として `dropna` されるように統一してください。"
+    },
+    {
+      "severity": "major",
+      "category": "blind_spot",
+      "description": "`_compute_recent_return` が欠損リターンを0で埋めています。βやvolでは欠損ペアを落としているのに、ret5dだけ『取引なし/欠損 = 0%』として扱っており、統制変数の定義が不整合です。特に売買停止やデータ欠落が多い銘柄で歪みます。",
+      "suggestion": "ret5dも欠損比率に応じて `NaN` を返して行ごと除外するか、十分な観測数がある場合のみ複利累積を計算してください。"
+    },
+    {
+      "severity": "minor",
+      "category": "over_engineering",
+      "description": "ランク落ちを警告ログだけで流して回帰を続行しています。イベント日FEとサイズダミーを同時投入すると、サンプルによっては完全共線性が出やすく、係数やVIFが `nan` でも判定フロー上は十分に説明されません。",
+      "suggestion": "ランク落ち時は冗長列を自動除外するか、判定結果を `採択不可` として理由を返してください。少なくともどの列が落ちたかを特定できるようにしてください。"
+    }
+  ],
+  "strengths": [
+    "v2で求めている主要統制変数は概ね実装されており、イベント日固定効果も追加されているため、設計の方向性自体は元の問いに沿っています。",
+    "信用買残は週次変化率に修正され、直近リターンも単純和ではなく複利累積になっているため、変数定義は前版より改善しています。",
+    "採択条件として `p>0.10` と `VIF>10` を明示的に判定しており、要件の『捨てる条件』をコードに落とし込もうとしている点は良いです。"
+  ],
+  "revision_guidance": "まず推論部分を修正してください。採択判定に使う `margin_chg_rate` のp値を、`event_date × code` の依存構造を反映した頑健なSEで再計算することが最優先です。そのうえで、サイズ不明銘柄の扱いを基準群0埋めから分離し、TOPIX欠損日と ret5d 欠損の処理を0代入ではなく除外ベースに統一してください。最後に、ランク落ち時の挙動を明示化すれば、v2の問いに対する検証コードとしてかなり防御的になります。"
+}

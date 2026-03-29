@@ -1,0 +1,21 @@
+{
+  "verdict": "approve",
+  "issues": [
+    {
+      "severity": "minor",
+      "description": "major 4件とminor 3件の中核は概ね解消されています。ただし `matched_sample_gate` の『step2がstep1の±50%以内』は、依然としてやや恣意的で、サンプル差の診断と採択判定が少し混ざっています。",
+      "suggestion": "この条件は落選ゲートではなく診断ログに下げ、主比較は `model_s1_matched` vs `model_s2a` に固定してください。"
+    },
+    {
+      "severity": "minor",
+      "description": "再現ゲートが『turnover負・vol有意・beta非有意』という定性的条件中心で、実行後に“どこまで再現なら通過か”が少しぶれます。",
+      "suggestion": "Stage 1再現は係数、p値、増分R2、有效イベント日数を事前に許容幅つきで固定してください。"
+    },
+    {
+      "severity": "minor",
+      "description": "VIF方針は改善されていますが、将来交互作用を追加する場合の再チェック対象が明文化されていません。",
+      "suggestion": "交互作用を入れる段階では `turnover`, `margin_ratio`, `turnover*margin_ratio` を含めてVIFを再計算する、と一文追加してください。"
+    }
+  ],
+  "overall_score": 8
+}

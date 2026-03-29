@@ -1,0 +1,41 @@
+{
+  "permissions": {
+    "allow": [
+      "WebFetch(domain:www.jstage.jst.go.jp)",
+      "Bash(wc -l core/*.py)",
+      "Bash(find /c/Users/PC/Downloads/作業用/20260224/market-terminal/src -type f \\\\\\(-name *.py -o -name *.ts -o -name *.tsx -o -name *.js \\\\\\))",
+      "Bash(find . -name \"*.py\" -path \"*/pages/*\" -exec wc -l {} +)",
+      "Bash(find /c/Users/PC/Downloads/作業用/20260224/market-terminal -name *.env* -o -name *.config* -o -name vite.config*)",
+      "Bash(head:*)",
+      "Bash(pip install:*)",
+      "Bash(python -c \":*)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": ".claude/hooks/review-gate.sh",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": ".claude/hooks/log-iteration.sh",
+            "timeout": 5,
+            "async": true
+          }
+        ]
+      }
+    ]
+  }
+}

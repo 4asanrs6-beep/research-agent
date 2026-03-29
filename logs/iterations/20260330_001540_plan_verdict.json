@@ -1,0 +1,43 @@
+{
+  "review_type": "code",
+  "decision": "revise",
+  "overall_score": 0.39,
+  "scores": {
+    "requirement_compliance": 0.31,
+    "feasibility": 0.72,
+    "testability": 0.28,
+    "maintainability": 0.46,
+    "scope_appropriateness": 0.55
+  },
+  "issues": [
+    {
+      "severity": "major",
+      "category": "requirement_gap",
+      "description": "`logs/iterations/T1-Q04_attention-penalty_plan.json` では「既存スクリプトを `--q04` フラグで拡張」と修正されていますが、実コード `scripts/run_symmetry_test.py` には `--q04` も Q04 分岐もありません。現状は T1-Q03 の対称性検証コードのままで、前回 major 1件目は計画上しか直っていません。",
+      "suggestion": "`scripts/run_symmetry_test.py` に `--q04` を実装し、Q03 と同一パネルを使って Q04 の追加分析だけを有効化する構造にしてください。少なくとも CLI 引数、Q04 実行ブロック、Q04 専用 JSON 出力を追加して、コード上で一体実装になっていることを示す必要があります。"
+    },
+    {
+      "severity": "major",
+      "category": "requirement_gap",
+      "description": "前回 major 2-4件目もコードには未反映です。`scripts/run_symmetry_test.py` に `abnormal_volume_share` 計算、事前変数群分け + 当日 `excess_ret` 統制の反転テスト、placebo、最小効果量閾値のいずれも存在しません。出力 `logs/iterations/T1-Q03_symmetry-test_result.json` も T1-Q03 の結果のみで、Q04 の出来高シェア効果や反転結果を全く含んでいません。",
+      "suggestion": "計画にある `add_abnormal_volume_share`、`compute_post_event_car`、`run_reversal_test` 相当を実装し、JSON に `model_base`/`model_vs`/`placebo`/`reversal`/`effect_size_gate` を構造化して保存してください。修正済みと主張するには、少なくとも T1-Q04 の結果ファイルが必要です。"
+    },
+    {
+      "severity": "major",
+      "category": "testability",
+      "description": "検証成果物が不足しています。`logs/experiments` には `T1-Q04_attention-penalty.md` も review もなく、`logs/iterations` にも plan はありますが result がありません。この状態では「同一サンプルゲート」「placebo」「最小効果量閾値」が実際に通ったのか確認不能です。",
+      "suggestion": "T1-Q04 の実験結果 JSON と実験記録を生成し、少なくとも次を残してください: 同一サンプルのイベント数・観測数、`abnormal_volume_share` の係数/p値/増分R2、placebo の係数/p値、反転回帰の係数、効果量ゲートの通過可否。"
+    },
+    {
+      "severity": "minor",
+      "category": "maintainability",
+      "description": "計画だけが先に更新され、コード・実験記録・結果出力が追随していません。`codex_review_fixes` の内容と実装状態が乖離しており、次回レビュー時に『直したはず』と『実際に動く』が分離しやすい状態です。",
+      "suggestion": "T1-Q04 では計画更新と同時に、対応するコード差分・結果 JSON・実験ログを 1セットで残してください。最低でも `plan -> code -> result -> review` の対応表を `conversation.md` に追記すると監査しやすくなります。"
+    }
+  ],
+  "strengths": [
+    "`logs/iterations/T1-Q04_attention-penalty_plan.json` の設計修正自体は前回の major 指摘4件をほぼ正しく取り込めています。",
+    "Q03 拡張として一体実装する方針、異常出来高シェアへの再定義、placebo と効果量閾値の追加方針は設計として妥当です。"
+  ],
+  "revision_guidance": "今回は approve にはできません。理由は、4件の修正が主に plan に留まり、code と result に落ちていないためです。次の修正では `scripts/run_symmetry_test.py` に `--q04` と Q04 ロジックを実装し、`abnormal_volume_share`・placebo・effect size gate・反転テストを結果 JSON まで通してください。そのうえで T1-Q04 の実験記録とレビュー記録を追加できれば、再評価は可能です。"
+}

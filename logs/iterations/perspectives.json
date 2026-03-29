@@ -1,0 +1,10 @@
+{
+  "questions": ["q11", "q15", "cq2", "cq3", "cq5"],
+  "summary": {
+    "q11": {"econ": "high", "data": "medium", "stats": "high", "trade": "high", "skeptic": "high_risk"},
+    "q15": {"econ": "high", "data": "high", "stats": "high", "trade": "medium", "skeptic": "low_value"},
+    "cq2": {"econ": "high", "data": "low", "stats": "medium", "trade": "high", "skeptic": "high_risk"},
+    "cq3": {"econ": "high", "data": "high", "stats": "high", "trade": "high", "skeptic": "medium_risk"},
+    "cq5": {"econ": "high", "data": "high", "stats": "high", "trade": "medium", "skeptic": "medium_risk"}
+  }
+}

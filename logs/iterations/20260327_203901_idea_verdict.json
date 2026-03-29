@@ -1,0 +1,37 @@
+{
+  "review_type": "idea",
+  "decision": "revise",
+  "overall_score": 0.22,
+  "scores": {
+    "requirement_compliance": 0.2,
+    "feasibility": 0.4,
+    "testability": 0.2,
+    "maintainability": 0.1,
+    "scope_appropriateness": 0.2
+  },
+  "issues": [
+    {
+      "severity": "major",
+      "category": "requirement_gap",
+      "description": "レビュー対象が `{\"test\": \"hello\"}` のみで、アイデアの目的・要件・解決したい課題が示されていません。要件適合性を評価できません。",
+      "suggestion": "このアイデアが何を達成したいのか、想定ユーザー、入力、期待出力、成功条件を最低限追加してください。"
+    },
+    {
+      "severity": "major",
+      "category": "testability",
+      "description": "期待される振る舞いや評価方法が不明なため、アイデアの良し悪しを検証する基準がありません。",
+      "suggestion": "『何をもって成功とみなすか』を具体化し、少なくとも1つ以上の受け入れ条件を定義してください。"
+    },
+    {
+      "severity": "minor",
+      "category": "blind_spot",
+      "description": "JSONのキー名 `test` と値 `hello` はプレースホルダに見え、実際の提案内容が欠落している可能性があります。",
+      "suggestion": "ダミーデータではなく、実際のアイデア本文または要約をレビュー対象として渡してください。"
+    }
+  ],
+  "strengths": [
+    "入力形式はシンプルで機械処理しやすいJSONになっている",
+    "最小限のサンプルとしては扱いやすい"
+  ],
+  "revision_guidance": "現状はアイデア評価に必要な情報が不足しています。次回は『目的』『対象ユーザー』『解決したい課題』『提案内容』『成功条件』を含む形で再提出してください。"
+}

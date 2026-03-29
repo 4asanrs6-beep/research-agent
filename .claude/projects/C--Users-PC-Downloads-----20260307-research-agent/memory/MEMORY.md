@@ -1,0 +1,2 @@
+- [Brainstorm depth requirement](feedback_brainstorm_depth.md) — スキル経由のbrainstormはfew-shot例+二段構え必須。テーブル圧縮禁止
+- [Never skip implementation process](feedback_never_skip_process.md) — idea-generation→implementation-planning→実装の順序厳守。飛ばしてコードを書くな

@@ -1,0 +1,26 @@
+{
+  "verdict": "revise",
+  "issues": [
+    {
+      "severity": "major",
+      "description": "`scripts/run_cq3_new_stage2.py:329-358` では VIF を表示するだけで、計画で明記した `VIF>10 なら要注意 / VIF>5 でも解釈を弱める` が判定ロジックに反映されていません。高い共線性でも通常どおり `turnover残る/消える` と解釈してしまうため、Stage 2 の中心結論が統計的に過大です。",
+      "suggestion": "VIF の閾値を実コードのゲートにしてください。少なくとも `VIF>10` なら主解釈を停止、`VIF>5` なら verdict を弱める分岐を入れ、JSON 出力にもフラグを残すべきです。"
+    },
+    {
+      "severity": "major",
+      "description": "`scripts/run_cq3_new_stage2.py:215-227, 301-429` は 1-way cluster SE のみで、計画にあった `2-way cluster SE は補助検証。符号反転/効果消失なら結論を弱める` が未実装です。同一銘柄が複数イベント日に再登場する設計なので、銘柄内相関を無視したまま主結論を出しており、p値の信頼性が不足しています。",
+      "suggestion": "少なくとも補助分析として `event_date × code` の 2-way cluster を追加し、1-way と並記してください。2-way で `turnover` や `margin_ratio` の符号反転・有意性消失が出たら、主結論を `要注意` に落とすべきです。"
+    },
+    {
+      "severity": "major",
+      "description": "`scripts/run_cq3_new_stage2.py:383-386` のサイズ層別回帰は、全体モデルと同じ `scale_*` ダミーをそのまま使っています。大型群では `scale_small*` 等が全て 0、中小型群では `scale_large70` が全て 0 になり、設計行列が層別ごとにランク落ちしやすく、サイズ検証の係数とp値が不安定です。",
+      "suggestion": "層別回帰では、その層で定数化した `scale_*` 列を落としてから推定してください。もしくはサイズ層別ではサイズダミー自体を外し、`turnover` と `margin_ratio` の変化だけを比較対象にしてください。"
+    },
+    {
+      "severity": "minor",
+      "description": "`scripts/run_cq3_new_stage2.py:317-321` は計画上の `matched_sample_gate` を診断表示するだけで、逸脱時の扱いがありません。さらに step1 の再現判定も `turnover符号 / vol有意 / beta非有意` に縮んでおり、計画で求めた再現条件との整合が弱いです。",
+      "suggestion": "`matched sample` の係数差を JSON に保存し、閾値超過時は少なくとも `comparison_not_stable` フラグを立ててください。step1 も増分R2と有効イベント数を含めて再現条件を固定した方が良いです。"
+    }
+  ],
+  "overall_score": 5
+}

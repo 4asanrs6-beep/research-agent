@@ -1,0 +1,17 @@
+On branch feat/ui-improvements-and-cli-retry
+Your branch is up to date with 'origin/feat/ui-improvements-and-cli-retry'.
+
+Changes not staged for commit:
+  (use "git add <file>..." to update what will be committed)
+  (use "git restore <file>..." to discard changes in working directory)
+	modified:   config.py
+	modified:   core/sidebar.py
+	modified:   requirements.txt
+
+Untracked files:
+  (use "git add <file>..." to include in what will be committed)
+	mlruns/
+	"pages/8_Qlib\345\256\237\351\250\223.py"
+	qlib_integration/
+
+no changes added to commit (use "git add" and/or "git commit -a")
