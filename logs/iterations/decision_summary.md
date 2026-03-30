@@ -112,8 +112,6 @@ Phase 2 選定 ......... 済
 Phase 3 設計 ......... 済 — Codex-fallback approve
 Phase 4 実験 ......... 済 — FAIL(離散)/PASS(連続)
 Phase 5 議論 ......... 済 — Codex裁定: 次の問いに移る
-Phase 4 実験 ......... 未
-Phase 5 議論 ......... 未
 
 ---
 
