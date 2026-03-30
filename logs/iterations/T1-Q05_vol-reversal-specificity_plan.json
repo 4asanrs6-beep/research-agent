@@ -1,0 +1,56 @@
+{
+  "plan": {
+    "files": [
+      {
+        "path": "scripts/run_symmetry_test.py",
+        "action": "modify",
+        "description": "--q05フラグを追加。非ショック日ベースライン比較 + ショック規模相関 + pseudo-DiD"
+      }
+    ],
+    "functions": [
+      {
+        "name": "sample_non_shock_baseline",
+        "signature": "def sample_non_shock_baseline(shock_dates, non_shock_dates, jp_returns, topix_ret, vol_window=20, car_window=20, n_iter=1000, min_gap=20) -> dict",
+        "purpose": "非ショック日（2sigmaショック日の補集合）からmin_gap日以上間隔を空けてランダム抽出。ショック日と同一パイプライン（同一銘柄ユニバース、同一vol計算）でvol高群/低群の20d CARを計算。1000回ブートストラップでショック後CARとの差のp値を算出。vol低群も同時に計算しpseudo-DiDを実施",
+        "review_fix": "I1: 同一パイプライン明記。I2: min_gap=20で重複回避。I3: 非ショック日=ショック日補集合。S1: vol低群も計算"
+      },
+      {
+        "name": "shock_magnitude_correlation",
+        "signature": "def shock_magnitude_correlation(shock_dates, event_car_by_date, sp500_ret) -> dict",
+        "purpose": "各ショック日のS&P500下落幅とvol高群20d CARのSpearman順位相関。95%CIも報告。イベント日レベルで集約",
+        "review_fix": "I4: Spearman相関+CI。イベント日レベル集約を明記"
+      },
+      {
+        "name": "run_q05",
+        "signature": "def run_q05(args, sp500_ret, jp_returns, topix_ret, vix, margin_data) -> None",
+        "purpose": "Q05メインロジック。(1)再現ゲート(Q04反転テスト)、(2)非ショック日ベースライン比較(vol高群+vol低群)、(3)pseudo-DiD（vol高ショック固有 - vol低ショック固有）、(4)ショック規模相関、(5)効果サイズ+95%CI、(6)結果JSON出力"
+      }
+    ],
+    "data_flow": "S&P500リターン → 2sigmaショック日を特定 → 補集合=非ショック日 → 各日で同一パイプライン（同一銘柄ユニバース+vol20d計算+中央値分割）→ vol高群/低群の20d CAR → ショック日CAR vs 非ショック日CAR（ブートストラップ、min_gap=20日） → pseudo-DiD: (vol高ショック-vol高非ショック) - (vol低ショック-vol低非ショック) → ショック規模Spearman相関",
+    "test_method": "パス基準: (1) pseudo-DiD > 0 かつ p < 0.05（vol高群のショック固有反転がvol低群を上回る）。(2) ショック規模Spearman相関が正 かつ p < 0.10（補強）。効果サイズの95%CIも報告",
+    "pass_criteria": {
+      "primary": "pseudo-DiD (vol高ショック固有CAR - vol低ショック固有CAR) > 0 かつ p < 0.05",
+      "secondary": "S&P500下落幅 vs vol高群20d CARのSpearman相関が正 かつ p < 0.10",
+      "both_required": false,
+      "note": "primaryが必須。secondaryは補強。効果サイズ+95%CIを報告（S2対応）"
+    },
+    "review_fixes": {
+      "I1": "非ショック日も同一パイプライン（同一ユニバース、同一vol計算）で構築",
+      "I2": "ブートストラップ内でmin_gap=20日を強制し重複CAR窓を回避",
+      "I3": "非ショック日=2sigmaショック日の補集合（|S&P500|<1sigma制限を撤廃）",
+      "I4": "Spearman順位相関+95%CI。イベント日レベルで集約",
+      "S1": "vol低群も同時計算しpseudo-DiDで内部コントロール",
+      "S2": "効果サイズ+95%CIを報告"
+    },
+    "implementation_order": [
+      "1. run_symmetry_test.pyに--q05フラグ追加",
+      "2. sample_non_shock_baseline実装（同一パイプライン、min_gap、vol高低両方）",
+      "3. shock_magnitude_correlation実装（Spearman、CI、イベント日集約）",
+      "4. run_q05メイン実装（再現ゲート → ベースライン → pseudo-DiD → 相関 → JSON）",
+      "5. テスト実行"
+    ],
+    "estimated_complexity": "low-medium",
+    "reviewer": "claude-fallback",
+    "review_status": "revised_after_review"
+  }
+}
