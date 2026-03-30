@@ -140,17 +140,54 @@ Phase 5 議論 ......... 済 — Codex裁定: 次の問いに移る
 
 ### ⏭️ T1-Q08 cross-factor-portfolio — スキップ（人間判断で差し替え）
 
-**理由:** Q05でvol反転がショック非固有と判明し、Q08の前提（vol反転＋turnover継続下落の組み合わせ戦略）が崩れた。K12ショック固有性DiDを先に確認すべきと判断。
-**次:** Phase 1に戻り、K1-K19から新しい問いを生成 → 人間が選定
+**理由:** Q05でvol反転がショック非固有と判明し、Q08の前提が崩れた。
+
+---
+
+### 🔄 T1-Q09 turnover-postshock-specificity-did — turnover継続下落はショック固有か（最優先）
+
+**問い:** K12の-0.6%継続下落は非ショック日にも同程度起きる通常のドリフトではないか？Q05のpseudo-DiDフレームワークを適用
+**詳細:** `logs/iterations/multi_perspective.md` Round 3
+
+Phase 1 生成 ......... 済
+Phase 2 選定 ......... 済（multi-perspective v2で進化）
+Phase 3 設計 ......... 未
+Phase 4 実験 ......... 未
+Phase 5 議論 ......... 未
+
+---
+
+### ⬜ T1-Q10 turnover-decline-mechanism-separation — 継続下落のメカニズム（Q09がPASS後）
+
+**問い:** ショック後のturnover変化+空売り比率で「保有者交代」vs「情報劣位者集中」vs「流動性枯渇」を分類
+**詳細:** `logs/iterations/multi_perspective.md` Round 3
+
+Phase 1 生成 ......... 済
+Phase 2 選定 ......... 済
+Phase 3 設計 ......... 未
+Phase 4 実験 ......... 未
+Phase 5 議論 ......... 未
+
+---
+
+### ⬜ T1-Q11 vol-drift-as-alternative-theme — 高ボラ株ドリフトの代替テーマ（Q09がFAIL後）
+
+**問い:** K14の構造的ドリフト(+0.584%/20d)を独立テーマとして追求。ショック日を押し目買い機会として再定義
+**詳細:** `logs/iterations/multi_perspective.md` Round 3
+
+Phase 1 生成 ......... 済
+Phase 2 選定 ......... 済
+Phase 3 設計 ......... 未
+Phase 4 実験 ......... 未
+Phase 5 議論 ......... 未
 
 ---
 
 ## 直近の動き
 
-### [2026-03-31] Phase 1: 次の問い候補8問を生成。人間の選定待ち
-K1-K19から3方向（K12ショック固有性DiD/メカニズム深掘り/代替テーマ）で8問生成。
-最優先: turnover-postshock-specificity-did（T1テーマの戦略価値の最終判断）。
-**次: 人間が3-5問を選ぶ → Phase 2（選定）**
+### [2026-03-31] Phase 2完了: multi-perspective議論 + 着手順決定
+Q09最優先 → PASS: Q10, FAIL: Q11 の分岐構成。
+**次: Phase 3（設計）→ turnover-postshock-specificity-didから**
 
 ### [2026-03-31] T1-Q07 Phase 5 議論完了 → サイズ依存性なし、次の問いへ
 FAIL。Large diff=-0.43%(p=0.59), Small diff=-0.38%(p=0.35)。K4のday-0サイズ依存性はポストショックに波及しない。

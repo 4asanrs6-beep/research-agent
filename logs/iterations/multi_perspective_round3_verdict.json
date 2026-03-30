@@ -1,0 +1,98 @@
+{
+  "round": 3,
+  "date": "2026-03-31",
+  "source": "multi-perspective",
+  "branching_structure": "conditional",
+  "questions": [
+    {
+      "id": "turnover-postshock-specificity-did",
+      "v2_summary": "Q05と同一の擬似DiD設計でK12（turnover高群ポストショック-0.6%/20d）のショック固有性を検定。非ショック日(+-5日除外)から161日をランダム抽出xbootstrap200回。主判定: DiD片側p<0.05。副判定: ショック規模とturnover群間CAR差のSpearman相関",
+      "verdict": "進めるべき（最優先）",
+      "priority": 1,
+      "precondition": null,
+      "pass_criteria": {
+        "primary": "DiDショック固有成分 片側p<0.05",
+        "secondary": "Spearman |rho|>0.15, p<0.10"
+      },
+      "kill_criteria": "主判定p>0.20、または灰色ゾーン(p=0.05-0.20)かつ副判定FAIL",
+      "branch_on_result": {
+        "PASS": "turnover-decline-mechanism-separation へ進む",
+        "GRAY_ZONE": "副判定で分岐（副PASS→Q2、副FAIL→Q3）",
+        "FAIL": "vol-drift-as-alternative-theme へピボット"
+      },
+      "what_this_decides": "T1テーマ全体のポストショック戦略のトレード価値",
+      "implementation": "Q05のrun_vol_reversal_specificity.pyをフォーク、vol→turnoverに変数差し替え、非ショック日バッファ+-5日追加",
+      "key_debate": "非ショック日のturnoverベースラインの符号自体が結論を左右する。DiDのp値で判断すべきという合意",
+      "roles_consensus": {
+        "PM": "条件付き",
+        "需給": "進めるべき",
+        "クオンツ": "進めるべき",
+        "データ": "進めるべき",
+        "レッドチーム": "条件付き"
+      }
+    },
+    {
+      "id": "turnover-decline-mechanism-separation",
+      "v2_summary": "K12がショック固有確認後、ショック後5日/10日間のturnover標準化変化量と空売り比率変化量をturnover高/低群間でDiD比較。3パターン分類: (A)双方向不安定化→回避のみ、(B)売り連鎖→ショート可能、(C)情報劣位者集中→回避のみ",
+      "verdict": "Q1がPASSの場合のみ進める（優先度: 中）",
+      "priority": 2,
+      "precondition": "turnover-postshock-specificity-did がPASS",
+      "pass_criteria": {
+        "primary": "DiDのturnover相対変化 p<0.10",
+        "secondary": "空売り比率相対変化の方向でパターンA/B/C分類"
+      },
+      "kill_criteria": "第一段p>0.20かつ空売り比率にも有意差なし → メカニズム分離不能",
+      "what_this_decides": "戦略の方向が「回避のみ」か「ショートも可能」か",
+      "implementation": "ショック後5日/10日のturnover標準化変化量DiD計算。空売り比率データの事前確認が必要",
+      "key_debate": "ショック後turnover上昇は市場全体現象→DiD構造が必須。3パターン判定フレームワークで合意",
+      "roles_consensus": {
+        "PM": "進めるべき",
+        "需給": "進めるべき",
+        "クオンツ": "進めるべき",
+        "データ": "条件付き",
+        "レッドチーム": "条件付き"
+      }
+    },
+    {
+      "id": "vol-drift-as-alternative-theme",
+      "v2_summary": "K14の構造的ドリフト(+0.584%/20d)を前提にショック日を押し目買い機会として活用。第一段: Q05結果読み替え(追加実験不要)。第二段: day-0超過下落幅と20d CARのクロスセクショナル相関をvol高/低群別比較。第三段: ネットリターン試算",
+      "verdict": "Q1がFAILの場合に進める（優先度: 中）",
+      "priority": 3,
+      "precondition": "turnover-postshock-specificity-did がFAIL",
+      "pass_criteria": {
+        "primary": "vol高群day-0下落幅 vs 20d CAR Spearman rho>0.15 (p<0.10) かつvol低群非有意",
+        "secondary": "ネットリターン>0（取引コスト50bps前提）"
+      },
+      "kill_criteria": "vol高群rho<0.10（エントリータイミング効果なし）、またはネットリターン<=0",
+      "what_this_decides": "vol反転戦略を構造的ドリフトの押し目買いとして再定義・復活できるか",
+      "implementation": "Q05データ再利用。day-0下落幅vs20d CAR回帰をvol高/低群別実行。ショック頻度集計+取引コスト試算",
+      "key_debate": "Q05結果(+0.087% p=0.222)は第一段の答えを既に示している。第二段の用量反応関係が新規価値。平均回帰との区別にvol低群比較が必須",
+      "roles_consensus": {
+        "PM": "条件付き",
+        "需給": "条件付き",
+        "クオンツ": "進めるべき",
+        "データ": "進めるべき",
+        "レッドチーム": "見送り"
+      }
+    }
+  ],
+  "execution_order": [
+    {
+      "step": 1,
+      "id": "turnover-postshock-specificity-did",
+      "action": "即時実行",
+      "estimated_effort": "medium（Q05コードフォーク+変数差し替え）"
+    },
+    {
+      "step": 2,
+      "id": "turnover-decline-mechanism-separation OR vol-drift-as-alternative-theme",
+      "action": "Q1結果に応じて分岐",
+      "branch_rule": "Q1 PASS → mechanism-separation、Q1 FAIL → vol-drift-as-alternative-theme"
+    }
+  ],
+  "t1_theme_outlook": {
+    "if_q1_pass": "T1はポストショック回避/ショート戦略として生存。turnover高銘柄のショック後回避がアクショナブル",
+    "if_q1_fail": "T1のポストショック戦略は全棄却。残存価値はday-0超過下落予測(リスク管理)とK14構造的ドリフト押し目買い",
+    "confirmed_regardless": "day-0のvol/turnover効果(K1,K2,K7)はリスク管理知見として確定済み"
+  }
+}
