@@ -1,0 +1,41 @@
+{
+  "plan": {
+    "files": [
+      {
+        "path": "scripts/run_symmetry_test.py",
+        "action": "modify",
+        "description": "--q06フラグを追加。事前リターン層別+上方ショックプラセボ+大型株限定+連続回帰"
+      }
+    ],
+    "functions": [
+      {
+        "name": "run_q06",
+        "signature": "def run_q06(args, us_returns, jp_returns, topix_returns, jp_prices_raw, listed, vix_change, margin_data) -> None",
+        "purpose": "Q06メイン: Step1: 事前リターン3ウィンドウ(5d/20d/60d)でturnover高群を層別→各層の20d CAR。Step2: 大型株限定で再実行。Step3: 上方ショック後にturnover効果消失を確認。Step4: 連続回帰（CAR ~ turnover + prior_ret統制）"
+      }
+    ],
+    "data_flow": "下方ショック日パネル構築(Q03再利用) → turnover高群を事前リターンで上昇/下落に二分 → 各群の20d CAR比較 → 大型株限定 → 上方ショック版で同テスト → 連続回帰",
+    "pass_criteria": {
+      "primary": "事前上昇群（3ウィンドウ中2つ以上）でturnover高群の継続下落が維持（CAR<0, p<0.10）",
+      "secondary": "上方ショック後にturnover効果が非有意（p>0.10）",
+      "both_required": true,
+      "note": "primaryでモメンタム混入を否定、secondaryでパニック固有性を再確認。両方必要"
+    },
+    "fail_criteria": {
+      "a": "事前上昇群（3ウィンドウ中2つ以上）でturnover継続下落が消失",
+      "b": "上方ショック後にもturnover継続下落が有意（p<0.10）"
+    },
+    "implementation_order": [
+      "1. --q06フラグ追加",
+      "2. Q05の事前計算方式を流用（car_20d_mat, vol_mat + turnover_matを追加）",
+      "3. 事前リターン計算（3ウィンドウ）+ turnover高群層別",
+      "4. 各層×ウィンドウの20d CAR算出 + p値",
+      "5. 大型株限定再実行",
+      "6. 上方ショック版で同テスト",
+      "7. 連続回帰（補強）",
+      "8. JSON出力"
+    ],
+    "performance_note": "Q05で導入した事前計算方式（car_20d_mat行列）を流用し、ブートストラップなしの直接比較なので高速（数分で完了）",
+    "estimated_complexity": "low"
+  }
+}

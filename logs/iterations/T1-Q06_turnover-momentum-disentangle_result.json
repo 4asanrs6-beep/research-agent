@@ -1,0 +1,55 @@
+{
+  "experiment": "symmetry-test",
+  "thresholds": {
+    "2.0sigma": {},
+    "1.5pct": {},
+    "1.0sigma": {}
+  },
+  "direction_results": {},
+  "size_stratified": {},
+  "vix_stratified": {},
+  "q06_turnover_momentum": {
+    "step1_prior_stratified": {
+      "5d": {
+        "prior_up_car": -0.0007532005690136101,
+        "prior_up_n": 2024,
+        "prior_up_p": 0.7048582216753574,
+        "prior_down_car": -0.004395244652817569,
+        "prior_down_n": 2024
+      },
+      "20d": {
+        "prior_up_car": -0.0033223312284870604,
+        "prior_up_n": 2024,
+        "prior_up_p": 0.09518367418089553,
+        "prior_down_car": -0.0018261139933441167,
+        "prior_down_n": 2024
+      },
+      "60d": {
+        "prior_up_car": -0.0006633978742268777,
+        "prior_up_n": 2024,
+        "prior_up_p": 0.7473034700253743,
+        "prior_down_car": -0.004485047347604301,
+        "prior_down_n": 2024
+      }
+    },
+    "step2_large_cap": {
+      "car": -0.0025742226109155895,
+      "n": 4048,
+      "p": 0.09230925021205795
+    },
+    "step3_upside_placebo": {
+      "car": 0.002065824800967384,
+      "n": 2667,
+      "p": 0.268310786465343,
+      "pass": "True"
+    },
+    "step4_regression": {
+      "turnover_coef": -0.006970033463784605,
+      "turnover_p": 0.0018786183344220283,
+      "prior_ret_coef": -0.016106139158252025,
+      "prior_ret_p": 0.04619335678487916,
+      "r2": 0.008004261323821149
+    },
+    "verdict": "FAIL"
+  }
+}

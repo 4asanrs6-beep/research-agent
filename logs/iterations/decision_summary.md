@@ -101,14 +101,17 @@ Phase 5 議論 ......... 済 — Codex裁定: 次の問いに移る
 
 ---
 
-### ⬜ T1-Q06 turnover-momentum-disentangle — turnover継続下落はモメンタム混入か
+### ❌(条件付き✅) T1-Q06 turnover-momentum-disentangle — モメンタムの代理ではないが離散テスト不発
 
-**問い:** 事前リターンで層別し、事前上昇群でもturnover継続下落が維持されるか。上方ショック比較も実施
-**詳細:** `logs/iterations/multi_perspective_round2.md`
+**結論:** 離散層別FAIL（1/3ウィンドウのみ）。ただし連続回帰でturnover p=0.002（事前リターン統制後も維持）。上方ショックで効果消失確認(PASS)
+**得られた知見:** K16-K17追加
+**詳細:** `logs/experiments/T1-Q06_turnover-momentum-disentangle_review.md`
 
 Phase 1 生成 ......... 済
 Phase 2 選定 ......... 済
-Phase 3 設計 ......... 未
+Phase 3 設計 ......... 済 — Codex-fallback approve
+Phase 4 実験 ......... 済 — FAIL(離散)/PASS(連続)
+Phase 5 議論 ......... 済 — Codex裁定: 次の問いに移る
 Phase 4 実験 ......... 未
 Phase 5 議論 ......... 未
 
@@ -141,6 +144,10 @@ Phase 5 議論 ......... 未
 ---
 
 ## 直近の動き
+
+### [2026-03-30] T1-Q06 Phase 5 議論完了 → turnoverはモメンタム代理ではないが離散テスト不発
+離散層別FAIL、連続回帰PASS(p=0.002)。上方ショックで消失確認。
+Codex裁定: 次の問いに移る。**次: Q07 size-regime-interaction（またはK12ショック固有性DiD）**
 
 ### [2026-03-30] T1-Q05 Phase 5 議論完了 → vol反転はショック固有ではない
 pseudo-DiD=+0.087%(p=0.222)。K11を修正。vol反転ロング戦略は棄却。

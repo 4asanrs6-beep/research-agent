@@ -1,0 +1,31 @@
+{
+  "source": "claude",
+  "goal": "turnover起因の継続下落(-0.6%/20日)がモメンタム混入か真の売り圧力連鎖かを分離する",
+  "ideas": [
+    {
+      "id": "1",
+      "title": "事前リターン3ウィンドウ層別 + 上方ショックプラセボ",
+      "what": "turnover高群を事前リターン（5d/20d/60d）で上昇/下落に層別し、事前上昇群でも継続下落が維持されるか確認。さらに上方ショック後にturnover効果が消失するか検証（K7活用）",
+      "diff_from_previous": "Q04は反転テストのみ。今回はモメンタム混入の直接排除 + 上方ショックでの消失確認（二段構え）",
+      "reuse": "run_symmetry_test.pyのbuild_panel、compute_post_event_car、run_reversal_test",
+      "new_work": "事前リターン層別ロジック（3ウィンドウ）、上方ショック版の反転テスト、大型株限定再実行",
+      "risk": "事前上昇×turnover高群のサンプルが小さくなり検出力不足",
+      "cost": "low"
+    },
+    {
+      "id": "2",
+      "title": "事前リターンを連続統制変数として回帰",
+      "what": "CARをturnover + 事前リターン + 交互作用で回帰。事前リターン統制後もturnoverが有意なら混入を否定",
+      "diff_from_previous": "離散層別ではなく連続回帰で検出力を維持",
+      "reuse": "同上",
+      "new_work": "事前リターン統制回帰の追加",
+      "risk": "回帰の関数形仮定（線形）が不適切な場合にバイアス",
+      "cost": "low"
+    }
+  ],
+  "recommendation": {
+    "id": "1",
+    "reason": "multi-perspective v2で確定した3ステップ設計そのもの。離散層別は解釈が明快で、上方ショックプラセボはK7（パニック固有）との整合性チェックになる。案2は案1の補強として回帰も併用する。",
+    "robustness_check": "案2の連続回帰を案1の追加テストとして実施"
+  }
+}

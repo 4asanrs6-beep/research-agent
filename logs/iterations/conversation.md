@@ -1061,3 +1061,27 @@ Phase 4 実験: 実行中
 - 3種ベースライン(ランダム/day-0マッチド/市場下落マッチド) + pseudo-DiD + Spearman相関
 - パス基準: pseudo-DiD > 0 かつ (3)vs(2a),(2b)両方でp<0.10
 - Codexレビュー待ち
+
+## T1-Q06 turnover-momentum-disentangle Phase 3 設計
+
+### idea-generation
+
+**目標:** turnover継続下落がモメンタム混入か真の売り圧力かを分離
+
+| ID | アプローチ | コスト |
+|---|---|---|
+| 1 | 事前リターン3ウィンドウ層別 + 上方ショックプラセボ | low |
+| 2 | 事前リターンを連続統制変数として回帰 | low |
+
+**推奨:** 案1（multi-perspective v2の設計）+ 案2を補強テストとして併用
+
+### implementation-planning
+
+- `run_symmetry_test.py` に `--q06` 追加
+- Step1: 事前リターン(5d/20d/60d)でturnover高群を層別→各層の20d CAR
+- Step2: 大型株限定で再実行
+- Step3: 上方ショックで効果消失確認
+- Step4: 連続回帰（補強）
+- パス基準: 事前上昇群で継続下落維持(3ウィンドウ中2つ以上) かつ 上方ショックで消失
+- Q05の事前計算方式を流用（高速）
+- Codexレビュー待ち

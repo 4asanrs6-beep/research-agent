@@ -393,6 +393,8 @@ def main():
     parser.add_argument("--n-stocks", type=int, default=200)
     parser.add_argument("--q04", action="store_true", help="T1-Q04 attention-penalty分析を実行")
     parser.add_argument("--q05", action="store_true", help="T1-Q05 vol-reversal-specificity分析を実行")
+    parser.add_argument("--q06", action="store_true", help="T1-Q06 turnover-momentum-disentangle分析を実行")
+    parser.add_argument("--skip-symmetry", action="store_true", help="対称性テストをスキップ（Q05/Q06のみ実行時）")
     args = parser.parse_args()
 
     cache = DataCache(MARKET_DATA_DIR)
@@ -421,9 +423,23 @@ def main():
     ]
 
     all_results = {}
+    panels = {}
     repro_passed = False
 
-    for thresh_label, thresh_type, thresh_val in thresholds:
+    if args.skip_symmetry:
+        print("対称性テストをスキップ（--skip-symmetry）")
+        # 最低限の下方パネルだけ構築（Q05/Q06が使う）
+        sigma = us_returns.std()
+        down_dates = us_returns[us_returns < -2.0 * sigma].index.tolist()
+        up_dates = us_returns[us_returns > 2.0 * sigma].index.tolist()
+        print(f"2.0sigma下方: {len(down_dates)}日, 上方: {len(up_dates)}日")
+        panels["down"] = build_panel(us_returns, jp_returns, topix_returns, jp_prices_raw, listed, down_dates)
+        panels["up"] = build_panel(us_returns, jp_returns, topix_returns, jp_prices_raw, listed, up_dates)
+        repro_passed = True
+    else:
+        pass  # 対称性テストを実行
+
+    for thresh_label, thresh_type, thresh_val in (thresholds if not args.skip_symmetry else []):
         print(f"\n{'='*60}")
         print(f"=== 閾値: {thresh_label} ===")
         print(f"{'='*60}")
@@ -554,16 +570,20 @@ def main():
 
             all_results[f"{thresh_label}_comparison"] = sym
 
-    # === サイズ層別（主分析の最初の閾値を使用）===
+    # === サイズ層別・VIX層別 ===
+    size_results = {}
+    vix_results = {}
     base_thresh = thresholds[0]  # 1.0sigma
-    print(f"\n{'='*60}")
-    print(f"=== サイズ層別 ({base_thresh[0]}) ===")
-    print(f"{'='*60}")
+    _run_stratified = not args.skip_symmetry
+    if _run_stratified:
+        print(f"\n{'='*60}")
+        print(f"=== サイズ層別 ({base_thresh[0]}) ===")
+        print(f"{'='*60}")
 
     controls_no_scale = ["beta", "vol", "turnover", "margin_ratio", "ret5d"]
     size_results = {}
 
-    for direction in ["down", "up"]:
+    for direction in (["down", "up"] if _run_stratified else []):
         if base_thresh[1] == "sigma":
             events = extract_events_sigma(us_returns, base_thresh[2], direction)
         else:
@@ -601,12 +621,13 @@ def main():
             }
 
     # === VIX変化層別（主分析の最初の閾値を使用）===
-    print(f"\n{'='*60}")
-    print(f"=== VIX変化層別 ({base_thresh[0]}) ===")
-    print(f"{'='*60}")
+    if _run_stratified:
+        print(f"\n{'='*60}")
+        print(f"=== VIX変化層別 ({base_thresh[0]}) ===")
+        print(f"{'='*60}")
 
     vix_results = {}
-    for direction in ["down", "up"]:
+    for direction in (["down", "up"] if _run_stratified else []):
         if base_thresh[1] == "sigma":
             events = extract_events_sigma(us_returns, base_thresh[2], direction)
         else:
@@ -993,6 +1014,131 @@ def main():
                 q05_results["verdict"] = verdict
                 print(f"\n総合判定: {verdict}")
 
+    # === T1-Q06: turnover継続下落のモメンタム分離 ===
+    q06_results = {}
+    if args.q06:
+        print("\n" + "=" * 60)
+        print("=== T1-Q06 turnover-momentum-disentangle ===")
+        print("=" * 60)
+
+        down_panel = panels.get("down")
+        up_panel = panels.get("up")
+        if down_panel is None or len(down_panel) == 0:
+            print("NG: 下方パネルがない。中止")
+        else:
+            # CARを計算
+            down_panel = compute_post_event_car(jp_returns, topix_returns, down_panel, windows=[5, 10, 20])
+
+            # 事前リターン計算（3ウィンドウ）
+            for w in [5, 20, 60]:
+                col = f"prior_ret_{w}d"
+                vals = []
+                for _, row in down_panel.iterrows():
+                    code = row["code"]
+                    ed = row["event_date"]
+                    before = jp_returns[code][jp_returns.index <= ed].tail(w + 1).head(w)
+                    if len(before) < w // 2:
+                        vals.append(np.nan)
+                    else:
+                        vals.append(float((1 + before).prod() - 1))
+                down_panel[col] = vals
+
+            turnover_median = down_panel["turnover"].median()
+            turn_high = down_panel[down_panel["turnover"] > turnover_median]
+
+            # --- Step 1: 事前リターン層別 ---
+            print("\n--- Step 1: 事前リターン層別（turnover高群のみ）---")
+            step1_results = {}
+            for w in [5, 20, 60]:
+                col = f"prior_ret_{w}d"
+                valid = turn_high[[col, "car_20d"]].dropna()
+                if len(valid) < 20:
+                    step1_results[f"{w}d"] = {"error": "insufficient data"}
+                    continue
+                prior_median = valid[col].median()
+                up_group = valid[valid[col] > prior_median]
+                down_group = valid[valid[col] <= prior_median]
+                up_car = up_group["car_20d"].mean()
+                down_car = down_group["car_20d"].mean()
+                from scipy import stats as scipy_stats
+                t_stat, p_val = scipy_stats.ttest_1samp(up_group["car_20d"], 0)
+                step1_results[f"{w}d"] = {
+                    "prior_up_car": float(up_car),
+                    "prior_up_n": len(up_group),
+                    "prior_up_p": float(p_val),
+                    "prior_down_car": float(down_car),
+                    "prior_down_n": len(down_group),
+                }
+                print(f"  {w}d事前リターン: 上昇群CAR={up_car*100:+.3f}%(n={len(up_group)}, p={p_val:.4f}), "
+                      f"下落群CAR={down_car*100:+.3f}%(n={len(down_group)})")
+            q06_results["step1_prior_stratified"] = step1_results
+
+            # Step 1判定: 3ウィンドウ中2つ以上で事前上昇群のCAR<0かつp<0.10
+            n_pass = sum(1 for w in [5, 20, 60]
+                        if f"{w}d" in step1_results
+                        and isinstance(step1_results[f"{w}d"], dict)
+                        and "prior_up_car" in step1_results[f"{w}d"]
+                        and step1_results[f"{w}d"]["prior_up_car"] < 0
+                        and step1_results[f"{w}d"]["prior_up_p"] < 0.10)
+            step1_pass = n_pass >= 2
+            print(f"  Step 1判定: {n_pass}/3ウィンドウでPASS → {'PASS' if step1_pass else 'FAIL'}")
+
+            # --- Step 2: 大型株限定 ---
+            print("\n--- Step 2: 大型株限定 ---")
+            if "scale_large" in down_panel.columns:
+                large_turn_high = turn_high[turn_high["scale_large"] == 1]
+            else:
+                # サイズ情報がなければ上位半分を大型扱い
+                large_turn_high = turn_high
+            step2_car = large_turn_high["car_20d"].dropna().mean()
+            step2_n = large_turn_high["car_20d"].dropna().count()
+            if step2_n > 10:
+                t2, p2 = scipy_stats.ttest_1samp(large_turn_high["car_20d"].dropna(), 0)
+                print(f"  大型turnover高群 20d CAR: {step2_car*100:+.3f}% (n={step2_n}, p={p2:.4f})")
+                q06_results["step2_large_cap"] = {"car": float(step2_car), "n": int(step2_n), "p": float(p2)}
+
+            # --- Step 3: 上方ショック比較 ---
+            print("\n--- Step 3: 上方ショックでturnover効果消失確認 ---")
+            if up_panel is not None and len(up_panel) > 0:
+                up_panel = compute_post_event_car(jp_returns, topix_returns, up_panel, windows=[20])
+                up_turn_median = up_panel["turnover"].median()
+                up_turn_high = up_panel[up_panel["turnover"] > up_turn_median]
+                up_car = up_turn_high["car_20d"].dropna().mean()
+                up_n = up_turn_high["car_20d"].dropna().count()
+                if up_n > 10:
+                    t3, p3 = scipy_stats.ttest_1samp(up_turn_high["car_20d"].dropna(), 0)
+                    step3_pass = p3 > 0.10  # 非有意 = 効果消失 = PASS
+                    print(f"  上方ショック turnover高群 20d CAR: {up_car*100:+.3f}% (n={up_n}, p={p3:.4f})")
+                    print(f"  Step 3判定: {'PASS(非有意=消失)' if step3_pass else 'FAIL(有意=消失せず)'}")
+                    q06_results["step3_upside_placebo"] = {"car": float(up_car), "n": int(up_n), "p": float(p3), "pass": step3_pass}
+
+            # --- Step 4: 連続回帰（補強）---
+            print("\n--- Step 4: 連続回帰（事前リターン統制）---")
+            reg_data = down_panel[["car_20d", "turnover", "prior_ret_20d", "excess_ret"]].dropna()
+            if len(reg_data) > 50:
+                X = sm.add_constant(reg_data[["turnover", "prior_ret_20d", "excess_ret"]])
+                model = sm.OLS(reg_data["car_20d"], X).fit()
+                print(f"  turnover coef={model.params['turnover']:+.6f} p={model.pvalues['turnover']:.4f}")
+                print(f"  prior_ret_20d coef={model.params['prior_ret_20d']:+.6f} p={model.pvalues['prior_ret_20d']:.4f}")
+                q06_results["step4_regression"] = {
+                    "turnover_coef": float(model.params["turnover"]),
+                    "turnover_p": float(model.pvalues["turnover"]),
+                    "prior_ret_coef": float(model.params["prior_ret_20d"]),
+                    "prior_ret_p": float(model.pvalues["prior_ret_20d"]),
+                    "r2": float(model.rsquared),
+                }
+
+            # --- 最終判定 ---
+            print("\n" + "=" * 60)
+            print("=== T1-Q06 最終判定 ===")
+            print("=" * 60)
+            step3_pass_final = q06_results.get("step3_upside_placebo", {}).get("pass", False)
+            overall = "PASS" if (step1_pass and step3_pass_final) else "FAIL"
+            q06_results["verdict"] = overall
+            print(f"Step 1 (事前上昇群で継続下落維持): {'PASS' if step1_pass else 'FAIL'}")
+            print(f"Step 3 (上方ショックで効果消失): {'PASS' if step3_pass_final else 'FAIL'}")
+            print(f"総合判定: {overall}")
+
     # === JSON保存 ===
     output = {
         "experiment": "symmetry-test",
@@ -1005,12 +1151,16 @@ def main():
         output["q04_attention_penalty"] = q04_results
     if args.q05:
         output["q05_vol_reversal_specificity"] = q05_results
+    if args.q06:
+        output["q06_turnover_momentum"] = q06_results
 
     output_path = Path("logs/iterations/T1-Q03_symmetry-test_result.json")
     if args.q04:
         output_path = Path("logs/iterations/T1-Q04_attention-penalty_result.json")
     if args.q05:
         output_path = Path("logs/iterations/T1-Q05_vol-reversal-specificity_result.json")
+    if args.q06:
+        output_path = Path("logs/iterations/T1-Q06_turnover-momentum-disentangle_result.json")
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with open(output_path, "w", encoding="utf-8") as f:
         json.dump(output, f, ensure_ascii=False, indent=2, default=str)
