@@ -106,6 +106,17 @@ Claude-fallbackはCodexと異なるモデルであり、独立した視点では
 - `decision_summary.md` は各Phase完了時に必ず更新する
 - Phaseをスキップしてはならない（例: 実験結果が出たからといって直接diaryを書かない）
 
+### Phase完了チェッカー（厳守）
+
+**各Phaseの作業が終わったら、必ず以下のコマンドを実行すること:**
+
+```bash
+python scripts/complete_phase.py --phase N --question T1-QXX
+```
+
+このスクリプトが成果物の存在・更新を検証する。NGが出たら不足分を補ってから再実行。
+OKが出るまでそのPhaseは完了していない。**次のPhaseに進んではならない。**
+
 ## 各ステップの詳細
 
 ### 生成
