@@ -38,7 +38,7 @@ def check_file_contains(path: Path, text: str) -> bool:
     return text in path.read_text(encoding="utf-8")
 
 
-def check_phase_1(question_id: str) -> list[str]:
+def check_phase_1(question_id: str, slug: str = "") -> list[str]:
     """Phase 1（生成）の成果物チェック。"""
     errors = []
 
@@ -63,7 +63,7 @@ def check_phase_1(question_id: str) -> list[str]:
     return errors
 
 
-def check_phase_2(question_id: str) -> list[str]:
+def check_phase_2(question_id: str, slug: str = "") -> list[str]:
     """Phase 2（選定）の成果物チェック。
     選定 + multi-perspective + Codex着手順裁定 + diary議論解説が必要。
     """
@@ -91,25 +91,35 @@ def check_phase_2(question_id: str) -> list[str]:
     return errors
 
 
-def check_phase_3(question_id: str) -> list[str]:
+def check_phase_3(question_id: str, slug: str = "") -> list[str]:
     """Phase 3（設計）の成果物チェック。"""
     errors = []
     q_slug = question_id.replace("T1-", "").lower()
 
     # Phase 2→3ゲート: multi-perspectiveが完了しているか
     mp = ITERATIONS / "multi_perspective.md"
-    if not mp.exists() or not check_file_contains(mp, question_id):
-        errors.append(f"[NG] multi_perspective.md に {question_id} の議論がない（Phase 2→3ゲート違反）")
+    search_terms = [question_id, q_slug]
+    if slug:
+        search_terms.append(slug)
+    if not mp.exists():
+        errors.append("[NG] multi_perspective.md が存在しない（Phase 2→3ゲート違反）")
+    elif not any(check_file_contains(mp, t) for t in search_terms):
+        errors.append(f"[NG] multi_perspective.md に {'/'.join(search_terms)} の議論がない（Phase 2→3ゲート違反）")
 
-    # ideas.json
-    ideas_files = list(ITERATIONS.glob(f"*{q_slug}*ideas*"))
+    # ideas.json (q_slugまたはslugで検索)
+    file_slugs = [q_slug] + ([slug] if slug else [])
+    ideas_files = []
+    for fs in file_slugs:
+        ideas_files.extend(ITERATIONS.glob(f"*{fs}*ideas*"))
     if not ideas_files:
-        errors.append(f"[NG] ideas.json が存在しない (*{q_slug}*ideas*)")
+        errors.append(f"[NG] ideas.json が存在しない (*{'/'.join(file_slugs)}*ideas*)")
 
     # plan.json
-    plan_files = list(ITERATIONS.glob(f"*{q_slug}*plan*"))
+    plan_files = []
+    for fs in file_slugs:
+        plan_files.extend(ITERATIONS.glob(f"*{fs}*plan*"))
     if not plan_files:
-        errors.append(f"[NG] plan.json が存在しない (*{q_slug}*plan*)")
+        errors.append(f"[NG] plan.json が存在しない (*{'/'.join(file_slugs)}*plan*)")
 
     # conversation.mdにPhase 3の記録があるか
     conv = ITERATIONS / "conversation.md"
@@ -123,7 +133,7 @@ def check_phase_3(question_id: str) -> list[str]:
     return errors
 
 
-def check_phase_4(question_id: str) -> list[str]:
+def check_phase_4(question_id: str, slug: str = "") -> list[str]:
     """Phase 4（実験）の成果物チェック。"""
     errors = []
     q_slug = question_id.replace("T1-", "").lower()
@@ -145,7 +155,7 @@ def check_phase_4(question_id: str) -> list[str]:
     return errors
 
 
-def check_phase_5(question_id: str) -> list[str]:
+def check_phase_5(question_id: str, slug: str = "") -> list[str]:
     """Phase 5（議論）の成果物チェック。"""
     errors = []
     q_slug = question_id.replace("T1-", "").lower()
@@ -189,10 +199,11 @@ def main():
     parser = argparse.ArgumentParser(description="Phase完了チェッカー")
     parser.add_argument("--phase", type=int, required=True, choices=[1, 2, 3, 4, 5])
     parser.add_argument("--question", type=str, required=True, help="問いのID (例: T1-Q05)")
+    parser.add_argument("--slug", type=str, default="", help="問いの短縮名 (例: vol-reversal-specificity)")
     args = parser.parse_args()
 
     checker = PHASE_CHECKERS[args.phase]
-    errors = checker(args.question)
+    errors = checker(args.question, args.slug)
 
     print(f"\n=== Phase {args.phase} 完了チェック: {args.question} ===\n")
 

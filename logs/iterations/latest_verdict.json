@@ -1,6 +1,38 @@
 {
-  "reviewer": "claude-fallback",
+  "reviewer": "codex-fallback",
+  "target": "T1-Q05_vol-reversal-specificity_plan.json",
   "decision": "approve",
-  "issues": [],
-  "verdict_summary": "All 6 review issues (I1-I4, S1-S2) are properly addressed in the revised plan. I1: same pipeline for non-shock days explicitly stated in sample_non_shock_baseline and data_flow ('同一銘柄ユニバース、同一vol計算'). I2: min_gap=20 is a named parameter in the bootstrap function signature and enforced per review_fixes. I3: non-shock defined as complement of 2sigma shock set; old |S&P500|<1sigma restriction explicitly removed. I4: Spearman rank correlation with 95% CI at event-date level aggregation. S1: vol-low group computed alongside vol-high, pseudo-DiD is the primary pass criterion. S2: effect size with 95% CI reported. Plan is coherent and ready for implementation."
+  "confidence": 0.85,
+  "checklist": {
+    "v2_design_match": {
+      "pass": true,
+      "detail": "Plan implements all v2 requirements: (1) same-pipeline for non-shock days via same universe + vol20d grouping, (2) min_gap=20 to avoid CAR window overlap, (3) complement-of-shock as non-shock definition (data_flow explicitly states 'complement = non-shock'), (4) Spearman+CI via shock_magnitude_correlation, (5) pseudo-DiD with vol-low group as internal control, (6) effect size with 95% CI reported. Three baseline types (random / day-0 matched / market-drop matched) align with the 3+1 condition design from ideas."
+    },
+    "statistical_issues": {
+      "pass": true,
+      "minor_notes": [
+        "Spearman threshold r>0.05 is very low — practically any non-zero correlation passes. However, this is the secondary criterion and the p<0.10 gate is the real filter, so acceptable.",
+        "Bootstrap p-value (n_iter=500) in sample_non_shock_baseline is adequate for screening but not for publication. Fine for this stage.",
+        "Day-0 matched baseline (2a) matching precision is flagged as a risk in ideas but not addressed in the plan — recommend logging the match quality (e.g., median absolute difference in day-0 return between shock and matched non-shock samples).",
+        "No explicit multiple-testing correction across the three baseline comparisons. With only 2 formal comparisons in primary criterion ((3)vs(2a) and (3)vs(2b)), Bonferroni would set threshold at p<0.05 per comparison. Current p<0.10 per comparison is lenient but acceptable given this is exploratory confirmation, not discovery."
+      ]
+    },
+    "pass_criteria": {
+      "pass": true,
+      "detail": "Primary criterion requires pseudo-DiD > 0 AND both matched-baseline comparisons at p<0.10. This is appropriately stringent — requiring both (2a) and (2b) to pass is a form of robustness check. Secondary (Spearman) is correctly marked as supplementary, not required. both_required=false is reasonable.",
+      "minor_notes": [
+        "Consider adding a minimum effect size threshold to primary criterion (e.g., pseudo-DiD > 0.5% over 20 days or Cohen's d > 0.1) to guard against statistically significant but economically meaningless results. Currently only direction (>0) is required."
+      ]
+    },
+    "implementation_feasibility": {
+      "pass": true,
+      "detail": "Existing compute_post_event_car and run_reversal_test functions in run_symmetry_test.py can be directly reused. Data flow is clear. Estimated complexity low-medium is accurate."
+    }
+  },
+  "recommendations": [
+    "Log day-0 match quality metrics (median abs difference) for baseline 2a to diagnose poor-match scenarios.",
+    "Consider adding a minimum economic effect size to pseudo-DiD criterion (e.g., >0.3% over 20 days) in addition to the directional >0 requirement.",
+    "Report the exact bootstrap iteration count and seed for reproducibility."
+  ],
+  "summary": "Plan faithfully implements the multi-perspective v2 design. All six required elements are present. No blocking statistical issues found. Three minor recommendations are advisory only and do not require plan revision before execution."
 }

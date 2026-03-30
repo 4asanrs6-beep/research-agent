@@ -1040,3 +1040,24 @@ Phase 4 実験: 実行中
 - 複雑度: low
 
 → Codexレビュー待ち
+
+## T1-Q05 vol-reversal-specificity Phase 3 設計
+
+### idea-generation
+
+**目標:** vol反転がショック固有か3+1条件比較で分離
+
+| ID | アプローチ | コスト |
+|---|---|---|
+| 1 | 3+1条件ベースライン比較+pseudo-DiD | low-medium |
+| 2 | full DiD回帰 | high |
+
+**推奨:** 案1 — multi-perspective v2の設計そのもの。Q04コード流用可能
+**頑健性:** Spearman相関を補強テストとして併用
+
+### implementation-planning
+
+- `run_symmetry_test.py` に `--q05` 追加
+- 3種ベースライン(ランダム/day-0マッチド/市場下落マッチド) + pseudo-DiD + Spearman相関
+- パス基準: pseudo-DiD > 0 かつ (3)vs(2a),(2b)両方でp<0.10
+- Codexレビュー待ち

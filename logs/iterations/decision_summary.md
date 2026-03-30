@@ -89,14 +89,12 @@ Phase 5 議論 ......... 済 — Codex裁定: 次の問いに移る
 
 ## 直近の動き
 
+### [2026-03-30] T1-Q05 vol-reversal-specificity Phase 3 設計完了
+案1（3+1条件ベースライン+pseudo-DiD）を採用。Codex-fallback approve。
+**次: Phase 4（実装・実験）**
+
 ### [2026-03-30] /multi-perspective完了 → Phase 3（設計）へ
-4問を5ロール×2ラウンドで議論。各問いがv0→v1→v2に進化。
-Claude-fallback裁定で着手順決定:
-1. vol-reversal-specificity（前提条件）
-2. turnover-momentum-disentangle（前提条件）
-3. size-regime-interaction（サイズ分割）
-4. cross-factor-portfolio（戦略テスト、1-3が前提）
-**次: Phase 3（設計）→ vol-reversal-specificityから**
+4問を5ロール×2ラウンドで議論。着手順: vol-reversal → turnover-momentum → size-regime → cross-factor
 
 ### [2026-03-30] Phase 2: 人間が4問を選定
 vol-reversal-specificity, turnover-momentum-disentangle, size-regime-interaction, cross-factor-portfolio。
