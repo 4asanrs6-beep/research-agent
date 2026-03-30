@@ -75,6 +75,12 @@ Claude-fallbackはCodexと異なるモデルであり、独立した視点では
 
 各Phaseには前提条件がある。条件を満たさずに次のPhaseの成果物を作成した場合、プロセス違反。
 
+### Phase 2（選定）→ Phase 3（設計）ゲート
+設計に入るには以下が必須:
+1. `/multi-perspective` の実行ログが `logs/iterations/multi_perspective.md` に記録済み
+2. Codex裁定で着手順が決定されている
+3. 上記が揃っていない限り、`/idea-generation` や `*_ideas.json` を作成してはならない
+
 ### Phase 3（設計）→ Phase 4（実験）ゲート
 コードを書くには以下が必須:
 1. `logs/iterations/*_ideas.json` — /idea-generationの出力

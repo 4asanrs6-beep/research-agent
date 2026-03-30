@@ -64,7 +64,9 @@ def check_phase_1(question_id: str) -> list[str]:
 
 
 def check_phase_2(question_id: str) -> list[str]:
-    """Phase 2（選定）の成果物チェック。"""
+    """Phase 2（選定）の成果物チェック。
+    選定 + multi-perspective + Codex着手順裁定が必要。
+    """
     errors = []
 
     # research_diary.mdに選定結果の記述があるか
@@ -75,6 +77,13 @@ def check_phase_2(question_id: str) -> list[str]:
     if not check_file_contains(SUMMARY, "選定"):
         errors.append("[NG] decision_summary.md に選定の記録がない")
 
+    # multi_perspective.mdに選定された問いの議論があるか
+    mp = ITERATIONS / "multi_perspective.md"
+    if not mp.exists():
+        errors.append("[NG] multi_perspective.md が存在しない（/multi-perspective 未実行）")
+    elif not check_file_contains(mp, question_id) and not check_file_updated_recently(mp):
+        errors.append(f"[NG] multi_perspective.md に {question_id} の議論がない")
+
     return errors
 
 
@@ -82,6 +91,11 @@ def check_phase_3(question_id: str) -> list[str]:
     """Phase 3（設計）の成果物チェック。"""
     errors = []
     q_slug = question_id.replace("T1-", "").lower()
+
+    # Phase 2→3ゲート: multi-perspectiveが完了しているか
+    mp = ITERATIONS / "multi_perspective.md"
+    if not mp.exists() or not check_file_contains(mp, question_id):
+        errors.append(f"[NG] multi_perspective.md に {question_id} の議論がない（Phase 2→3ゲート違反）")
 
     # ideas.json
     ideas_files = list(ITERATIONS.glob(f"*{q_slug}*ideas*"))

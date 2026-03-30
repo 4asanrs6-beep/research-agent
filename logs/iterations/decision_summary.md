@@ -92,7 +92,7 @@ Phase 5 議論 ......... 済 — Codex裁定: 次の問いに移る
 ### [2026-03-30] Phase 2: 人間が4問を選定
 vol-reversal-specificity, turnover-momentum-disentangle, size-regime-interaction, cross-factor-portfolio。
 前提条件潰し(1,2) → サイズ境界(3) → 戦略テスト(4) の依存順。
-**次: Phase 3（設計）→ vol-reversal-specificityから着手**
+**次: /multi-perspective で4問を議論・進化させる → Codex裁定で着手順を決定**
 
 ### [2026-03-30] Phase 1: 次の問い候補10問を生成
 知見K1-K13から3方向（前提条件潰し/戦略テスト/メカニズム深掘り）で10問を生成。
