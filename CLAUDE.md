@@ -175,6 +175,20 @@ bash scripts/send-to-codex-generate.sh "テーマ" → Codexも独立に生成
 1. 各エントリに: 何をしているか / 何が分かったか / 次は何か
 2. 技術的詳細は最小限。必要なら experiments/ へリンク
 3. **実験をバックグラウンドで走らせる前に必ず「実行中」を書く**
+4. **Phase 2（選定）完了時に、選ばれた全問いの詳細セクションを作る。** 以下の形式:
+
+```
+### 🔄 T1-QXX 問い名 — 1行説明
+
+**問い:** 平易な説明
+**詳細:** ログファイルへのリンク
+
+Phase 1 生成 ......... 済
+Phase 2 選定 ......... 済
+Phase 3 設計 ......... 未
+Phase 4 実験 ......... 未
+Phase 5 議論 ......... 未
+```
 
 ### 各議論ログの冒頭ルール
 brainstorm_discussion.md、multi_perspective.md、experiment_review.mdの各エントリは冒頭に:

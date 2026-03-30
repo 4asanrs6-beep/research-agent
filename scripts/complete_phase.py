@@ -88,6 +88,10 @@ def check_phase_2(question_id: str, slug: str = "") -> list[str]:
     elif not check_file_contains(mp, question_id) and not check_file_updated_recently(mp):
         errors.append(f"[NG] multi_perspective.md に {question_id} の議論がない")
 
+    # decision_summary.mdに問いの詳細セクション（Phase進捗表）があるか
+    if not check_file_contains(SUMMARY, "Phase 1 生成"):
+        errors.append("[NG] decision_summary.md に問いの詳細セクション（Phase進捗表）がない")
+
     return errors
 
 

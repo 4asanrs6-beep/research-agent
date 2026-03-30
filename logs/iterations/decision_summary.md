@@ -87,6 +87,58 @@ Phase 5 議論 ......... 済 — Codex裁定: 次の問いに移る
 
 ---
 
+### 🔄 T1-Q05 vol-reversal-specificity — vol反転はショック固有か通常ドリフトか
+
+**問い:** ショック後のvol高群反転(+1.6%/20日)は、非ショック日にも同程度起きる通常のドリフトではないか？3種の非ショック日ベースラインとpseudo-DiDで分離する
+**詳細:** `logs/iterations/multi_perspective_round2.md` vol-reversal-specificityセクション
+
+Phase 1 生成 ......... 済
+Phase 2 選定 ......... 済（multi-perspective v2で進化）
+Phase 3 設計 ......... 済 — Codex-fallback approve
+Phase 4 実験 ......... 実行中
+Phase 5 議論 ......... 未
+
+---
+
+### ⬜ T1-Q06 turnover-momentum-disentangle — turnover継続下落はモメンタム混入か
+
+**問い:** 事前リターンで層別し、事前上昇群でもturnover継続下落が維持されるか。上方ショック比較も実施
+**詳細:** `logs/iterations/multi_perspective_round2.md`
+
+Phase 1 生成 ......... 済
+Phase 2 選定 ......... 済
+Phase 3 設計 ......... 未
+Phase 4 実験 ......... 未
+Phase 5 議論 ......... 未
+
+---
+
+### ⬜ T1-Q07 size-regime-interaction — サイズ別で戦略を分けるべきか
+
+**問い:** 連続交互作用(log時価総額×vol/turnover)でサイズ依存性を推定。中小型では信用残も確認
+**詳細:** `logs/iterations/multi_perspective_round2.md`
+
+Phase 1 生成 ......... 済
+Phase 2 選定 ......... 済
+Phase 3 設計 ......... 未
+Phase 4 実験 ......... 未
+Phase 5 議論 ......... 未
+
+---
+
+### ⬜ T1-Q08 cross-factor-portfolio — vol×turnover 2次元ポートフォリオは機能するか
+
+**問い:** vol高×turnover低をロング、逆をショート。交互作用検定+翌日エントリーでのスプレッド確認。Q05-Q07が前提
+**詳細:** `logs/iterations/multi_perspective_round2.md`
+
+Phase 1 生成 ......... 済
+Phase 2 選定 ......... 済
+Phase 3 設計 ......... 未
+Phase 4 実験 ......... 未
+Phase 5 議論 ......... 未
+
+---
+
 ## 直近の動き
 
 ### [2026-03-30] T1-Q05 vol-reversal-specificity Phase 4 実験実行中
