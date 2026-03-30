@@ -392,6 +392,7 @@ def main():
     parser.add_argument("--end", default=date.today().strftime("%Y-%m-%d"))
     parser.add_argument("--n-stocks", type=int, default=200)
     parser.add_argument("--q04", action="store_true", help="T1-Q04 attention-penalty分析を実行")
+    parser.add_argument("--q05", action="store_true", help="T1-Q05 vol-reversal-specificity分析を実行")
     args = parser.parse_args()
 
     cache = DataCache(MARKET_DATA_DIR)
@@ -801,6 +802,197 @@ def main():
                     "verdict": q04_verdict,
                 }
 
+    # === T1-Q05: vol反転のショック固有性検証 ===
+    q05_results = {}
+    if args.q05:
+        from scipy import stats as scipy_stats
+        print("\n" + "=" * 60)
+        print("=== T1-Q05 vol-reversal-specificity ===")
+        print("=" * 60)
+
+        # Q04反転テスト再現ゲート
+        down_key = f"{thresholds[0][0]}_down"
+        if down_key not in all_results:
+            print("NG: 下方ショック結果がない。中止")
+        else:
+            down_panel = panels.get("down")
+            if down_panel is None or len(down_panel) == 0:
+                print("NG: 下方パネルがない。中止")
+            else:
+                # CARを計算
+                down_panel = compute_post_event_car(jp_returns, topix_returns, down_panel, windows=[5, 10, 20])
+                shock_dates_list = sorted(down_panel["event_date"].unique())
+                n_shock = len(shock_dates_list)
+                print(f"ショック日数: {n_shock}")
+
+                # vol高/低群の20d CARを計算
+                vol_median = down_panel["vol"].median()
+                vol_high = down_panel[down_panel["vol"] > vol_median]
+                vol_low = down_panel[down_panel["vol"] <= vol_median]
+                shock_vol_high_car = vol_high["car_20d"].dropna().mean()
+                shock_vol_low_car = vol_low["car_20d"].dropna().mean()
+                print(f"\nショック日 vol高群 20d CAR: {shock_vol_high_car*100:+.3f}%")
+                print(f"ショック日 vol低群 20d CAR: {shock_vol_low_car*100:+.3f}%")
+
+                # 非ショック日の定義（2sigma下方ショック日の補集合）
+                all_sp_dates = us_returns.index
+                shock_set = set(shock_dates_list)
+                non_shock_dates = [d for d in all_sp_dates if d not in shock_set]
+                print(f"非ショック日数: {len(non_shock_dates)}")
+
+                # --- 事前計算（ブートストラップ外で1回だけ）---
+                print("事前計算: 全日×全銘柄のCAR・vol行列...")
+                excess_mat = jp_returns.sub(topix_returns, axis=0)
+                # 20d forward CAR: reaction_dateから翌日〜20日後の累積超過リターン
+                # shift(-21)で21日先の累積値を取り、shift(-1)との差で1〜20日分を得る
+                cumex = excess_mat.cumsum()
+                car_20d_mat = cumex.shift(-21) - cumex.shift(-1)
+                # vol: 20日ローリングstd（年率化）
+                vol_mat = jp_returns.rolling(20, min_periods=10).std() * np.sqrt(252)
+                print(f"  行列サイズ: {car_20d_mat.shape}")
+
+                # 各日の翌JP営業日を事前マッピング
+                jp_idx = jp_returns.index
+                next_jp_day = {}
+                for i_d, d in enumerate(jp_idx[:-1]):
+                    next_jp_day[d] = jp_idx[i_d + 1]
+                # 非ショック日もJP営業日にマッピング
+                non_shock_jp = []
+                for d in non_shock_dates:
+                    later = jp_idx[jp_idx > d]
+                    if len(later) > 0:
+                        non_shock_jp.append((d, later[0]))
+
+                # --- ベースライン (1): ランダム非ショック日 ---
+                print("\n--- ベースライン1: ランダム非ショック日 ---")
+                n_iter = 200
+                min_gap = 20
+                rng = np.random.RandomState(42)
+                bootstrap_vol_high_cars = []
+                bootstrap_vol_low_cars = []
+
+                non_shock_arr = np.array([x[0] for x in non_shock_jp])
+                non_shock_reaction = {x[0]: x[1] for x in non_shock_jp}
+
+                for i in range(n_iter):
+                    shuffled = rng.permutation(len(non_shock_arr))
+                    sampled_reactions = []
+                    sampled_events = []
+                    for idx in shuffled:
+                        d = non_shock_arr[idx]
+                        if all(abs((d - s).days) >= min_gap for s in sampled_events):
+                            sampled_events.append(d)
+                            sampled_reactions.append(non_shock_reaction[d])
+                        if len(sampled_events) >= n_shock:
+                            break
+                    if len(sampled_reactions) < n_shock // 2:
+                        continue
+
+                    # 各reaction_dateのvol・CARを行列から参照
+                    all_vols = []
+                    all_cars = []
+                    for rd in sampled_reactions:
+                        if rd not in vol_mat.index or rd not in car_20d_mat.index:
+                            continue
+                        v = vol_mat.loc[rd].dropna()
+                        c = car_20d_mat.loc[rd].dropna()
+                        common_codes = v.index.intersection(c.index)
+                        if len(common_codes) < 10:
+                            continue
+                        all_vols.append(v[common_codes])
+                        all_cars.append(c[common_codes])
+
+                    if len(all_vols) < 5:
+                        continue
+                    concat_v = pd.concat(all_vols)
+                    concat_c = pd.concat(all_cars)
+                    vm = concat_v.median()
+                    fh = concat_c[concat_v > vm].mean()
+                    fl = concat_c[concat_v <= vm].mean()
+                    bootstrap_vol_high_cars.append(float(fh))
+                    bootstrap_vol_low_cars.append(float(fl))
+
+                if len(bootstrap_vol_high_cars) > 50:
+                    bs_high = np.array(bootstrap_vol_high_cars)
+                    bs_low = np.array(bootstrap_vol_low_cars)
+                    baseline_high = np.mean(bs_high)
+                    baseline_low = np.mean(bs_low)
+                    p_high = np.mean(bs_high >= shock_vol_high_car)
+                    p_low = np.mean(bs_low >= shock_vol_low_car)
+                    pseudo_did_shock = shock_vol_high_car - shock_vol_low_car
+                    pseudo_did_baseline = baseline_high - baseline_low
+                    pseudo_did = pseudo_did_shock - pseudo_did_baseline
+                    bs_dids = bs_high - bs_low
+                    p_did = np.mean(bs_dids >= pseudo_did_shock)
+
+                    print(f"  非ショック日 vol高群ベースライン: {baseline_high*100:+.3f}%")
+                    print(f"  非ショック日 vol低群ベースライン: {baseline_low*100:+.3f}%")
+                    print(f"  ショック固有vol高群CAR: {shock_vol_high_car*100:+.3f}% vs ベースライン {baseline_high*100:+.3f}% (p={p_high:.4f})")
+                    print(f"  pseudo-DiD: {pseudo_did*100:+.3f}% (shock={pseudo_did_shock*100:+.3f}% - baseline={pseudo_did_baseline*100:+.3f}%)")
+                    print(f"  pseudo-DiD p値: {p_did:.4f}")
+
+                    q05_results["baseline_random"] = {
+                        "shock_vol_high_car": float(shock_vol_high_car),
+                        "shock_vol_low_car": float(shock_vol_low_car),
+                        "baseline_vol_high_car": float(baseline_high),
+                        "baseline_vol_low_car": float(baseline_low),
+                        "p_vol_high_vs_baseline": float(p_high),
+                        "pseudo_did": float(pseudo_did),
+                        "pseudo_did_p": float(p_did),
+                        "n_bootstrap": len(bootstrap_vol_high_cars),
+                    }
+                else:
+                    print("  ブートストラップ失敗（十分なサンプルが取れなかった）")
+
+                # --- ショック規模相関 ---
+                print("\n--- ショック規模相関 ---")
+                shock_cars_by_date = {}
+                for sd in shock_dates_list:
+                    sub = vol_high[vol_high["event_date"] == sd]
+                    if len(sub) > 0 and sub["car_20d"].notna().sum() > 0:
+                        shock_cars_by_date[sd] = sub["car_20d"].mean()
+
+                if len(shock_cars_by_date) >= 10:
+                    dates_sorted = sorted(shock_cars_by_date.keys())
+                    car_vals = [shock_cars_by_date[d] for d in dates_sorted]
+                    sp_vals = [float(us_returns.loc[d]) if d in us_returns.index else np.nan for d in dates_sorted]
+                    valid_mask = [not (np.isnan(c) or np.isnan(s)) for c, s in zip(car_vals, sp_vals)]
+                    car_clean = [c for c, v in zip(car_vals, valid_mask) if v]
+                    sp_clean = [s for s, v in zip(sp_vals, valid_mask) if v]
+
+                    # ショック規模は負なので絶対値で（下落幅が大きいほど反転も大きいか）
+                    sp_abs = [abs(s) for s in sp_clean]
+                    rho, p_rho = scipy_stats.spearmanr(sp_abs, car_clean)
+                    print(f"  Spearman(|S&P500下落幅|, vol高群20d CAR): rho={rho:.3f}, p={p_rho:.4f}")
+                    print(f"  n={len(car_clean)}イベント日")
+
+                    q05_results["shock_magnitude_correlation"] = {
+                        "spearman_rho": float(rho),
+                        "spearman_p": float(p_rho),
+                        "n_events": len(car_clean),
+                    }
+
+                # --- 最終判定 ---
+                print("\n" + "=" * 60)
+                print("=== T1-Q05 最終判定 ===")
+                print("=" * 60)
+                primary_pass = False
+                secondary_pass = False
+                if "baseline_random" in q05_results:
+                    r = q05_results["baseline_random"]
+                    primary_pass = r["pseudo_did"] > 0 and r["pseudo_did_p"] < 0.10
+                    print(f"Primary (pseudo-DiD > 0, p<0.10): {'PASS' if primary_pass else 'FAIL'}")
+                    print(f"  pseudo-DiD={r['pseudo_did']*100:+.3f}%, p={r['pseudo_did_p']:.4f}")
+                if "shock_magnitude_correlation" in q05_results:
+                    r = q05_results["shock_magnitude_correlation"]
+                    secondary_pass = r["spearman_rho"] > 0.05 and r["spearman_p"] < 0.10
+                    print(f"Secondary (Spearman rho>0.05, p<0.10): {'PASS' if secondary_pass else 'FAIL'}")
+                    print(f"  rho={r['spearman_rho']:.3f}, p={r['spearman_p']:.4f}")
+
+                verdict = "PASS" if primary_pass else ("PARTIAL" if secondary_pass else "FAIL")
+                q05_results["verdict"] = verdict
+                print(f"\n総合判定: {verdict}")
+
     # === JSON保存 ===
     output = {
         "experiment": "symmetry-test",
@@ -811,10 +1003,14 @@ def main():
     }
     if args.q04:
         output["q04_attention_penalty"] = q04_results
+    if args.q05:
+        output["q05_vol_reversal_specificity"] = q05_results
 
     output_path = Path("logs/iterations/T1-Q03_symmetry-test_result.json")
     if args.q04:
         output_path = Path("logs/iterations/T1-Q04_attention-penalty_result.json")
+    if args.q05:
+        output_path = Path("logs/iterations/T1-Q05_vol-reversal-specificity_result.json")
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with open(output_path, "w", encoding="utf-8") as f:
         json.dump(output, f, ensure_ascii=False, indent=2, default=str)

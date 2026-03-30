@@ -87,16 +87,17 @@ Phase 5 議論 ......... 済 — Codex裁定: 次の問いに移る
 
 ---
 
-### 🔄 T1-Q05 vol-reversal-specificity — vol反転はショック固有か通常ドリフトか
+### ❌ T1-Q05 vol-reversal-specificity — vol反転はショック固有ではなかった
 
-**問い:** ショック後のvol高群反転(+1.6%/20日)は、非ショック日にも同程度起きる通常のドリフトではないか？3種の非ショック日ベースラインとpseudo-DiDで分離する
-**詳細:** `logs/iterations/multi_perspective_round2.md` vol-reversal-specificityセクション
+**結論:** pseudo-DiD=+0.087%(p=0.222)。vol反転の85%は高ボラ銘柄の通常ドリフト。ショック固有の反転は確認されず
+**得られた知見:** K11修正（ショック非固有）、K14-K15追加
+**詳細:** `logs/experiments/T1-Q05_vol-reversal-specificity_review.md`
 
 Phase 1 生成 ......... 済
 Phase 2 選定 ......... 済（multi-perspective v2で進化）
 Phase 3 設計 ......... 済 — Codex-fallback approve
-Phase 4 実験 ......... 実行中
-Phase 5 議論 ......... 未
+Phase 4 実験 ......... 済 — FAIL
+Phase 5 議論 ......... 済 — Codex裁定: 次の問いに移る
 
 ---
 
@@ -141,9 +142,9 @@ Phase 5 議論 ......... 未
 
 ## 直近の動き
 
-### [2026-03-30] T1-Q05 vol-reversal-specificity Phase 4 実験実行中
-run_symmetry_test.py --q05 を実行中（データ取得+500回ブートストラップ）。
-完了後 → Phase 4チェッカー → Phase 5（議論）へ。
+### [2026-03-30] T1-Q05 Phase 5 議論完了 → vol反転はショック固有ではない
+pseudo-DiD=+0.087%(p=0.222)。K11を修正。vol反転ロング戦略は棄却。
+Codex裁定: 次の問いに移る。**次: T1-Q06 turnover-momentum-disentangle**
 
 ### [2026-03-30] T1-Q05 vol-reversal-specificity Phase 3 設計完了
 案1（3+1条件ベースライン+pseudo-DiD）を採用。Codex-fallback approve。
