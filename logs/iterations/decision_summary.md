@@ -22,6 +22,8 @@
 15. **ショック規模とvol反転幅に相関なし（rho=0.035, p=0.661）**
 16. **turnoverはモメンタムの完全な代理ではない（prior_ret_20d統制後もp=0.002）**
 17. **turnoverとprior_retは独立した2チャネルで超過下落を説明**
+18. **ポストショックturnover効果にサイズ依存性なし（Large p=0.59, Small p=0.35）**
+19. **K4のday-0サイズ依存性はポストショック動態に波及しない**
 
 詳細: `logs/experiments/knowledge.md`
 
@@ -42,7 +44,7 @@ T1: 米国ショック後の日本株の銘柄固有効果
               |
               +-- ❌ T1-Q05 vol-reversal-specificity .. ショック非固有（K11修正, K14-15）
               +-- ❌(条件付き✅) T1-Q06 turnover-momentum-disentangle .. 連続PASS/離散FAIL（K16-17）
-              +-- 🔄 T1-Q07 size-regime-interaction .. 設計完了、実装へ
+              +-- ❌ T1-Q07 size-regime-interaction .. FAIL（K18-19）
               +-- ⬜ T1-Q08 cross-factor-portfolio .. 未着手
 ```
 
@@ -122,16 +124,17 @@ Phase 5 議論 ......... 済 — Codex裁定: 次の問いに移る
 
 ---
 
-### 🔄 T1-Q07 size-regime-interaction — サイズ別で戦略を分けるべきか
+### ❌ T1-Q07 size-regime-interaction — サイズ別で戦略を分けるべきか
 
-**問い:** TOPIX離散分割(Large/Small)でturnover効果のサイズ依存性を推定。中小型では信用残も確認
-**詳細:** `logs/iterations/multi_perspective_round2.md`
+**結論:** FAIL。ポストショックturnover効果にサイズ依存性なし。Large diff=-0.43%(p=0.59), Small diff=-0.38%(p=0.35)
+**得られた知見:** K18-19追加、K20(参考)
+**詳細:** `logs/experiments/T1-Q07_size-regime-interaction_review.md`
 
 Phase 1 生成 ......... 済
 Phase 2 選定 ......... 済
 Phase 3 設計 ......... 済 — Codex approve (3往復)
-Phase 4 実験 ......... 実装中
-Phase 5 議論 ......... 未
+Phase 4 実験 ......... 済 — FAIL
+Phase 5 議論 ......... 済 — Codex裁定: 次の問いに移る
 
 ---
 
@@ -150,7 +153,11 @@ Phase 5 議論 ......... 未
 
 ## 直近の動き
 
-### [2026-03-30] T1-Q07 Phase 4 実験実行中
+### [2026-03-31] T1-Q07 Phase 5 議論完了 → サイズ依存性なし、次の問いへ
+FAIL。Large diff=-0.43%(p=0.59), Small diff=-0.38%(p=0.35)。K4のday-0サイズ依存性はポストショックに波及しない。
+Codex裁定: 次の問いに移る。**最優先: K12ショック固有性DiD**
+
+### [2026-03-30] T1-Q07 Phase 4 実験完了 (FAIL)
 コードレビュー4往復（Codex3回+Claude-fallback1回）で修正完了。`--q07 --skip-symmetry`で実行中
 
 ### [2026-03-30] T1-Q07 Phase 3 設計完了 → Phase 4 実装へ
