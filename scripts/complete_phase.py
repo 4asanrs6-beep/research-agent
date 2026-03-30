@@ -65,13 +65,17 @@ def check_phase_1(question_id: str) -> list[str]:
 
 def check_phase_2(question_id: str) -> list[str]:
     """Phase 2（選定）の成果物チェック。
-    選定 + multi-perspective + Codex着手順裁定が必要。
+    選定 + multi-perspective + Codex着手順裁定 + diary議論解説が必要。
     """
     errors = []
 
     # research_diary.mdに選定結果の記述があるか
     if not check_file_contains(DIARY, "選んだ") and not check_file_contains(DIARY, "選定"):
         errors.append("[NG] research_diary.md に選定結果の解説がない（Phase 2完了時に書くルール）")
+
+    # research_diary.mdに議論の解説があるか（multi-perspective後の最重要更新）
+    if not check_file_contains(DIARY, "議論で変わった"):
+        errors.append("[NG] research_diary.md に議論経過の解説がない（「議論で変わったこと」「最終版」を平易に書くルール）")
 
     # decision_summary.mdに選定の記録があるか
     if not check_file_contains(SUMMARY, "選定"):
