@@ -71,14 +71,40 @@ Codexが利用できない場合（未インストール、API障害等）、Cla
 Claude-fallbackはCodexと異なるモデルであり、独立した視点ではない。
 ログにその旨を明記し、結果の解釈時に「独立レビューではない」ことを考慮すること。
 
-## 実装ゲート（厳守）
+## Phase遷移ゲート（厳守）
 
-「設計」ステップの成果物がない限り、コードを書いてはならない:
+各Phaseには前提条件がある。条件を満たさずに次のPhaseの成果物を作成した場合、プロセス違反。
+
+### Phase 3（設計）→ Phase 4（実験）ゲート
+コードを書くには以下が必須:
 1. `logs/iterations/*_ideas.json` — /idea-generationの出力
 2. `logs/iterations/*_plan.json` — /implementation-planningの出力。Codex approve済み
 3. `logs/iterations/conversation.md` に上記2つのログが記録済み
 
-この3条件を満たさずにWrite/Editでスクリプトを書いた場合、プロセス違反。
+### Phase 4（実験）→ Phase 5（議論）ゲート
+実験実行後、以下を**やってはならない**（Phase 5の成果物を先取りしてはならない）:
+- ❌ `research_diary.md` に結果を書く
+- ❌ `knowledge.md` に知見を追記する
+- ❌ `decision_summary.md` の状態を「完了」にする
+
+実験完了後にやること:
+- ✅ 結果JSONを `logs/iterations/` に保存（スクリプトが自動生成）
+- ✅ Phase 5（/experiment-review）に進む
+
+### Phase 5（議論）完了ゲート
+以下がすべて揃って初めて「完了」:
+1. `/experiment-review` の実行ログが `logs/experiments/*_review.md` に存在する
+2. Codex裁定（またはClaude-fallback裁定）の結果が記録されている
+3. 裁定結果に基づいて `knowledge.md` を更新
+4. `research_diary.md` にエントリを追加
+5. `decision_summary.md` を更新
+
+### Phase 1（生成）→ Phase 2（選定）ゲート
+生成された問いを人間に提示し、**人間が選定するまで**着手してはならない。
+
+### 全Phase共通
+- `decision_summary.md` は各Phase完了時に必ず更新する
+- Phaseをスキップしてはならない（例: 実験結果が出たからといって直接diaryを書かない）
 
 ## 各ステップの詳細
 
