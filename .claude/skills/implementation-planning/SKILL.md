@@ -36,4 +36,9 @@ $ARGUMENTS
 }
 ```
 
-出力後、結果を logs/iterations/ にも保存してください。
+## 出力先（厳守）
+
+**2つのファイルに直接書く。中間ファイルを作らない。**
+
+1. `logs/iterations/[問いID]_plan.json` にJSON保存
+2. `logs/iterations/conversation.md` に計画の要約を**直接追記**する

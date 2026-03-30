@@ -109,11 +109,13 @@ $ARGUMENTS
 - knowledge.mdの棄却済み実験の焼き直し
 - 10問以上の大量生成
 
-出力はJSONのみ。結果を logs/iterations/brainstorm.json に保存してください。
+## 出力先（厳守）
 
-## 討論ログの記録（必須）
+**2つのファイルに直接書く。中間ファイルを作らない。**
 
-JSON保存後、logs/iterations/brainstorm_discussion.md に以下の形式で追記してください。
+1. `logs/iterations/brainstorm_discussion.md` に以下の形式で**直接追記**する
+2. JSON部分も同じ内容を `logs/iterations/brainstorm_roundN.json` に保存する（Nはラウンド番号）
+
 テーブルではなく**問いの全文**を記載すること（テーブル圧縮禁止）。
 
 ```markdown

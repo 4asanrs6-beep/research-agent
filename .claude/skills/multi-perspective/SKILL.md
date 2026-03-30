@@ -45,7 +45,10 @@ Codex裁定（v2に対して）
 - 止める条件: 1文
 - 判断が変わる条件: 1文
 
-## multi_perspective.md への記録形式
+## 出力先（厳守）
+
+**`logs/iterations/multi_perspective.md` に直接追記する。中間ファイルを作らない。**
+裁定JSONも `logs/iterations/multi_perspective.md` の末尾にコードブロックで埋め込む。
 
 各問いを以下の構成で記録する:
 

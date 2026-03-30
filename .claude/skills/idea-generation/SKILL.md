@@ -62,11 +62,12 @@ $ARGUMENTS
 - 専門用語だけのpros/cons羅列（判断できない形式）
 - 4案以上の大量提示
 
-出力はJSONのみ。結果を `logs/iterations/cq3_new_ideas.json`（問い名に合わせて変更）に保存してください。
+## 出力先（厳守）
 
-## 討論ログの記録（必須）
+**2つのファイルに直接書く。中間ファイルを作らない。**
 
-JSON保存後、`logs/iterations/conversation.md` に以下の形式で追記してください。
+1. `logs/iterations/[問いID]_ideas.json` にJSON保存
+2. `logs/iterations/conversation.md` に以下の形式で**直接追記**する
 
 ```markdown
 ### Round N | 🔵 Claude | idea-generation (問い名)
