@@ -1,0 +1,36 @@
+{
+  "reviewer": "claude-fallback",
+  "execution_order": [
+    "vol-reversal-specificity",
+    "turnover-momentum-disentangle",
+    "size-regime-interaction",
+    "cross-factor-portfolio"
+  ],
+  "rationale": "vol-reversalとturnover-momentumは全戦略の大前提（反転がショック固有か、継続下落がモメンタム混入か）であり最優先。両者は独立なので並行実行可能。size-regimeは1,2の結果を受けてサイズ分割の意味が明確化するため3番目。cross-factorは1-3の知見統合であり先行結果なしでは解釈不能なため最後。",
+  "questions_v2": {
+    "vol-reversal-specificity": {
+      "question_v2": "vol起因の反転(+1.6%/20日)はショック固有の現象か。以下の3+1条件でvol高群20d CARを比較: (1)ランダム非ショック日、(2a)個別銘柄day-0下落幅マッチド、(2b)市場全体-2%以上下落の非ショック日、(3)ショック日。(3)が(1),(2a),(2b)すべてを上回ればショック固有が確定。S&P500下落幅とvol反転幅の相関も検証。day-0の二乗項を統制。",
+      "pass_criteria": "(3)vs(2a)かつ(3)vs(2b)の両方でCAR差がp<0.10。またはショック規模相関がr>0.05かつp<0.10。",
+      "fail_criteria": "(3)vs(2a)かつ(3)vs(2b)の両方でCAR差がp>0.10、かつショック規模相関がr<0.05かつp>0.10。",
+      "difficulty": "medium"
+    },
+    "turnover-momentum-disentangle": {
+      "question_v2": "turnover起因の継続下落(-0.6%/20日)はモメンタム混入か真の売り圧力か。Step 1: 事前リターン（市場超過、5d/20d/60d）でturnover高群を層別し、事前上昇/下落群それぞれのポストショック20d CARを比較。Step 2: 大型株限定で再実行。Step 3: 上方ショック後に同テストを実行しturnover効果が消失するか確認。",
+      "pass_criteria": "事前上昇群（3ウィンドウ中2つ以上）でturnover継続下落が維持（CAR<0, p<0.10）、かつStep 3で上方ショック後にturnover効果が非有意（p>0.10）。",
+      "fail_criteria": "(a)事前上昇群（3ウィンドウ中2つ以上）でturnover継続下落が消失、または(b)Step 3で上方ショック後にもturnover継続下落が有意（p<0.10）。",
+      "difficulty": "medium"
+    },
+    "size-regime-interaction": {
+      "question_v2": "Q04反転テストをサイズ軸で拡張。主分析: 全サンプルでlog時価総額×vol/turnoverの線形交互作用をポストショック5d/10d/20d CARに対して推定（day-0統制含む）。補助: TOPIX Large/Small離散分割で各群のvol反転幅・turnover継続下落幅を比較。中小型では信用残比率の高低別ポストショック20d CARも算出。",
+      "pass_criteria": "サイズ×vol交互作用またはサイズ×turnover交互作用のいずれかがp<0.10、かつ離散分割で大型/中小型の20d CAR差が経済的に有意味（>0.3%）。",
+      "fail_criteria": "サイズ×vol交互作用とサイズ×turnover交互作用が共にp>0.10、かつ離散分割でも大型/中小型の20d CAR差が<0.3%。",
+      "difficulty": "medium"
+    },
+    "cross-factor-portfolio": {
+      "question_v2": "vol×turnoverの2次元4象限ポートフォリオで反転vs継続下落を事前に分離できるか。Step 1: vol×turnover交互作用を20d CARに回帰（イベント日固定効果、day-0統制）。Step 2: 4象限の20d CAR比較、スプレッド算出。Step 3: スプレッドがvol単独+turnover単独の和を超えるか検定。Step 4: day+1エントリーでスプレッド再計算。",
+      "pass_criteria": "(a)交互作用p<0.10、かつ(b)スプレッド>=+1%（day+0基準）、かつ(c)day+1エントリーでスプレッド>=+0.5%。",
+      "fail_criteria": "(a)交互作用p>0.10、または(b)スプレッド<+1%（day+0基準）、または(c)day+1エントリーでスプレッド<+0.5%。",
+      "difficulty": "high"
+    }
+  }
+}
