@@ -121,6 +121,7 @@ def _build_ranking_table(
     show_tv_change: bool = False,
     show_vol_surge: bool = False,
     fetch_caps: bool = True,
+    caps_cache: pd.Series | None = None,
 ) -> tuple[pd.DataFrame, list[str], list[str]]:
     """ランキングテーブルを構築。整形済みDataFrame + 色付け対象列を返す。"""
     if ascending:
@@ -128,8 +129,13 @@ def _build_ranking_table(
     else:
         subset = df.nlargest(n, sort_col)
 
-    # 表示対象の銘柄のみ時価総額を取得
-    caps = _get_caps_for_codes(subset["code"].tolist()) if fetch_caps else pd.Series(dtype=float)
+    # 時価総額: キャッシュがあればそれを使い、なければ取得
+    if caps_cache is not None and len(caps_cache) > 0:
+        caps = caps_cache
+    elif fetch_caps:
+        caps = _get_caps_for_codes(subset["code"].tolist())
+    else:
+        caps = pd.Series(dtype=float)
 
     rows = []
     for _, r in subset.iterrows():
@@ -285,12 +291,13 @@ if eod_min_tv > 0:
     filtered = filtered[filtered["trading_value"] >= eod_min_tv * 1e6]
 
 # --- 時価総額フィルタ（設定時のみ取得） ---
+_cached_caps = pd.Series(dtype=float)  # フィルタで取得した時価総額を保持
 if not filtered.empty and (eod_cap_min > 0 or eod_cap_max > 0):
     with st.spinner("時価総額フィルタ適用中..."):
-        all_caps = _fetch_market_caps_yf(tuple(sorted(filtered["code"].unique().tolist())))
+        _cached_caps = _fetch_market_caps_yf(tuple(sorted(filtered["code"].unique().tolist())))
         codes_with_cap = set()
         for code in filtered["code"].unique():
-            cap = all_caps.get(code)
+            cap = _cached_caps.get(code)
             if cap is None:
                 continue
             if eod_cap_min > 0 and cap < eod_cap_min:
@@ -395,6 +402,7 @@ with tab_return:
     st.subheader("値上がり上位")
     tbl, ret_cols, chg_cols = _build_ranking_table(
         filtered, "daily_return", ascending=False,         show_volume_change=True,
+        caps_cache=_cached_caps,
     )
     render_ranking_html(tbl, ret_cols=ret_cols, change_cols=chg_cols, max_height=500)
 
@@ -403,6 +411,7 @@ with tab_return:
     st.subheader("値下がり上位")
     tbl2, ret_cols2, chg_cols2 = _build_ranking_table(
         filtered, "daily_return", ascending=True,         show_volume_change=True,
+        caps_cache=_cached_caps,
     )
     render_ranking_html(tbl2, ret_cols=ret_cols2, change_cols=chg_cols2, max_height=500)
 
@@ -412,6 +421,7 @@ with tab_volume:
     st.subheader("出来高ランキング")
     tbl3, ret3, chg3 = _build_ranking_table(
         filtered, "volume", ascending=False,         show_volume_change=True,
+        caps_cache=_cached_caps,
     )
     render_ranking_html(tbl3, ret_cols=ret3, change_cols=chg3, max_height=500)
 
@@ -422,6 +432,7 @@ with tab_volume:
     vol_surge = vol_surge[vol_surge["volume_change"] > 2.0]
     tbl4, ret4, chg4 = _build_ranking_table(
         vol_surge, "volume_change", ascending=False,         show_vol_surge=True,
+        caps_cache=_cached_caps,
     )
     render_ranking_html(tbl4, ret_cols=ret4, change_cols=chg4, max_height=500)
 
@@ -431,6 +442,7 @@ with tab_tv:
     st.subheader("売買代金ランキング")
     tbl5, ret5, chg5 = _build_ranking_table(
         filtered, "trading_value", ascending=False,         show_tv=True, show_tv_change=True,
+        caps_cache=_cached_caps,
     )
     render_ranking_html(tbl5, ret_cols=ret5, change_cols=chg5, max_height=500)
 
@@ -559,5 +571,6 @@ with tab_compound:
             tbl_c, retc, chgc = _build_ranking_table(
                 compound_result, "daily_return", ascending=False,
                 n=len(compound_result),                 show_volume_change=True, show_tv=True,
+        caps_cache=_cached_caps,
             )
             render_ranking_html(tbl_c, ret_cols=retc, change_cols=chgc, max_height=550)
