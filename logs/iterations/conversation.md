@@ -1085,3 +1085,124 @@ Phase 4 実験: 実行中
 - パス基準: 事前上昇群で継続下落維持(3ウィンドウ中2つ以上) かつ 上方ショックで消失
 - Q05の事前計算方式を流用（高速）
 - Codexレビュー待ち
+
+---
+
+## T1-Q07 Phase 3 設計
+
+### idea-generation
+
+🔵 Claude | idea-generation (T1-Q07 size-regime-interaction)
+
+**目標:** log時価総額×vol/turnoverの連続交互作用でサイズ依存性を推定し、大型と中小型で戦略を分けるべきか確定する
+
+**Q05/Q06結果を踏まえた文脈更新:** vol反転はショック非固有（K11修正）。turnoverはモメンタム独立（連続回帰p=0.002）。Q07の焦点は(1)turnover継続下落のサイズ依存性、(2)中小型での信用残ポストショック動態に絞られる。
+
+**案:**
+
+| ID | アプローチ | 何をするか | 前回との違い | コスト |
+|---|---|---|---|---|
+| 1 | 連続交互作用回帰 + 離散補助（v2準拠） | 全銘柄でlog_mcap×vol/turnoverの交互作用をCAR回帰。離散分割も併用。中小型信用残も確認 | Q04は一括反転テスト→Q07はサイズ勾配を推定 | low |
+| 2 | turnover特化の縮小版 | vol×sizeを省略しturnover+信用残に集中。Q06のprior_ret統制もサイズ層別で適用 | vol側を省略。multi-perspective合意と乖離 | low |
+| 3 | 3分位×2分位の格子比較 | 3サイズバケット×vol/turnover高低の6マス格子で記述統計比較 | 連続交互作用の代わりに完全離散。検出力低い | low |
+
+**推奨:** 案1 — multi-perspective v2で全ロール合意済みの設計。連続交互作用で検出力最大化＋離散補助で実務的Yes/No。vol×sizeはQ05確認として記録に値し、turnover×sizeが本命。
+**頑健性確認:** 案2の要素（turnover層別内でprior_ret_20d統制）を案1に組み込む
+
+→ /implementation-planning へ
+
+### implementation-planning (v1)
+
+- `run_symmetry_test.py` に `--q07` フラグ追加
+- Step 0: パネルにlog_mcap（対数時価総額）を追加。直近終値×発行済株式数から算出
+- Step 1: 連続交互作用回帰 — `car_Xd ~ vol + turnover + log_mcap + vol×log_mcap + turnover×log_mcap + excess_ret`。5d/10d/20dの3ウィンドウ。交互作用前に各変数を中心化
+- Step 2: 離散分割反転テスト — 既存Large/Small分割で各群のvol/turnover高低別CARを比較（Q04反転テストのサイズ層別版）
+- Step 3: 中小型信用残別CAR — 中小型サブサンプルで信用残高低別20d CARを比較
+- Step 4: 総合判定 — 交互作用p値 + 離散分割のCAR差方向 + 信用残の反転/継続パターン
+- パス基準: vol×size or turnover×size交互作用p<0.10。棄却: 両交互作用p>0.10かつ離散CAR差<0.3%
+- 既存関数流用: build_panel, compute_post_event_car, run_regression_with_vars（クラスタSE自動適用）
+
+### Codex設計レビュー 1回目
+
+🟠 Codex | 判定: **revise** (score: 0.64)
+
+**major指摘5件:**
+1. **判定条件が曖昧** → 20d turnover×sizeをconfirmatory、vol×sizeは記録用に格下げ
+2. **代替仮説を棄却できない** → 結論範囲を「サイズ依存の記述」に限定するか、Q05型DiDを追加
+3. **log_mcap定義が未固定** → 時点整合的なデータソースを明示。jp_prices_rawにmarket_cap列なし
+4. **demean二重適用リスク** → raw交互作用項をrun_regression_with_varsに渡しdemean1回に統一
+5. **多重比較** → 主要エンドポイントを20d turnover×sizeに固定、残りはexploratory
+
+**minor指摘2件:**
+6. 離散分割の定義不明確 → Large=Large70+Mid400、Small=Small1+Small2、未分類除外
+7. 中小型信用残分析はverdictから切り離しexploratoryに
+
+### implementation-planning (v2 — Codex指摘反映)
+
+**修正点:**
+- サイズ変数: close×volume平均(20d)をlog変換した`log_trading_value`を連続proxy。離散はTOPIX scale_dummies
+- demean: 事前中心化を廃止。raw交互作用項→run_regression_with_varsでdemean1回
+- 判定: confirmatory=20d turnover×size(p<0.10) + 離散Large/Smallの20d turnover CAR差(>=0.3%)。残りはexploratory
+- 結論範囲: ショック日内部のサイズ依存性の記述に限定。ショック固有性の因果解釈は下げる
+- 離散分割: Large=Large70+Mid400、Small=Small1+Small2、未分類除外
+- 中小型信用残: verdictから切り離し。n_events<15ならinsufficient_power
+
+**ステップ:**
+- `run_symmetry_test.py` に `--q07` フラグ追加
+- Step 1: add_log_trading_value — jp_prices_rawからevent_date以前20日間のclose×volumeを平均→log変換
+- Step 2: 連続交互作用回帰 — raw交互作用項(vol*log_tv, turnover*log_tv)をxvarsに追加→run_regression_with_vars(demean1回)
+- Step 3: 離散分割(Large/Small)で各群のvol/turnover高低別CARを比較
+- Step 4: 中小型信用残別CAR(exploratory、n十分なら)
+- Step 5: 総合判定＋JSON保存(primary/exploratory分離)
+
+### Codex設計レビュー 2回目 (v2に対して)
+
+🟠 Codex | 判定: **revise** (score: 0.68)
+
+**major指摘3件:**
+1. PASS/FAIL基準に符号条件がない → 仮説方向を固定
+2. log_trading_value(close×volume)はsize/liquidityが混在 → TOPIX離散分割を主判定に昇格
+3. confirmatory系にsample gateがない → n_events/n_obs下限を設定
+
+### implementation-planning (v3 — Codex 2回目指摘反映)
+
+**修正点:**
+- TOPIX離散分割(Large/Small)を主判定に昇格。log_trading_value連続回帰は補助(size/liquidity proxy)
+- 符号条件: K4に基づきLarge群turnover high-low 20d CAR差 < -0.3% AND p<0.10
+- sample gate: 主判定各群n_events>=15,n_obs>=200。補助n_events>=30
+
+**確定ステップ:**
+- Step 1: 離散分割(Large=Large70+Mid400, Small=Small1+Small2, 未分類除外)。各群でturnover/vol高低別20d CAR(day-0統制回帰)
+- Step 2: add_log_trading_value(補助用)。欠損率出力
+- Step 3: 連続交互作用回帰(補助、size/liquidity proxyと明記)
+- Step 4: 中小型信用残別CAR(exploratory)
+- Step 5: 総合判定 + JSON(verdict_inputs / descriptive_only分離)
+
+### Codex設計レビュー 3回目 (v3に対して)
+
+🟠 Codex | 判定: **approve** (score: 0.79)
+
+**minor指摘1件:**
+- 補助回帰にlog_trading_valueの欠損率と実効観測数を必須出力。欠損率高い場合はdescriptive_onlyに落とす
+
+→ Phase 4 実装へ進む
+
+### Codexコードレビュー 1回目
+
+🟠 Codex | 判定: **revise** (score: 0.76) — major2件: FAIL/AMBIGUOUS境界が広すぎる、sample gateが実効n_eventsベースでない
+
+### Codexコードレビュー 2回目
+
+🟠 Codex | 判定: **revise** (score: 0.68) — major1件: AMBIGUOUSがまだ広い。Large有意+Small同方向有意をFAILに
+
+### Codexコードレビュー 3回目
+
+🟠 Codex | 判定: **revise** (score: 0.77) — major1件: controlled_pが_demean_winsorize_olsを通っていない
+
+### 🟡 Claude-fallback コードレビュー 4回目 (Codex sandbox blocked)
+
+🟡 Claude-fallback | 判定: **revise** — 2件:
+1. `small_different`の`>`を`>=`に統一（Large側と非対称）
+2. `large_fail`が狭すぎる → `large_diff >= 0 or large_p >= 0.10`に簡潔化
+
+修正済み。実験実行へ

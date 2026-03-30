@@ -11,13 +11,17 @@
 4. 回転率の効果は大型株に集中。中小型では信用残が効く
 5. 信用残proxyでは回転率効果を説明できない
 6. volは増幅器（上下対称）。方向を問わず反応を拡大
-7. turnoverはパニック固有（下方のみ）。恐怖時の売り圧力
+7. turnoverはパニック固有（下方のみ）。恐怖時の売り圧力。**Q06 Step3で再確認（上方p=0.268で消失）**
 8. betaは閾値依存で不安定（未確定）。サンプルサイズで有意性が変わる
 9. 大型turnover効果も下落時固有。ETFフローよりパニック売り
-10. **abnormal_vol_shareに追加説明力なし（棄却）**
-11. **vol起因の超過下落は20日で+1.6%反転（p<0.001）**
+10. abnormal_vol_shareに追加説明力なし（棄却）
+11. ~~vol起因の超過下落は20日で+1.6%反転~~ → **Q05で否定: 反転の85%は高ボラ株の通常ドリフト。ショック固有成分は+0.087%(p=0.222)**
 12. **turnover起因の超過下落は反転せず-0.6%継続下落（p=0.003）**
 13. **vol/turnoverのポストショック動態は正反対**
+14. **高ボラ株は構造的に正のドリフトを持つ（非ショック日vol-high CAR=+0.584%/20d）**
+15. **ショック規模とvol反転幅に相関なし（rho=0.035, p=0.661）**
+16. **turnoverはモメンタムの完全な代理ではない（prior_ret_20d統制後もp=0.002）**
+17. **turnoverとprior_retは独立した2チャネルで超過下落を説明**
 
 詳細: `logs/experiments/knowledge.md`
 
@@ -34,9 +38,12 @@ T1: 米国ショック後の日本株の銘柄固有効果
         |
         +-- ✅ T1-Q03 symmetry-test ........ 完了（知見6-9）
         |
-        +-- ❌✅ T1-Q04 attention-penalty .. 主仮説棄却+副次知見（知見10-13）<-- DONE
+        +-- ❌✅ T1-Q04 attention-penalty .. 主仮説棄却+副次知見（知見10-13）
               |
-              +-- Q05: vol反転のショック固有性検証（次の問い候補）
+              +-- ❌ T1-Q05 vol-reversal-specificity .. ショック非固有（K11修正, K14-15）
+              +-- ❌(条件付き✅) T1-Q06 turnover-momentum-disentangle .. 連続PASS/離散FAIL（K16-17）
+              +-- 🔄 T1-Q07 size-regime-interaction .. 設計完了、実装へ
+              +-- ⬜ T1-Q08 cross-factor-portfolio .. 未着手
 ```
 
 ## 各問いの詳細
@@ -115,15 +122,15 @@ Phase 5 議論 ......... 済 — Codex裁定: 次の問いに移る
 
 ---
 
-### ⬜ T1-Q07 size-regime-interaction — サイズ別で戦略を分けるべきか
+### 🔄 T1-Q07 size-regime-interaction — サイズ別で戦略を分けるべきか
 
-**問い:** 連続交互作用(log時価総額×vol/turnover)でサイズ依存性を推定。中小型では信用残も確認
+**問い:** TOPIX離散分割(Large/Small)でturnover効果のサイズ依存性を推定。中小型では信用残も確認
 **詳細:** `logs/iterations/multi_perspective_round2.md`
 
 Phase 1 生成 ......... 済
 Phase 2 選定 ......... 済
-Phase 3 設計 ......... 未
-Phase 4 実験 ......... 未
+Phase 3 設計 ......... 済 — Codex approve (3往復)
+Phase 4 実験 ......... 実装中
 Phase 5 議論 ......... 未
 
 ---
@@ -142,6 +149,13 @@ Phase 5 議論 ......... 未
 ---
 
 ## 直近の動き
+
+### [2026-03-30] T1-Q07 Phase 4 実験実行中
+コードレビュー4往復（Codex3回+Claude-fallback1回）で修正完了。`--q07 --skip-symmetry`で実行中
+
+### [2026-03-30] T1-Q07 Phase 3 設計完了 → Phase 4 実装へ
+Codex設計レビュー3往復でapprove。主判定=TOPIX離散分割(Large/Small)でのturnover高低別20d CAR差。
+補助=log_trading_value連続交互作用。結論範囲はショック日内部のサイズ依存性の記述に限定
 
 ### [2026-03-30] T1-Q06 Phase 5 議論完了 → turnoverはモメンタム代理ではないが離散テスト不発
 離散層別FAIL、連続回帰PASS(p=0.002)。上方ショックで消失確認。

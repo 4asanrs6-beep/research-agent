@@ -1,0 +1,70 @@
+{
+  "plan": {
+    "revision": "v3 — Codexレビュー2回目の指摘3件を反映",
+    "files": [
+      {
+        "path": "scripts/run_symmetry_test.py",
+        "action": "modify",
+        "description": "--q07フラグを追加。Q07 size-regime-interaction分析。主判定=離散TOPIX分割(Large/Small)でのturnover高低別20d CAR差。補助=log_trading_value連続回帰"
+      }
+    ],
+    "functions": [
+      {
+        "name": "add_log_trading_value",
+        "signature": "def add_log_trading_value(panel, jp_prices_raw, lookback=20) -> pd.DataFrame",
+        "purpose": "event_date以前lookback日間の平均売買代金(close×volume)をlog変換しパネルに追加。補助分析用"
+      },
+      {
+        "name": "run_discrete_size_reversal",
+        "signature": "def run_discrete_size_reversal(panel, windows=[5, 10, 20]) -> dict",
+        "purpose": "主判定。Large(=Large70+Mid400)/Small(=Small1+Small2)に分割(未分類除外)。各群でturnover高低別CARを比較。vol高低別も記録。sample gate: 各群n_events>=15 AND n_obs>=200"
+      },
+      {
+        "name": "run_size_interaction_regression",
+        "signature": "def run_size_interaction_regression(panel, windows=[5, 10, 20]) -> dict",
+        "purpose": "補助分析。raw交互作用項(turnover*log_tv)をrun_regression_with_varsに渡す。結論はsize/liquidity proxyと明記"
+      },
+      {
+        "name": "run_smallcap_margin_car",
+        "signature": "def run_smallcap_margin_car(panel, windows=[20]) -> dict",
+        "purpose": "探索的。中小型で信用残高低別20d CAR比較。n_events<15ならinsufficient_power"
+      }
+    ],
+    "test_design": {
+      "primary_test": {
+        "what": "離散TOPIX分割(Large/Small)でのturnover高低別20d CAR差の方向と大きさの比較",
+        "hypothesis_direction": "K4に基づき、Large群ではturnover-high CAR < turnover-low CAR（=turnoverの効果あり）、Small群ではturnover効果が消失または信用残に置き換わる。したがってLarge_turnover_diff < Small_turnover_diff（差分が負方向に大きい=大型でturnover効果が強い）",
+        "pass_condition": "Large群のturnover高低別20d CAR差(high - low) < -0.3% AND p<0.10 AND (Small群の同差が非有意 OR 方向が異なる)",
+        "fail_condition": "Large群のturnover高低別20d CAR差が非有意(p>0.10) AND abs(差) < 0.3%",
+        "ambiguous_condition": "一方のみ満たす場合は補助分析を参照し記述的結論に留める",
+        "sample_gate": "各群(Large/Small)でn_events>=15 AND n_obs>=200。未達ならinsufficient_power"
+      },
+      "supplementary_test": {
+        "what": "log_trading_value×turnover連続交互作用回帰(20d CAR)",
+        "role": "主判定のサイズ勾配の傾きが有意かを確認。ただしlog_trading_valueはsize/liquidity proxyであり、純粋なsize効果としては解釈しない",
+        "sample_gate": "n_events>=30(全体パネル)"
+      },
+      "exploratory": [
+        "vol高低別CARのサイズ分割（Q05でvol反転はショック非固有だが記録用）",
+        "5d/10d CARでの同一分析（時間構造の参考）",
+        "中小型サブサンプルでの信用残高低別20d CAR"
+      ]
+    },
+    "conclusion_scope": "本Q07はショック日内部のサイズ依存性の記述を目的とする。ショック固有性の検証（K12 DiD）は別途必要であり、Q07の結果のみではサイズ別戦略の因果的根拠にはならない",
+    "data_flow": "既存下方パネル(panels['down']) → Large/Small分割(未分類除外) → compute_post_event_car → 各群でturnover/vol高低別CAR比較(主判定) → log_trading_value追加→連続交互作用回帰(補助) → 中小型信用残別CAR(探索的) → JSON保存(verdict_inputs / descriptive_only分離)",
+    "implementation_order": [
+      "step0: --q07フラグをargparserに追加",
+      "step1: run_discrete_size_reversal実装 — Large=Large70+Mid400, Small=Small1+Small2, 未分類除外。各群でturnover/vol高低別20d CAR(day-0統制回帰)。sample gate(n_events>=15, n_obs>=200)",
+      "step2: add_log_trading_value実装 — close×volume 20日平均→log変換。欠損率出力",
+      "step3: run_size_interaction_regression実装 — raw交互作用項→run_regression_with_vars。結論をsize/liquidity proxyと明記",
+      "step4: run_smallcap_margin_car実装 — 中小型のみ信用残高低別20d CAR。n_events<15→insufficient_power",
+      "step5: 総合判定ロジック + JSON保存(verdict_inputs / descriptive_only分離)"
+    ],
+    "codex_review_v2_responses": {
+      "issue1_sign_condition": "仮説方向を固定。Large群でturnover high-low差<-0.3%かつp<0.10。Small群で効果消失/方向異なる。回帰符号は補助判定のみ",
+      "issue2_log_tv_conflation": "TOPIX離散分割を主判定に昇格。log_trading_valueは補助に格下げ。結論をsize/liquidity proxyに弱める",
+      "issue3_sample_gate": "主判定(離散): 各群n_events>=15, n_obs>=200。補助(連続): n_events>=30。探索的(信用残): n_events>=15。すべて未達ならinsufficient_power"
+    },
+    "estimated_complexity": "low"
+  }
+}

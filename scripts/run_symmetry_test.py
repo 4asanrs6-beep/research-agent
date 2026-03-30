@@ -217,9 +217,9 @@ def add_margin_ratio(panel, margin_data, jp_prices_raw, turnover_window=20):
     return panel
 
 
-def run_regression_with_vars(panel, xvars):
-    """demean -> Winsorize -> OLS(1-way cluster SE)。"""
-    all_vars = ["excess_ret"] + xvars
+def _demean_winsorize_ols(panel, y_col, xvars):
+    """共通前処理: event_date demean → 1%/99% Winsorize → cluster SE付きOLS。"""
+    all_vars = [y_col] + xvars
     panel_dm = panel.copy()
     event_means = panel.groupby("event_date")[all_vars].transform("mean")
     for col in all_vars:
@@ -227,9 +227,14 @@ def run_regression_with_vars(panel, xvars):
     for col in all_vars:
         lo, hi = panel_dm[col].quantile(0.01), panel_dm[col].quantile(0.99)
         panel_dm[col] = panel_dm[col].clip(lo, hi)
-    y = panel_dm["excess_ret"]
+    y = panel_dm[y_col]
     X = panel_dm[xvars]
     return sm.OLS(y, X).fit(cov_type="cluster", cov_kwds={"groups": panel["event_date"]})
+
+
+def run_regression_with_vars(panel, xvars):
+    """demean -> Winsorize -> OLS(1-way cluster SE)。excess_retが被説明変数。"""
+    return _demean_winsorize_ols(panel, "excess_ret", xvars)
 
 
 def extract_events_sigma(us_returns, threshold_sigma, direction):
@@ -386,6 +391,145 @@ def run_reversal_test(panel, windows=[5, 10, 20]):
     return results
 
 
+def add_log_trading_value(panel, jp_prices_raw, lookback=20):
+    """event_date以前lookback日間の平均売買代金(close×volume)をlog変換。補助分析用のsize/liquidity proxy。"""
+    close_col = "adj_close" if "adj_close" in jp_prices_raw.columns else "close"
+    vol_col = "volume" if "volume" in jp_prices_raw.columns else "adj_volume"
+    vals = []
+    for _, row in panel.iterrows():
+        code = row["code"]
+        ed = row["event_date"]
+        code_data = jp_prices_raw[jp_prices_raw["code"] == code].set_index("date").sort_index()
+        if close_col not in code_data.columns or vol_col not in code_data.columns:
+            vals.append(np.nan)
+            continue
+        recent = code_data[code_data.index <= ed].tail(lookback)
+        if len(recent) < lookback // 2:
+            vals.append(np.nan)
+            continue
+        trading_value = (recent[close_col] * recent[vol_col]).mean()
+        if trading_value is None or np.isnan(trading_value) or trading_value <= 0:
+            vals.append(np.nan)
+            continue
+        vals.append(float(np.log(trading_value)))
+    panel = panel.copy()
+    panel["log_trading_value"] = vals
+    n_missing = panel["log_trading_value"].isna().sum()
+    missing_rate = n_missing / len(panel) if len(panel) > 0 else 0
+    print(f"  log_trading_value: {len(panel) - n_missing}/{len(panel)} 有効 (欠損率 {missing_rate:.1%})")
+    return panel
+
+
+def split_large_small(panel):
+    """K4/Q02と同一定義で分割。Large=Large70+Core30(全ダミー0), Small=Mid400+Small1+Small2。
+    上位200銘柄ユニバースではSmall1/Small2がほぼ不在のため、実質Large70+Core30 vs Mid400。"""
+    large_mask = (panel["scale_large70"] == 1) | (
+        (panel["scale_large70"] == 0) & (panel["scale_mid400"] == 0) &
+        (panel["scale_small1"] == 0) & (panel["scale_small2"] == 0)
+    )
+    small_mask = ~large_mask
+    print(f"  Large: {large_mask.sum()}, Small: {small_mask.sum()} (全{len(panel)})")
+    return panel[large_mask].copy(), panel[small_mask].copy()
+
+
+def run_car_regression(panel, car_col, xvars):
+    """CAR回帰用。_demean_winsorize_olsを使用。"""
+    return _demean_winsorize_ols(panel, car_col, xvars)
+
+
+def run_discrete_size_reversal(panel, windows=[5, 10, 20]):
+    """主判定: Large/Smallで各群のturnover/vol高低別CARを比較。day-0統制回帰込み。"""
+    large, small = split_large_small(panel)
+    results = {}
+    for size_label, sub in [("large", large), ("small", small)]:
+        n_events = sub["event_date"].nunique()
+        n_obs = len(sub)
+        if n_events < 15 or n_obs < 200:
+            results[size_label] = {
+                "n_events": n_events, "n_obs": n_obs,
+                "status": "insufficient_power",
+            }
+            print(f"  {size_label}: insufficient_power (n_events={n_events}, n_obs={n_obs})")
+            continue
+
+        size_result = {"n_events": n_events, "n_obs": n_obs, "status": "computed"}
+        for gvar in ["turnover", "vol"]:
+            gvar_results = {}
+            for w in windows:
+                car_col = f"car_{w}d"
+                if car_col not in sub.columns:
+                    continue
+                valid = sub[[car_col, "excess_ret", gvar, "event_date"]].dropna()
+                if len(valid) < 50:
+                    gvar_results[f"{w}d"] = {"error": "insufficient data"}
+                    continue
+                high = valid[valid[gvar] > valid[gvar].median()]
+                low = valid[valid[gvar] <= valid[gvar].median()]
+                high_car = float(high[car_col].mean())
+                low_car = float(low[car_col].mean())
+                diff = high_car - low_car
+                # day-0統制回帰（共通前処理: demean + Winsorize + cluster SE）
+                valid_reg = valid.copy()
+                valid_reg["high"] = (valid_reg[gvar] > valid_reg[gvar].median()).astype(float)
+                try:
+                    model = _demean_winsorize_ols(valid_reg, car_col, ["excess_ret", "high"])
+                    gvar_results[f"{w}d"] = {
+                        "high_car_mean": high_car,
+                        "low_car_mean": low_car,
+                        "diff": diff,
+                        "controlled_coef": float(model.params.get("high", np.nan)),
+                        "controlled_p": float(model.pvalues.get("high", np.nan)),
+                        "n_high": len(high),
+                        "n_low": len(low),
+                    }
+                except Exception as e:
+                    gvar_results[f"{w}d"] = {"error": str(e)}
+            size_result[gvar] = gvar_results
+        results[size_label] = size_result
+    return results
+
+
+def run_smallcap_margin_car(panel, windows=[20]):
+    """探索的: 中小型サブサンプルで信用残高低別20d CARを比較。"""
+    _, small = split_large_small(panel)
+    if "margin_ratio" not in small.columns:
+        return {"status": "no_margin_data"}
+    valid = small.dropna(subset=["margin_ratio"])
+    n_events = valid["event_date"].nunique()
+    if n_events < 15:
+        return {"status": "insufficient_power", "n_events": n_events}
+    results = {"n_events": n_events, "n_obs": len(valid), "status": "computed"}
+    for w in windows:
+        car_col = f"car_{w}d"
+        if car_col not in valid.columns:
+            continue
+        sub = valid[[car_col, "excess_ret", "margin_ratio", "event_date"]].dropna()
+        if len(sub) < 30:
+            results[f"{w}d"] = {"error": "insufficient data"}
+            continue
+        high = sub[sub["margin_ratio"] > sub["margin_ratio"].median()]
+        low = sub[sub["margin_ratio"] <= sub["margin_ratio"].median()]
+        high_car = float(high[car_col].mean())
+        low_car = float(low[car_col].mean())
+        # day-0統制回帰（共通前処理: demean + Winsorize + cluster SE）
+        sub_reg = sub.copy()
+        sub_reg["high"] = (sub_reg["margin_ratio"] > sub_reg["margin_ratio"].median()).astype(float)
+        try:
+            model = _demean_winsorize_ols(sub_reg, car_col, ["excess_ret", "high"])
+            results[f"{w}d"] = {
+                "high_car_mean": high_car,
+                "low_car_mean": low_car,
+                "diff": high_car - low_car,
+                "controlled_coef": float(model.params.get("high", np.nan)),
+                "controlled_p": float(model.pvalues.get("high", np.nan)),
+                "n_high": len(high),
+                "n_low": len(low),
+            }
+        except Exception as e:
+            results[f"{w}d"] = {"error": str(e)}
+    return results
+
+
 def main():
     parser = argparse.ArgumentParser(description="symmetry-test + attention-penalty")
     parser.add_argument("--start", default="2019-01-01")
@@ -394,6 +538,7 @@ def main():
     parser.add_argument("--q04", action="store_true", help="T1-Q04 attention-penalty分析を実行")
     parser.add_argument("--q05", action="store_true", help="T1-Q05 vol-reversal-specificity分析を実行")
     parser.add_argument("--q06", action="store_true", help="T1-Q06 turnover-momentum-disentangle分析を実行")
+    parser.add_argument("--q07", action="store_true", help="T1-Q07 size-regime-interaction分析を実行")
     parser.add_argument("--skip-symmetry", action="store_true", help="対称性テストをスキップ（Q05/Q06のみ実行時）")
     args = parser.parse_args()
 
@@ -1139,6 +1284,166 @@ def main():
             print(f"Step 3 (上方ショックで効果消失): {'PASS' if step3_pass_final else 'FAIL'}")
             print(f"総合判定: {overall}")
 
+    # === T1-Q07: size-regime-interaction ===
+    q07_results = {}
+    if args.q07:
+        from scipy import stats as scipy_stats
+        print("\n" + "=" * 60)
+        print("=== T1-Q07 size-regime-interaction ===")
+        print("=" * 60)
+
+        down_panel = panels.get("down")
+        if down_panel is None or len(down_panel) == 0:
+            print("NG: 下方パネルがない。中止")
+        else:
+            # CARを計算
+            down_panel = compute_post_event_car(jp_returns, topix_returns, down_panel, windows=[5, 10, 20])
+            # 信用残追加（まだなければ）
+            if "margin_ratio" not in down_panel.columns:
+                down_panel = add_margin_ratio(down_panel, margin_data, jp_prices_raw)
+
+            # --- Step 1: 離散分割 (主判定) ---
+            print("\n--- Step 1: TOPIX離散分割 (主判定) ---")
+            discrete_results = run_discrete_size_reversal(down_panel, windows=[5, 10, 20])
+            q07_results["verdict_inputs"] = {"discrete_size_reversal": discrete_results}
+
+            # 主判定の表示
+            for size_label in ["large", "small"]:
+                sr = discrete_results.get(size_label, {})
+                if sr.get("status") == "insufficient_power":
+                    continue
+                print(f"\n  === {size_label.upper()} (n_events={sr.get('n_events')}, n_obs={sr.get('n_obs')}) ===")
+                for gvar in ["turnover", "vol"]:
+                    gdata = sr.get(gvar, {})
+                    for w_label, wdata in gdata.items():
+                        if "error" in wdata:
+                            print(f"    {gvar} {w_label}: {wdata['error']}")
+                        else:
+                            print(f"    {gvar} {w_label}: high={wdata['high_car_mean']:+.4f}  low={wdata['low_car_mean']:+.4f}  diff={wdata['diff']:+.4f}  coef={wdata['controlled_coef']:+.4f}  p={wdata['controlled_p']:.4f}")
+
+            # --- Step 2: 連続交互作用回帰 (補助) ---
+            print("\n--- Step 2: 連続交互作用回帰 (補助、size/liquidity proxy) ---")
+            down_panel = add_log_trading_value(down_panel, jp_prices_raw)
+            ltv_missing_rate = down_panel["log_trading_value"].isna().sum() / len(down_panel) if len(down_panel) > 0 else 1.0
+            n_events_total = down_panel["event_date"].nunique()
+
+            interaction_results = {}
+            if ltv_missing_rate > 0.20:
+                interaction_results = {"status": "descriptive_only", "reason": f"log_trading_value欠損率={ltv_missing_rate:.1%} > 20%"}
+                print(f"  欠損率が高い({ltv_missing_rate:.1%})ため descriptive_only に格下げ")
+            elif n_events_total < 30:
+                interaction_results = {"status": "insufficient_power", "n_events": n_events_total}
+                print(f"  n_events={n_events_total} < 30。insufficient_power")
+            else:
+                valid_for_reg = down_panel.dropna(subset=["log_trading_value"])
+                eff_n_events = valid_for_reg["event_date"].nunique()
+                if eff_n_events < 30:
+                    interaction_results = {"status": "insufficient_power", "effective_n_events": eff_n_events}
+                    print(f"  実効n_events={eff_n_events} < 30。insufficient_power")
+                else:
+                    interaction_results = {
+                        "status": "computed",
+                        "effective_n_obs": len(valid_for_reg),
+                        "effective_n_events": eff_n_events,
+                        "log_trading_value_missing_rate": float(ltv_missing_rate),
+                    }
+                    # raw交互作用項を作成（demeanはrun_car_regressionが1回で行う）
+                    valid_for_reg = valid_for_reg.copy()
+                    valid_for_reg["turnover_x_ltv"] = valid_for_reg["turnover"] * valid_for_reg["log_trading_value"]
+                    valid_for_reg["vol_x_ltv"] = valid_for_reg["vol"] * valid_for_reg["log_trading_value"]
+
+                    xvars_interaction = ["vol", "turnover", "log_trading_value",
+                                        "turnover_x_ltv", "vol_x_ltv", "excess_ret"]
+                    for w in [5, 10, 20]:
+                        car_col = f"car_{w}d"
+                        if car_col not in valid_for_reg.columns:
+                            continue
+                        reg_data = valid_for_reg[[car_col] + xvars_interaction + ["event_date"]].dropna()
+                        eff_n_ev_w = reg_data["event_date"].nunique()
+                        if len(reg_data) < 100 or eff_n_ev_w < 30:
+                            interaction_results[f"{w}d"] = {"error": f"insufficient data (n={len(reg_data)}, n_events={eff_n_ev_w})"}
+                            continue
+                        try:
+                            model = run_car_regression(reg_data, car_col, xvars_interaction)
+                            w_result = {"r2": float(model.rsquared), "effective_n_events": eff_n_ev_w}
+                            for var in xvars_interaction:
+                                w_result[var] = {
+                                    "coef": float(model.params.get(var, np.nan)),
+                                    "p": float(model.pvalues.get(var, np.nan)),
+                                }
+                            interaction_results[f"{w}d"] = w_result
+                            turn_x = w_result.get("turnover_x_ltv", {})
+                            vol_x = w_result.get("vol_x_ltv", {})
+                            print(f"  {w}d: turnover×ltv coef={turn_x.get('coef', 0):+.6f} p={turn_x.get('p', 1):.4f}  |  vol×ltv coef={vol_x.get('coef', 0):+.6f} p={vol_x.get('p', 1):.4f}  R2={w_result['r2']:.4f}")
+                        except Exception as e:
+                            interaction_results[f"{w}d"] = {"error": str(e)}
+                            print(f"  {w}d: エラー - {e}")
+
+            q07_results["descriptive_only"] = {"interaction_regression": interaction_results}
+
+            # --- Step 3: 中小型信用残別CAR (探索的) ---
+            print("\n--- Step 3: 中小型信用残別CAR (探索的) ---")
+            margin_results = run_smallcap_margin_car(down_panel, windows=[20])
+            q07_results["descriptive_only"]["smallcap_margin"] = margin_results
+            if margin_results.get("status") == "computed":
+                for w_label, wdata in margin_results.items():
+                    if isinstance(wdata, dict) and "diff" in wdata:
+                        print(f"  margin {w_label}: high={wdata['high_car_mean']:+.4f}  low={wdata['low_car_mean']:+.4f}  diff={wdata['diff']:+.4f}  p={wdata['controlled_p']:.4f}")
+            else:
+                print(f"  {margin_results.get('status', 'unknown')}")
+
+            # --- Step 4: 総合判定 ---
+            print("\n" + "=" * 60)
+            print("=== T1-Q07 総合判定 ===")
+            print("=" * 60)
+
+            large_data = discrete_results.get("large", {})
+            small_data = discrete_results.get("small", {})
+            large_turn_20d = large_data.get("turnover", {}).get("20d", {})
+            small_turn_20d = small_data.get("turnover", {}).get("20d", {})
+
+            if large_data.get("status") == "insufficient_power" or small_data.get("status") == "insufficient_power":
+                q07_verdict = "insufficient_power"
+                print(f"判定: {q07_verdict} --Large/Smallいずれかのサンプルが不足")
+            elif "error" in large_turn_20d or "error" in small_turn_20d:
+                q07_verdict = "error"
+                print(f"判定: {q07_verdict} --回帰エラー")
+            else:
+                large_diff = large_turn_20d.get("diff", 0)
+                large_p = large_turn_20d.get("controlled_p", 1)
+                small_diff = small_turn_20d.get("diff", 0)
+                small_p = small_turn_20d.get("controlled_p", 1)
+
+                print(f"Large turnover高低差: {large_diff*100:+.2f}% (p={large_p:.4f})")
+                print(f"Small turnover高低差: {small_diff*100:+.2f}% (p={small_p:.4f})")
+
+                # 判定ロジック（4分岐）
+                # 境界: p<0.10がstrict（p==0.10は有意とみなさない）
+                large_pass = large_diff < -0.003 and large_p < 0.10
+                large_fail = large_diff >= 0 or large_p >= 0.10  # 仮説逆行 or 非有意
+                small_same_direction = small_diff < 0 and small_p < 0.10  # Small側でも同方向有意
+                small_different = small_p >= 0.10 or (small_diff > 0)  # Small側で効果消失(>=0.10)/方向異なる
+
+                if large_pass and small_different:
+                    # PASS: Large有意＋Small消失/方向異なる → サイズ依存性あり
+                    q07_verdict = "PASS"
+                    print(f"判定: PASS --大型株でturnover効果有意(diff={large_diff*100:+.2f}%, p={large_p:.4f})、中小型で消失/方向異なる")
+                elif large_pass and small_same_direction:
+                    # FAIL: Large有意だがSmallでも同方向有意 → サイズ依存性なし（全体で均一）
+                    q07_verdict = "FAIL"
+                    print(f"判定: FAIL --大型・中小型とも同方向有意。サイズ依存性なし(Large diff={large_diff*100:+.2f}%, Small diff={small_diff*100:+.2f}%)")
+                elif large_fail:
+                    # FAIL: Large側で仮説逆行/非有意
+                    q07_verdict = "FAIL"
+                    print(f"判定: FAIL --大型株でturnover効果なし(diff={large_diff*100:+.2f}%, p={large_p:.4f})")
+                else:
+                    # AMBIGUOUS: Large閾値近傍＋Small側不安定
+                    q07_verdict = "AMBIGUOUS"
+                    print(f"判定: AMBIGUOUS --Large閾値近傍かつSmall側不安定。exploratory参照")
+
+            q07_results["verdict"] = q07_verdict
+            q07_results["conclusion_scope"] = "ショック日内部のサイズ依存性の記述。ショック固有性の因果解釈ではない"
+
     # === JSON保存 ===
     output = {
         "experiment": "symmetry-test",
@@ -1153,6 +1458,8 @@ def main():
         output["q05_vol_reversal_specificity"] = q05_results
     if args.q06:
         output["q06_turnover_momentum"] = q06_results
+    if args.q07:
+        output["q07_size_regime_interaction"] = q07_results
 
     output_path = Path("logs/iterations/T1-Q03_symmetry-test_result.json")
     if args.q04:
@@ -1161,6 +1468,8 @@ def main():
         output_path = Path("logs/iterations/T1-Q05_vol-reversal-specificity_result.json")
     if args.q06:
         output_path = Path("logs/iterations/T1-Q06_turnover-momentum-disentangle_result.json")
+    if args.q07:
+        output_path = Path("logs/iterations/T1-Q07_size-regime-interaction_result.json")
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with open(output_path, "w", encoding="utf-8") as f:
         json.dump(output, f, ensure_ascii=False, indent=2, default=str)
