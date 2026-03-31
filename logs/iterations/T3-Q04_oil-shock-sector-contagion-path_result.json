@@ -1,0 +1,123 @@
+{
+  "experiment": "T3-Q04",
+  "n_stocks": 173,
+  "topix_mar_return": -0.9100944096111149,
+  "sector_correlation": -0.03495877308182982,
+  "sector_summary": [
+    {
+      "sector": "1",
+      "feb_mean": 0.05599566838132455,
+      "mar_mean": 0.8476808025060921,
+      "n": 12
+    },
+    {
+      "sector": "99",
+      "feb_mean": 0.05016580335926064,
+      "mar_mean": 0.8505914346887358,
+      "n": 117
+    },
+    {
+      "sector": "5",
+      "feb_mean": 0.0020283975659229903,
+      "mar_mean": 0.8351956241860133,
+      "n": 1
+    },
+    {
+      "sector": "10",
+      "feb_mean": -0.06489825056971657,
+      "mar_mean": 0.8532036093246883,
+      "n": 16
+    },
+    {
+      "sector": "14",
+      "feb_mean": 0.3105274199718817,
+      "mar_mean": 0.8570752152183994,
+      "n": 2
+    },
+    {
+      "sector": "3",
+      "feb_mean": 0.06754710049405506,
+      "mar_mean": 0.8427640148458737,
+      "n": 19
+    },
+    {
+      "sector": "17",
+      "feb_mean": 0.3106933152664858,
+      "mar_mean": 0.7843849449692986,
+      "n": 2
+    },
+    {
+      "sector": "7",
+      "feb_mean": 0.056350626118067515,
+      "mar_mean": 0.7398996593994298,
+      "n": 1
+    },
+    {
+      "sector": "2",
+      "feb_mean": 0.20953500504400902,
+      "mar_mean": 0.8767760863835616,
+      "n": 3
+    }
+  ],
+  "regression": {
+    "r2": 0.6048444017283022,
+    "feb_ret": {
+      "coef": 0.03682918759237758,
+      "p": 0.7128248277417005
+    },
+    "oil_beta": {
+      "coef": 0.10742700257401973,
+      "p": 0.5406299826983381
+    },
+    "topix_beta": {
+      "coef": -0.11515513313805267,
+      "p": 5.157960708982736e-26
+    },
+    "usdjpy_beta": {
+      "coef": 0.01063045359993738,
+      "p": 0.6893484956087529
+    }
+  },
+  "vif": {
+    "feb_ret": 1.777797124404162,
+    "oil_beta": 1.1351727003277998,
+    "topix_beta": 1.6379440870406132,
+    "usdjpy_beta": 1.0235277855874043
+  },
+  "partial_r2": {
+    "feb_ret": 0.23922109573283934,
+    "oil_beta": 0.005455438165768323,
+    "topix_beta": 0.5565716486027691,
+    "usdjpy_beta": 0.00036486074858987916
+  },
+  "contributions": {
+    "feb_ret": 2.005460665869141e-19,
+    "oil_beta": 3.810375265151368e-19,
+    "topix_beta": 3.850484478468751e-18,
+    "usdjpy_beta": -8.021842663476564e-20
+  },
+  "avg_mar_excess": 0.8488062738903661,
+  "weekly": [
+    {
+      "week": "W10",
+      "status": "error",
+      "msg": "Pandas data cast to numpy dtype of object. Check input data with np.asarray(data)."
+    },
+    {
+      "week": "W11",
+      "status": "error",
+      "msg": "Pandas data cast to numpy dtype of object. Check input data with np.asarray(data)."
+    },
+    {
+      "week": "W12",
+      "status": "error",
+      "msg": "Pandas data cast to numpy dtype of object. Check input data with np.asarray(data)."
+    },
+    {
+      "week": "W13",
+      "status": "error",
+      "msg": "Pandas data cast to numpy dtype of object. Check input data with np.asarray(data)."
+    }
+  ],
+  "verdict": "AMBIGUOUS"
+}
