@@ -5,7 +5,7 @@
 T1で確立した因果チェーン（米国ショック → turnover高群がショック固有に継続下落 → 保有者交代メカニズム → 5日集中）を実際の戦略として構築・検証する。
 
 **T1からの引き継ぎ知見:** K1-K26（`logs/experiments/knowledge.md`）
-**フェーズ:** Q04完了(insufficient_power)。Q03(バックテスト)のPhase 3（設計）へ
+**フェーズ:** Q03 v1 FAIL(裸ショート) → v2(マーケットニュートラル)のPhase 3設計中
 
 ## T2 知見
 27. ブレークポイントはday 5。下落はday 3-4に集中。固定5日保有が最適
@@ -14,6 +14,8 @@ T1で確立した因果チェーン（米国ショック → turnover高群が�
 30. (探索的) 変化倍率のCARは非線形。Q1(1.2倍)が最悪
 31. (保留) 連続ショックでの効果減衰は確定不能だが消失もしていない。スキップ不要（暫定）
 32. 連続ショック時のturnover変化倍率は通常と同等。保有者プール補充は速い
+33. **裸ショートでは戦略不成立**。年率-3.16%, Sharpe=-0.92。マーケットニュートラル設計が必須
+34. 年次リターンは不安定。2022年-11.4%, 2025年+1.9%
 
 詳細: `logs/experiments/knowledge.md`
 
@@ -59,16 +61,18 @@ Phase 5 議論 ......... 済 -- Codex裁定: 次の問いに移る(Q03)
 
 ---
 
-### ⬜ T2-Q03 backtest-transaction-cost-viability -- 取引コスト控除後の戦略成立性
+### 🔄 T2-Q03 backtest-transaction-cost-viability -- 取引コスト控除後の戦略成立性
 
-**問い:** expanding windowでday+1ショート→5日クローズ。コスト10/20/30bps。年率リターン・Sharpe・最大DD・95%CI
-**詳細:** `logs/iterations/multi_perspective.md` T2 Round 2
+**v1結論:** FAIL(裸ショート)。年率-3.16%, Sharpe=-0.92。CARベースの超過リターンと裸ショートのミスマッチ
+**v2:** マーケットニュートラル(turnover-lowロング + turnover-highショート)で再実験。Phase 3に戻る
+**得られた知見:** K33-34追加
+**詳細:** `logs/experiments/T2-Q03_backtest-transaction-cost-viability_review.md`
 
 Phase 1 生成 ......... 済
 Phase 2 選定 ......... 済
-Phase 3 設計 ......... 未
-Phase 4 実験 ......... 未
-Phase 5 議論 ......... 未
+Phase 3 設計 ......... v2設計中（マーケットニュートラル版）
+Phase 4 実験 ......... v1完了(FAIL) → v2未
+Phase 5 議論 ......... v1完了(修正して再実験) → v2未
 
 ---
 
@@ -106,7 +110,7 @@ T2: turnoverショック固有効果の戦略化
   |
   +-- ❌ T2-Q01 entry-timing-turnover-observability .. FAIL（K29-30）
   +-- ✅ T2-Q02 optimal-holding-period-decay ........ PASS（K27-28）
-  +-- ⬜ T2-Q03 backtest-transaction-cost-viability .. 未着手（次）
+  +-- 🔄 T2-Q03 backtest-transaction-cost-viability .. v1 FAIL(裸ショート) → v2(マーケットニュートラル)設計中
   +-- ⚠️ T2-Q04 event-clustering-capacity ........... insufficient_power（K31保留,K32）
 ```
 
@@ -271,8 +275,12 @@ Phase 5 議論 ......... 未
 
 ## 直近の動き
 
-### [2026-03-31] T2-Q03 Phase 4 実験実行中
---t2q03 --skip-symmetryで実行中。T1-T2全体の最終テスト
+### [2026-03-31] T2-Q03 v1 Phase 5完了 → FAIL(裸ショート)。修正して再実験(v2マーケットニュートラル)
+年率-3.16%, Sharpe=-0.92。CARベースの超過リターンと裸ショートのミスマッチ。
+Codex裁定: 修正して再実験。turnover-lowロング + turnover-highショートのスプレッドで再実行。K33-34追加
+
+### [2026-03-31] T2-Q03 v1 Phase 4完了 (FAIL)
+expanding window + K29除外 + コスト20bps×2。裸ショートで損失
 
 ### [2026-03-31] T2-Q03 Phase 3 設計完了 -- Codex approve (3往復)
 /idea-generationを実行中。Q03: expanding windowバックテスト + 取引コスト検証
