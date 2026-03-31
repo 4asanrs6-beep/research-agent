@@ -2173,7 +2173,152 @@ def main():
                         t2q03_verdict = "AMBIGUOUS"
                         print(f"判定: AMBIGUOUS -- 年率{annual_ret*100:+.2f}%, CI=[{ci_low*100:+.2f}%,{ci_high*100:+.2f}%], Sharpe={sharpe:.3f}")
 
-                    t2q03_results["verdict"] = t2q03_verdict
+                    t2q03_results["verdict_v1"] = t2q03_verdict
+
+                    # === v2: マーケットニュートラル版 ===
+                    print("\n" + "=" * 60)
+                    print("=== T2-Q03 v2: マーケットニュートラル (low-long / high-short) ===")
+                    print("=" * 60)
+
+                    mn_event_returns = []
+                    cumulative_turnover_v2 = []
+
+                    for sd in shock_dates:
+                        sd_panel = down_panel[down_panel["event_date"] == sd].copy()
+                        for _, row in sd_panel.iterrows():
+                            cumulative_turnover_v2.append(row["turnover"])
+
+                        if sd < burnin_cutoff:
+                            continue
+                        if len(cumulative_turnover_v2) < 50:
+                            continue
+
+                        exp_median = float(np.median(cumulative_turnover_v2))
+                        high_group = sd_panel[sd_panel["turnover"] > exp_median]
+                        low_group = sd_panel[sd_panel["turnover"] <= exp_median]
+
+                        # K29除外（high群のみ）
+                        ratios_h = []
+                        for _, row in high_group.iterrows():
+                            r = compute_turnover_change_ratio(row, jp_prices_raw)
+                            ratios_h.append(r)
+                        high_group = high_group.copy()
+                        high_group["change_ratio"] = ratios_h
+                        high_filtered = high_group[
+                            high_group["change_ratio"].isna() | (high_group["change_ratio"] <= 2.0)
+                        ]
+                        if len(high_filtered) < 3:
+                            high_filtered = high_group
+
+                        high_car = high_filtered["car_5d"].dropna()
+                        low_car = low_group["car_5d"].dropna()
+                        if len(high_car) < 3 or len(low_car) < 3:
+                            continue
+
+                        # スプレッドリターン = low群CAR - high群CAR
+                        # CARは超過リターン(stock-topix)。low群が相対的に良い→スプレッド正
+                        spread_gross = float(low_car.mean() - high_car.mean())
+
+                        # コスト: 2レッグ × 往復
+                        spread_net_10 = spread_gross - 0.004   # 2×往復20bps
+                        spread_net_20 = spread_gross - 0.008   # 2×往復40bps (主仕様)
+                        spread_net_30 = spread_gross - 0.012   # 2×往復60bps
+
+                        mn_event_returns.append({
+                            "date": sd,
+                            "spread_gross": spread_gross,
+                            "net_10": spread_net_10,
+                            "net_20": spread_net_20,
+                            "net_30": spread_net_30,
+                            "n_long": len(low_car),
+                            "n_short": len(high_car),
+                        })
+
+                    n_mn = len(mn_event_returns)
+                    print(f"マーケットニュートラルイベント数: {n_mn}")
+
+                    if n_mn >= 5:
+                        mn_df = pd.DataFrame(mn_event_returns)
+                        mn_df["year"] = mn_df["date"].apply(lambda d: d.year)
+
+                        mn_avg = float(mn_df["net_20"].mean())
+                        mn_std = float(mn_df["net_20"].std())
+                        mn_epy = n_mn / ((mn_df["date"].max() - mn_df["date"].min()).days / 365.25)
+                        mn_annual = mn_avg * mn_epy
+                        mn_annual_std = mn_std * np.sqrt(mn_epy)
+                        mn_sharpe = mn_annual / mn_annual_std if mn_annual_std > 0 else 0
+
+                        mn_cum = mn_df["net_20"].cumsum()
+                        mn_dd = float((mn_cum - mn_cum.cummax()).min())
+
+                        # ブートストラップCI
+                        np.random.seed(42)
+                        mn_boots = []
+                        mn_arr = mn_df["net_20"].values
+                        for _ in range(10000):
+                            idx = np.random.choice(len(mn_arr), size=len(mn_arr), replace=True)
+                            mn_boots.append(mn_arr[idx].mean() * mn_epy)
+                        mn_ci_low = float(np.percentile(mn_boots, 2.5))
+                        mn_ci_high = float(np.percentile(mn_boots, 97.5))
+
+                        print(f"\n--- v2 全期間集計 (マーケットニュートラル、コスト2×20bps) ---")
+                        print(f"  イベント数: {n_mn}")
+                        print(f"  平均スプレッドリターン(net20): {mn_avg*100:+.3f}%")
+                        print(f"  年間イベント頻度: {mn_epy:.1f}回/年")
+                        print(f"  年率リターン: {mn_annual*100:+.2f}%")
+                        print(f"  Sharpe: {mn_sharpe:.3f}")
+                        print(f"  最大DD: {mn_dd*100:+.2f}%")
+                        print(f"  Bootstrap 95%CI: [{mn_ci_low*100:+.2f}%, {mn_ci_high*100:+.2f}%]")
+
+                        # 年次集計
+                        print(f"\n--- v2 年次集計 ---")
+                        mn_yearly = []
+                        for yr, grp in mn_df.groupby("year"):
+                            wr = float((grp["net_20"] > 0).mean())
+                            print(f"  {yr}: {len(grp)}イベント, 平均{grp['net_20'].mean()*100:+.3f}%, 合計{grp['net_20'].sum()*100:+.2f}%, 勝率{wr*100:.0f}%")
+                            mn_yearly.append({"year": int(yr), "n": len(grp), "mean": float(grp["net_20"].mean()), "total": float(grp["net_20"].sum()), "win_rate": wr})
+
+                        # コスト感度
+                        print(f"\n--- v2 コスト感度 ---")
+                        for label, col in [("2×10bps", "net_10"), ("2×20bps(主)", "net_20"), ("2×30bps", "net_30")]:
+                            ar = float(mn_df[col].mean() * mn_epy)
+                            sr = ar / (float(mn_df[col].std()) * np.sqrt(mn_epy)) if mn_df[col].std() > 0 else 0
+                            print(f"  コスト{label}: 年率{ar*100:+.2f}%, Sharpe={sr:.3f}")
+
+                        # v2判定
+                        print(f"\n{'='*60}")
+                        print("=== T2-Q03 v2 総合判定 ===")
+                        print(f"{'='*60}")
+                        if mn_ci_low > 0 and mn_sharpe >= 0.3:
+                            v2_verdict = "PASS"
+                            print(f"判定: PASS -- 年率{mn_annual*100:+.2f}%, Sharpe={mn_sharpe:.3f}, CI下限={mn_ci_low*100:+.2f}%>0")
+                        elif mn_ci_low <= 0 and mn_sharpe < 0.3:
+                            v2_verdict = "FAIL"
+                            print(f"判定: FAIL -- CI下限={mn_ci_low*100:+.2f}%<=0, Sharpe={mn_sharpe:.3f}<0.3")
+                        else:
+                            v2_verdict = "AMBIGUOUS"
+                            print(f"判定: AMBIGUOUS -- 年率{mn_annual*100:+.2f}%, CI=[{mn_ci_low*100:+.2f}%,{mn_ci_high*100:+.2f}%], Sharpe={mn_sharpe:.3f}")
+
+                        t2q03_results["v2_market_neutral"] = {
+                            "n_events": n_mn,
+                            "avg_spread_net20": mn_avg,
+                            "events_per_year": mn_epy,
+                            "annual_return": mn_annual,
+                            "annual_std": mn_annual_std,
+                            "sharpe": mn_sharpe,
+                            "max_dd": mn_dd,
+                            "bootstrap_ci_low": mn_ci_low,
+                            "bootstrap_ci_high": mn_ci_high,
+                            "yearly": mn_yearly,
+                            "cost_sensitivity": {
+                                "2x10bps": float(mn_df["net_10"].mean() * mn_epy),
+                                "2x20bps": mn_annual,
+                                "2x30bps": float(mn_df["net_30"].mean() * mn_epy),
+                            },
+                        }
+                        t2q03_results["verdict"] = v2_verdict
+                    else:
+                        t2q03_results["verdict"] = "insufficient_events_v2"
 
     # === T2-Q04: event-clustering-capacity ===
     t2q04_results = {}

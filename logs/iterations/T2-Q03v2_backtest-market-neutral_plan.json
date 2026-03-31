@@ -1,0 +1,36 @@
+{
+  "plan": {
+    "revision": "v2 -- マーケットニュートラル版。v1(裸ショート)のFAILを受けて戦略設計を変更",
+    "change_from_v1": "裸ショート → turnover-lowロング + turnover-highショートのスプレッド。TOPIX成分が相殺される",
+    "files": [
+      {
+        "path": "scripts/run_symmetry_test.py",
+        "action": "modify",
+        "description": "--t2q03フラグのセクションを修正。v1の裸ショートに加えてv2のマーケットニュートラル版を追加"
+      }
+    ],
+    "primary_specification": {
+      "long_leg": "turnover-low群（expanding window中央値以下）を等ウェイトでロング",
+      "short_leg": "turnover-high群（expanding window中央値超、K29除外適用）を等ウェイトでショート",
+      "return": "スプレッドリターン = low群の5d CAR平均 - high群の5d CAR平均。TOPIX成分が相殺される",
+      "cost": "2レッグ × 往復20bps = 80bps。感度: 2×10bps=40bps, 2×30bps=120bps",
+      "position_rule": "同一銘柄1本まで。イベント日ごとに新規ポートフォリオ"
+    },
+    "pass_criteria": {
+      "primary": "コスト80bps控除後の年率リターンのブートストラップ95%CI下限>0 かつ Sharpe>=0.3",
+      "fail": "CI下限<=0 かつ Sharpe<0.3",
+      "note": "v1との比較: v1の裸ショート年率-3.16%からの改善幅も記録"
+    },
+    "steps": [
+      "Step1: expanding window中央値で各ショック日のhigh/lowを分割（v1と同一）",
+      "Step2: high群にK29除外適用（v1と同一）",
+      "Step3: スプレッドリターン = low群car_5d平均 - high群car_5d平均",
+      "Step4: コスト控除（2レッグ: 40/80/120bps）",
+      "Step5: 全期間集計（年率リターン、ブートストラップCI、Sharpe、最大DD）",
+      "Step6: 年次集計 + v1との比較表",
+      "Step7: 固定中央値版も併走",
+      "Step8: 総合判定 + JSON保存"
+    ],
+    "estimated_complexity": "low"
+  }
+}
