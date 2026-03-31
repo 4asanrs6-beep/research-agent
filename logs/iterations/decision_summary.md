@@ -5,7 +5,15 @@
 T1で確立した因果チェーン（米国ショック → turnover高群がショック固有に継続下落 → 保有者交代メカニズム → 5日集中）を実際の戦略として構築・検証する。
 
 **T1からの引き継ぎ知見:** K1-K26（`logs/experiments/knowledge.md`）
-**フェーズ:** Phase 2（選定完了、multi-perspective実行中）
+**フェーズ:** Q01/Q02完了。次の問い生成待ち
+
+## T2 知見
+27. ブレークポイントはday 5。下落はday 3-4に集中。固定5日保有が最適
+28. 動的エグジット（turnover正常化ベース）は不可。rho=-0.007
+29. turnover変化倍率はエントリー精度を改善しない（負の証拠）。当日消化度のproxy
+30. (探索的) 変化倍率のCARは非線形。Q1(1.2倍)が最悪
+
+詳細: `logs/experiments/knowledge.md`
 
 ### ❌ T2-Q01 entry-timing-turnover-observability — エントリータイミング
 
