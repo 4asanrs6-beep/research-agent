@@ -1,0 +1,21 @@
+{
+  "source": "claude",
+  "goal": "K12のturnover継続下落(-0.6%/20日)がショック固有かをpseudo-DiDで検証する",
+  "ideas": [
+    {
+      "id": "1",
+      "title": "Q05フォーク: vol→turnoverに差し替えたpseudo-DiD",
+      "what": "Q05と同じ非ショック日ベースライン比較をturnoverに適用。turnover高群/低群の20d CARをショック日と非ショック日で比較し、pseudo-DiDでショック固有成分を推定",
+      "diff_from_previous": "Q05はvolで実施→ショック非固有と判明。Q09は同じフレームワークをturnoverに適用",
+      "reuse": "run_symmetry_test.pyのQ05ロジック（事前計算行列、ブートストラップ、pseudo-DiD）をそのまま流用",
+      "new_work": "vol→turnoverへの差し替えのみ。ほぼコピペ",
+      "risk": "Q05と同じ結果（ショック非固有）になり、T1テーマの戦略価値がなくなる",
+      "cost": "low"
+    }
+  ],
+  "recommendation": {
+    "id": "1",
+    "reason": "Q05のコードが既に動いており、変数をvol→turnoverに差し替えるだけ。multi-perspectiveでも全ロールがこの方法を支持。",
+    "robustness_check": "Spearman相関（ショック規模×turnover継続下落幅）を補強テストとして実施"
+  }
+}

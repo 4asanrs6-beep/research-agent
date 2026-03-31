@@ -538,6 +538,7 @@ def main():
     parser.add_argument("--q04", action="store_true", help="T1-Q04 attention-penalty分析を実行")
     parser.add_argument("--q05", action="store_true", help="T1-Q05 vol-reversal-specificity分析を実行")
     parser.add_argument("--q06", action="store_true", help="T1-Q06 turnover-momentum-disentangle分析を実行")
+    parser.add_argument("--q09", action="store_true", help="T1-Q09 turnover-postshock-specificity-did分析を実行")
     parser.add_argument("--q07", action="store_true", help="T1-Q07 size-regime-interaction分析を実行")
     parser.add_argument("--skip-symmetry", action="store_true", help="対称性テストをスキップ（Q05/Q06のみ実行時）")
     args = parser.parse_args()
@@ -1444,6 +1445,189 @@ def main():
             q07_results["verdict"] = q07_verdict
             q07_results["conclusion_scope"] = "ショック日内部のサイズ依存性の記述。ショック固有性の因果解釈ではない"
 
+    # === T1-Q09: turnover継続下落のショック固有性DiD ===
+    q09_results = {}
+    if args.q09:
+        from scipy import stats as scipy_stats
+        print("\n" + "=" * 60)
+        print("=== T1-Q09 turnover-postshock-specificity-did ===")
+        print("=" * 60)
+
+        down_panel = panels.get("down")
+        if down_panel is None or len(down_panel) == 0:
+            print("NG: 下方パネルがない。中止")
+        else:
+            down_panel = compute_post_event_car(jp_returns, topix_returns, down_panel, windows=[5, 10, 20])
+            shock_dates_list = sorted(down_panel["event_date"].unique())
+            n_shock = len(shock_dates_list)
+            print(f"ショック日数: {n_shock}")
+
+            # turnover高/低群
+            turn_median = down_panel["turnover"].median()
+            turn_high = down_panel[down_panel["turnover"] > turn_median]
+            turn_low = down_panel[down_panel["turnover"] <= turn_median]
+            shock_turn_high_car = turn_high["car_20d"].dropna().mean()
+            shock_turn_low_car = turn_low["car_20d"].dropna().mean()
+            print(f"\nショック日 turnover高群 20d CAR: {shock_turn_high_car*100:+.3f}%")
+            print(f"ショック日 turnover低群 20d CAR: {shock_turn_low_car*100:+.3f}%")
+
+            # 非ショック日
+            all_sp_dates = us_returns.index
+            shock_set = set(shock_dates_list)
+            non_shock_dates = [d for d in all_sp_dates if d not in shock_set]
+            print(f"非ショック日数: {len(non_shock_dates)}")
+
+            # 事前計算: turnover行列（volumeからpivot）
+            print("事前計算: turnover行列...")
+            vol_col = "volume" if "volume" in jp_prices_raw.columns else "adj_volume"
+            if vol_col in jp_prices_raw.columns:
+                vol_pivot = jp_prices_raw.pivot_table(index="date", columns="code", values=vol_col)
+                vol_pivot = vol_pivot.sort_index()
+                # turnover = 当日出来高 / 20日平均出来高
+                vol_ma20 = vol_pivot.rolling(20, min_periods=10).mean()
+                turnover_mat = vol_pivot / vol_ma20
+                # log transform for skewness (Codex review recommendation)
+                turnover_mat = np.log1p(turnover_mat.clip(lower=0))
+            else:
+                print("NG: volume列がない。中止")
+                turnover_mat = None
+
+            if turnover_mat is not None:
+                # CAR行列（Q05で使ったものと同じ）
+                excess_mat = jp_returns.sub(topix_returns, axis=0)
+                cumex = excess_mat.cumsum()
+                car_20d_mat = cumex.shift(-21) - cumex.shift(-1)
+
+                # 非ショック日→翌JP営業日マッピング
+                jp_idx = jp_returns.index
+                non_shock_jp = []
+                for d in non_shock_dates:
+                    later = jp_idx[jp_idx > d]
+                    if len(later) > 0:
+                        non_shock_jp.append((d, later[0]))
+
+                # ブートストラップ
+                print("\n--- ベースライン: ランダム非ショック日 ---")
+                n_iter = 200
+                min_gap = 20
+                rng = np.random.RandomState(42)
+                bs_turn_high_cars = []
+                bs_turn_low_cars = []
+
+                non_shock_arr = np.array([x[0] for x in non_shock_jp])
+                non_shock_reaction = {x[0]: x[1] for x in non_shock_jp}
+
+                for i in range(n_iter):
+                    shuffled = rng.permutation(len(non_shock_arr))
+                    sampled_reactions = []
+                    sampled_events = []
+                    for idx in shuffled:
+                        d = non_shock_arr[idx]
+                        if all(abs((d - s).days) >= min_gap for s in sampled_events):
+                            sampled_events.append(d)
+                            sampled_reactions.append(non_shock_reaction[d])
+                        if len(sampled_events) >= n_shock:
+                            break
+                    if len(sampled_reactions) < n_shock // 2:
+                        continue
+
+                    all_turns = []
+                    all_cars = []
+                    for rd in sampled_reactions:
+                        if rd not in turnover_mat.index or rd not in car_20d_mat.index:
+                            continue
+                        t = turnover_mat.loc[rd].dropna()
+                        c = car_20d_mat.loc[rd].dropna()
+                        common_codes = t.index.intersection(c.index)
+                        if len(common_codes) < 10:
+                            continue
+                        all_turns.append(t[common_codes])
+                        all_cars.append(c[common_codes])
+
+                    if len(all_turns) < 5:
+                        continue
+                    concat_t = pd.concat(all_turns)
+                    concat_c = pd.concat(all_cars)
+                    tm = concat_t.median()
+                    fh = concat_c[concat_t > tm].mean()
+                    fl = concat_c[concat_t <= tm].mean()
+                    bs_turn_high_cars.append(float(fh))
+                    bs_turn_low_cars.append(float(fl))
+
+                if len(bs_turn_high_cars) > 50:
+                    bs_high = np.array(bs_turn_high_cars)
+                    bs_low = np.array(bs_turn_low_cars)
+                    baseline_high = np.mean(bs_high)
+                    baseline_low = np.mean(bs_low)
+                    # p値: ショック日CARが非ショック日ベースラインより低い確率（下側検定）
+                    p_high = np.mean(bs_high <= shock_turn_high_car)
+                    pseudo_did_shock = shock_turn_high_car - shock_turn_low_car
+                    pseudo_did_baseline = baseline_high - baseline_low
+                    pseudo_did = pseudo_did_shock - pseudo_did_baseline
+                    bs_dids = bs_high - bs_low
+                    p_did = np.mean(bs_dids <= pseudo_did_shock)  # 下側検定（turnoverは下がる方向）
+
+                    print(f"  非ショック日 turnover高群ベースライン: {baseline_high*100:+.3f}%")
+                    print(f"  非ショック日 turnover低群ベースライン: {baseline_low*100:+.3f}%")
+                    print(f"  ショック固有turnover高群CAR: {shock_turn_high_car*100:+.3f}% vs ベースライン {baseline_high*100:+.3f}%")
+                    print(f"  pseudo-DiD: {pseudo_did*100:+.3f}% (shock={pseudo_did_shock*100:+.3f}% - baseline={pseudo_did_baseline*100:+.3f}%)")
+                    print(f"  pseudo-DiD p値: {p_did:.4f}")
+
+                    q09_results["baseline_random"] = {
+                        "shock_turn_high_car": float(shock_turn_high_car),
+                        "shock_turn_low_car": float(shock_turn_low_car),
+                        "baseline_turn_high_car": float(baseline_high),
+                        "baseline_turn_low_car": float(baseline_low),
+                        "pseudo_did": float(pseudo_did),
+                        "pseudo_did_p": float(p_did),
+                        "n_bootstrap": len(bs_turn_high_cars),
+                    }
+
+                # ショック規模相関
+                print("\n--- ショック規模相関 ---")
+                shock_cars_by_date = {}
+                for sd in shock_dates_list:
+                    sub = turn_high[turn_high["event_date"] == sd]
+                    if len(sub) > 0 and sub["car_20d"].notna().sum() > 0:
+                        shock_cars_by_date[sd] = sub["car_20d"].mean()
+
+                if len(shock_cars_by_date) >= 10:
+                    dates_sorted = sorted(shock_cars_by_date.keys())
+                    car_vals = [shock_cars_by_date[d] for d in dates_sorted]
+                    sp_vals = [float(us_returns.loc[d]) if d in us_returns.index else np.nan for d in dates_sorted]
+                    valid_mask = [not (np.isnan(c) or np.isnan(s)) for c, s in zip(car_vals, sp_vals)]
+                    car_clean = [c for c, v in zip(car_vals, valid_mask) if v]
+                    sp_clean = [abs(s) for s, v in zip(sp_vals, valid_mask) if v]
+                    rho, p_rho = scipy_stats.spearmanr(sp_clean, car_clean)
+                    print(f"  Spearman(|S&P500下落幅|, turnover高群20d CAR): rho={rho:.3f}, p={p_rho:.4f}")
+
+                    q09_results["shock_magnitude_correlation"] = {
+                        "spearman_rho": float(rho),
+                        "spearman_p": float(p_rho),
+                        "n_events": len(car_clean),
+                    }
+
+                # 最終判定
+                print("\n" + "=" * 60)
+                print("=== T1-Q09 最終判定 ===")
+                print("=" * 60)
+                primary_pass = False
+                secondary_pass = False
+                if "baseline_random" in q09_results:
+                    r = q09_results["baseline_random"]
+                    primary_pass = r["pseudo_did"] < 0 and r["pseudo_did_p"] < 0.10
+                    print(f"Primary (pseudo-DiD < 0, p<0.10): {'PASS' if primary_pass else 'FAIL'}")
+                    print(f"  pseudo-DiD={r['pseudo_did']*100:+.3f}%, p={r['pseudo_did_p']:.4f}")
+                if "shock_magnitude_correlation" in q09_results:
+                    r = q09_results["shock_magnitude_correlation"]
+                    secondary_pass = r["spearman_rho"] < -0.05 and r["spearman_p"] < 0.10
+                    print(f"Secondary (Spearman rho<-0.05, p<0.10): {'PASS' if secondary_pass else 'FAIL'}")
+                    print(f"  rho={r['spearman_rho']:.3f}, p={r['spearman_p']:.4f}")
+
+                verdict = "PASS" if primary_pass else ("PARTIAL" if secondary_pass else "FAIL")
+                q09_results["verdict"] = verdict
+                print(f"\n総合判定: {verdict}")
+
     # === JSON保存 ===
     output = {
         "experiment": "symmetry-test",
@@ -1458,6 +1642,8 @@ def main():
         output["q05_vol_reversal_specificity"] = q05_results
     if args.q06:
         output["q06_turnover_momentum"] = q06_results
+    if args.q09:
+        output["q09_turnover_postshock_did"] = q09_results
     if args.q07:
         output["q07_size_regime_interaction"] = q07_results
 
@@ -1468,6 +1654,8 @@ def main():
         output_path = Path("logs/iterations/T1-Q05_vol-reversal-specificity_result.json")
     if args.q06:
         output_path = Path("logs/iterations/T1-Q06_turnover-momentum-disentangle_result.json")
+    if args.q09:
+        output_path = Path("logs/iterations/T1-Q09_turnover-postshock-specificity-did_result.json")
     if args.q07:
         output_path = Path("logs/iterations/T1-Q07_size-regime-interaction_result.json")
     output_path.parent.mkdir(parents=True, exist_ok=True)

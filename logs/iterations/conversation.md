@@ -1206,3 +1206,15 @@ Phase 4 実験: 実行中
 2. `large_fail`が狭すぎる → `large_diff >= 0 or large_p >= 0.10`に簡潔化
 
 修正済み。実験実行へ
+
+## T1-Q09 turnover-postshock-specificity-did Phase 3 設計
+
+### idea-generation
+**目標:** K12のturnover継続下落がショック固有かをpseudo-DiDで検証
+**推奨:** Q05フォーク（vol→turnover差し替え）。コスト: low
+
+### implementation-planning
+- `--q09` フラグ追加、Q05コードをコピーしてvol→turnover
+- パス基準: pseudo-DiD < 0 かつ p < 0.10
+- `--skip-symmetry`で高速実行
+- Codexレビュー待ち

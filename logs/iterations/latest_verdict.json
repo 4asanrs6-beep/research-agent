@@ -1,43 +1,77 @@
 {
-  "question_id": "T1-Q06",
-  "question_slug": "turnover-momentum-disentangle",
-  "reviewer": "Codex-fallback",
-  "timestamp": "2026-03-30T01:30:00+09:00",
-  "decision": "approve",
-  "confidence": 0.90,
+  "question_id": "T1-Q09",
+  "question_slug": "turnover-postshock-specificity-did",
+  "reviewer": "independent (Codex-fallback)",
+  "timestamp": "2026-03-31T12:00:00+09:00",
+  "decision": "conditional_approve",
+  "confidence": 0.82,
+  "summary": "Plan is structurally sound as a Q05 fork but 'vol to turnover swap' is not trivial. One HIGH issue (turnover_mat construction requires jp_prices_raw, not jp_returns), two sign-flip items that are easy to miss in copy-paste, and a distributional concern with turnover skewness.",
   "checklist": {
-    "v2_design_match": {
-      "pass": true,
-      "detail": "Plan faithfully implements multi-perspective v2 final design: (1) 3-window prior-return stratification (5d/20d/60d) as demanded by Red-Team round 2, (2) upside-shock placebo leveraging K7, (3) large-cap subset re-run leveraging K4/K9. Step 4 (continuous regression with prior_ret control) is the agreed robustness supplement from idea #2. All four steps match the final question text in multi_perspective_round2.md."
+    "vol_to_turnover_replacement_sufficient": {
+      "pass": false,
+      "severity": "HIGH",
+      "detail": "Plan describes turnover_mat as '事前計算、20日ローリングmean' but does not acknowledge that the data source differs from vol_mat. vol_mat is built from jp_returns (already a date x code matrix) via jp_returns.rolling(20).std()*sqrt(252). Turnover requires volume data from jp_prices_raw (a long-format DataFrame with 'code','date','volume' columns). Construction requires: (1) pivot jp_prices_raw volume to wide-format date x code, (2) compute rolling 20-day mean, (3) divide current volume by rolling mean to get relative turnover. This is ~10 extra lines and a different data pipeline, NOT a simple variable name swap.",
+      "recommendation": "Add explicit turnover_mat construction step in implementation_order between steps 1 and 2. Example: volume_wide = jp_prices_raw.pivot_table(index='date', columns='code', values='volume'); rolling_avg = volume_wide.rolling(20, min_periods=10).mean(); turnover_mat = volume_wide / rolling_avg"
     },
-    "pass_criteria": {
+    "pass_criteria_direction": {
       "pass": true,
-      "detail": "Primary criterion (prior-up group retains CAR<0 in >=2 of 3 windows, p<0.10) and secondary criterion (upside-shock turnover effect non-significant, p>0.10) are clearly stated with both_required=true. Fail criteria mirror them exactly. The 2-of-3 majority rule for the 3-window test is a sensible robustness threshold.",
-      "minor_notes": [
-        "Plan does not specify one-sided vs two-sided tests. Recommend documenting this in implementation (two-sided for primary, one-sided for placebo) but not blocking."
-      ]
+      "severity": "LOW",
+      "detail": "Plan correctly states pseudo-DiD < 0 for turnover (high-turnover group has worse post-shock CAR). Q05 uses > 0 for vol (high-vol group rebounds more). Direction logic is correct. However, the bootstrap p-value calculation must also be flipped: Q05 uses np.mean(bs_dids >= pseudo_did_shock) for upper-tail test. Q09 needs np.mean(bs_dids <= pseudo_did_shock) for lower-tail test. This is not mentioned in the plan and is a common copy-paste bug.",
+      "recommendation": "Explicitly note in implementation_order: 'flip p-value inequality from >= to <= in bootstrap DiD test, and from > to < in primary_pass check'"
+    },
+    "spearman_correlation_sign": {
+      "pass": true,
+      "severity": "LOW",
+      "detail": "Plan correctly states Spearman correlation should be negative (bigger shock -> deeper continued decline for turnover-high group). Q05 checks rho > 0.05. Q09 must check rho < -0.05. Plan wording is correct; just needs careful implementation."
+    },
+    "turnover_distribution_issues": {
+      "pass": "warning",
+      "severity": "MEDIUM",
+      "detail": "Turnover ratio (latest_volume / 20d_avg_volume) is right-skewed with heavy tail. On shock days, turnover can spike to 3-10x normal. Median split on such a distribution means: (1) most observations cluster near 1.0 boundary, (2) a few extreme outliers dominate the high-group mean CAR. This differs from vol (annualized rolling std) which is more symmetric and stable. The bootstrap baseline will also be affected since non-shock days have more symmetric turnover.",
+      "recommendation": "Consider log(turnover) for median split, or winsorize at 99th percentile before splitting. At minimum, report the high-group turnover distribution statistics (mean, median, p95, p99) in the output JSON so reviewers can assess sensitivity."
+    },
+    "statistical_design": {
+      "pass": true,
+      "detail": "Pseudo-DiD framework with bootstrap baseline is appropriate. K12 reports effect size of -0.6% (much larger than Q05's vol effect of +0.087%), so detection power should be ample even with some distributional noise."
     },
     "performance": {
       "pass": true,
-      "detail": "Reuses Q05 pre-computed car_20d_mat matrix approach, adds turnover_mat. No bootstrap required (direct group comparison + t-tests + OLS). With ~45 event days x ~200 stocks, stratified cells have ~1,100-2,250 obs. Runtime under 2 minutes. No concern."
-    },
-    "statistical_issues": {
-      "pass": true,
-      "minor_notes": [
-        "Stratifying turnover-high into prior-up/prior-down halves each cell to ~1,100 obs (full) or ~550 obs (large-cap). Power may be tight for large-cap prior-up subgroup at p<0.10. The continuous regression in Step 4 mitigates this detection power risk.",
-        "Multiple testing across 3 windows x 2 shock directions x 2 size cuts = 12 hypothesis tests. The 2-of-3 majority rule partially addresses this but no formal correction (Bonferroni/BH) is mentioned. Acceptable for exploratory research; should be noted in the final report."
-      ]
+      "detail": "turnover_mat construction adds one pivot + one rolling operation. Bootstrap loop is identical to Q05. No performance concern."
     }
   },
-  "additional_observations": [
-    "Data flow correctly reuses Q03 downward-shock panel builder, avoiding redundant code.",
-    "Step 3 (upside placebo) is the strongest identification element. If upside-shock turnover effect is significant, the entire turnover narrative (K7, K9, K12) would need revision. Plan correctly treats this as a hard fail.",
-    "Plan does not include DiD-style comparison for turnover (analogous to Q05 for vol). This is intentional: Q06 addresses momentum-vs-panic, not shock-specificity. A turnover DiD is deferred if needed."
+  "findings_summary": [
+    {
+      "id": 1,
+      "severity": "HIGH",
+      "title": "turnover_mat requires jp_prices_raw, not jp_returns",
+      "action_required": true
+    },
+    {
+      "id": 2,
+      "severity": "MEDIUM",
+      "title": "Bootstrap p-value inequality must flip from >= to <= for lower-tail test",
+      "action_required": true
+    },
+    {
+      "id": 3,
+      "severity": "MEDIUM",
+      "title": "Turnover right-skew may bias median-split results; consider log-transform or winsorization",
+      "action_required": false
+    },
+    {
+      "id": 4,
+      "severity": "LOW",
+      "title": "Spearman rho sign check must flip from >0.05 to <-0.05",
+      "action_required": true
+    }
   ],
-  "recommendations": [
-    "Document one-sided vs two-sided test choice in implementation comments.",
-    "Note absence of formal multiple-testing correction in the final knowledge entry.",
-    "Monitor large-cap prior-up subgroup sample size; if n<300, flag reduced power in results JSON."
+  "conditions_for_full_approval": [
+    "Address Finding #1: Plan or code must include explicit turnover_mat construction from jp_prices_raw volume pivot",
+    "Address Finding #2: Flip bootstrap p-value inequality direction (>= to <=) and primary_pass check (> 0 to < 0)",
+    "Address Finding #4: Flip Spearman rho threshold from positive to negative"
   ],
-  "summary": "Plan is well-aligned with multi-perspective v2 design. All four steps (3-window stratification, large-cap re-run, upside placebo, continuous regression) match the agreed specification. Pass/fail criteria are clear and actionable. No performance concerns. Two minor statistical notes (subgroup power for large-cap prior-up, no formal multiple-testing correction) are non-blocking given the exploratory context and continuous-regression backup. Approved for implementation."
+  "optional_improvements": [
+    "Finding #3: Apply log-transform or 99th-percentile winsorization to turnover before median split",
+    "Report turnover distribution statistics (mean, median, p95, p99) in output JSON for downstream review"
+  ]
 }

@@ -45,7 +45,10 @@ T1: 米国ショック後の日本株の銘柄固有効果
               +-- ❌ T1-Q05 vol-reversal-specificity .. ショック非固有（K11修正, K14-15）
               +-- ❌(条件付き✅) T1-Q06 turnover-momentum-disentangle .. 連続PASS/離散FAIL（K16-17）
               +-- ❌ T1-Q07 size-regime-interaction .. FAIL（K18-19）
-              +-- ⬜ T1-Q08 cross-factor-portfolio .. 未着手
+              +-- ⏭️ T1-Q08 cross-factor-portfolio .. スキップ（前提崩壊）
+              +-- ✅ T1-Q09 turnover-postshock-specificity-did .. **PASS (MAJOR)**（K21-23）
+              +-- ⬜ T1-Q10 turnover-decline-mechanism-separation .. 次
+              +-- ⬜ T1-Q11 vol-drift-as-alternative-theme .. Q09 PASSにより不要
 ```
 
 ## 各問いの詳細
@@ -144,16 +147,17 @@ Phase 5 議論 ......... 済 — Codex裁定: 次の問いに移る
 
 ---
 
-### 🔄 T1-Q09 turnover-postshock-specificity-did — turnover継続下落はショック固有か（最優先）
+### ✅ T1-Q09 turnover-postshock-specificity-did — turnover継続下落はショック固有！（T1最大の成果）
 
-**問い:** K12の-0.6%継続下落は非ショック日にも同程度起きる通常のドリフトではないか？Q05のpseudo-DiDフレームワークを適用
-**詳細:** `logs/iterations/multi_perspective.md` Round 3
+**結論:** PASS。pseudo-DiD=-0.703% (p<0.0001)。非ショック日turnover高群は+0.196%。ショック固有成分が確定
+**得られた知見:** K21-K23追加、K12補強
+**詳細:** `logs/experiments/T1-Q09_turnover-postshock-specificity-did_review.md`
 
 Phase 1 生成 ......... 済
-Phase 2 選定 ......... 済（multi-perspective v2で進化）
-Phase 3 設計 ......... 未
-Phase 4 実験 ......... 未
-Phase 5 議論 ......... 未
+Phase 2 選定 ......... 済
+Phase 3 設計 ......... 済 — Codex conditional approve
+Phase 4 実験 ......... 済 — **PASS (MAJOR)**
+Phase 5 議論 ......... 済 — Codex裁定: 次の問いに移る（Q10へ）
 
 ---
 
@@ -184,6 +188,10 @@ Phase 5 議論 ......... 未
 ---
 
 ## 直近の動き
+
+### [2026-03-31] T1-Q09 Phase 5完了 → PASS! turnover継続下落はショック固有
+pseudo-DiD=-0.703%(p<0.0001)。T1テーマの戦略価値が確定。K21-K23追加。
+**次: Q10 turnover-decline-mechanism-separation（メカニズム解明）**
 
 ### [2026-03-31] Phase 2完了: multi-perspective議論 + 着手順決定
 Q09最優先 → PASS: Q10, FAIL: Q11 の分岐構成。

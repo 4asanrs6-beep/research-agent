@@ -1,0 +1,28 @@
+{
+  "experiment": "symmetry-test",
+  "thresholds": {
+    "2.0sigma": {},
+    "1.5pct": {},
+    "1.0sigma": {}
+  },
+  "direction_results": {},
+  "size_stratified": {},
+  "vix_stratified": {},
+  "q09_turnover_postshock_did": {
+    "baseline_random": {
+      "shock_turn_high_car": -0.00257458273394991,
+      "shock_turn_low_car": 0.00541397289948376,
+      "baseline_turn_high_car": 0.0019615442127630988,
+      "baseline_turn_low_car": 0.0029249513096932804,
+      "pseudo_did": -0.007025148536503488,
+      "pseudo_did_p": 0.0,
+      "n_bootstrap": 200
+    },
+    "shock_magnitude_correlation": {
+      "spearman_rho": -0.06062717770034844,
+      "spearman_p": 0.7065119658337983,
+      "n_events": 41
+    },
+    "verdict": "PASS"
+  }
+}

@@ -1,0 +1,33 @@
+{
+  "plan": {
+    "files": [
+      {
+        "path": "scripts/run_symmetry_test.py",
+        "action": "modify",
+        "description": "--q09フラグを追加。Q05のvol→turnoverに差し替えたpseudo-DiD"
+      }
+    ],
+    "functions": [
+      {
+        "name": "run_q09",
+        "signature": "def run_q09(section in main())",
+        "purpose": "Q05のロジックをコピーしてvol→turnoverに変更。(1)ショック日turnover高/低群の20d CAR、(2)非ショック日ベースライン（ブートストラップ200回、min_gap=20）、(3)pseudo-DiD、(4)Spearman相関、(5)効果サイズ+CI"
+      }
+    ],
+    "data_flow": "Q05と同一。car_20d_mat(事前計算済み) + turnover_mat(事前計算、20日ローリングmean) → ショック日/非ショック日のturnover高/低群CAR比較 → pseudo-DiD → Spearman",
+    "pass_criteria": {
+      "primary": "pseudo-DiD (turnover高ショック固有CAR - turnover低ショック固有CAR) < 0 かつ p < 0.10（turnover高群がショック後に特に下がる）",
+      "secondary": "S&P500下落幅 vs turnover高群20d CARのSpearman相関が負 かつ p < 0.10（大きなショックほど継続下落が深い）",
+      "both_required": false,
+      "note": "primaryが必須。K12の効果量(-0.6%)はQ05のvol(+0.087%)より遥かに大きく、検出力は十分"
+    },
+    "implementation_order": [
+      "1. --q09フラグ追加",
+      "2. Q05のブートストラップコードをコピーしてvol→turnoverに差し替え",
+      "3. Spearman相関もturnover版に",
+      "4. --skip-symmetryで高速実行",
+      "5. JSON出力"
+    ],
+    "estimated_complexity": "low"
+  }
+}
