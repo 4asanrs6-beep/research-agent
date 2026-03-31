@@ -1,0 +1,54 @@
+{
+  "source": "claude",
+  "findings_used": [
+    "K12: turnover継続下落はショック固有(DiD=-0.703%, p<0.0001)。メカニズムは保有者交代",
+    "K16+K17: turnoverとprior_retは独立2チャネル(turnover p=0.002, prior_ret p=0.046)",
+    "K21+K22: ショック固有だが規模と無相関。二値トリガーで十分",
+    "K24+K25+K26: 保有者交代は5日集中。turnover変化1.4倍",
+    "K27+K28: 固定5日保有が最適。動的エグジット不可",
+    "K29+K30: turnover変化倍率はエントリー精度を改善しない。消化度proxy。高倍率=回復"
+  ],
+  "questions": [
+    {
+      "id": "backtest-transaction-cost-viability",
+      "question": "K12の-0.6%/20d(実質day5までの-0.194%)とK27の5日固定保有を組み合わせた戦略は、取引コスト(片道10-20bps)×2を控除しても正のリターンを生むか。さらにK29(変化倍率高群=回復)の除外フィルターを加えた場合に、Sharpe比が改善するか。コスト控除後のリターンが正であっても、年間のショック発生頻度(約8回/年)を考慮した年率リターンが現実的な運用に耐えるか(年率>1%かつ最大ドローダウン<5%)を判定する。",
+      "findings_leveraged": ["K12", "K24", "K27", "K29"],
+      "what_this_decides": "T1-T2全体の知見が実際のトレード戦略として成立するかの最終判断。成立しなければ知見はリスク管理用途のみに限定される",
+      "first_step": "2019-2026の全ショック日でturnover-high銘柄をショートし5日後にクローズするシミュレーション。取引コスト3段階(10/20/30bps)で感度分析",
+      "difficulty": "medium"
+    },
+    {
+      "id": "prior-ret-turnover-dual-filter",
+      "question": "K16-K17(turnoverとprior_retは独立2チャネル)を戦略に統合できるか。ショック前20日リターンが負(prior_ret<0)かつturnover高の銘柄は、turnover高のみの銘柄より5d CARが有意に悪化するか。さらにK29(変化倍率高群除外)を加えた3条件フィルターで精度はどこまで上がるか。ただしフィルター強化でn数が減りすぎると年間ショート回数が実務的に不足するため、フィルター後のn数が各ショック日で最低10銘柄を維持できるかも確認する。",
+      "findings_leveraged": ["K16", "K17", "K29", "K12"],
+      "what_this_decides": "単純turnover二分割を超える精度向上が可能か。可能なら戦略のSharpe比が改善し、不可能なら二分割のシンプルな設計が最適と確定する",
+      "first_step": "下方ショックパネルでprior_ret_20d×turnoverの2次元分割→各セルの5d CARを比較。prior_ret負×turnover高のセルが最悪かを確認",
+      "difficulty": "low"
+    },
+    {
+      "id": "consumption-filter-exclusion",
+      "question": "K29(変化倍率高群=当日消化済み=翌日回復)とK24(保有者交代メカニズム)を組み合わせると、turnover変化倍率が閾値(例:2.0倍)を超える銘柄を除外することでショート戦略のCARが改善するか。さらにK30の非線形パターン(Q1=1.2倍が最悪)を検証し、ショート対象を変化倍率1.0-1.5倍のレンジに絞った場合にCARの改善幅はどの程度か。ただし除外率が50%を超えるとn数不足になるため、除外率とCAR改善のトレードオフを閾値ごとに定量化する。",
+      "findings_leveraged": ["K29", "K30", "K24", "K26"],
+      "what_this_decides": "turnover変化倍率を除外フィルターとして使うべきか、使うなら閾値はどこか。戦略設計の銘柄選定ルールが確定する",
+      "first_step": "turnover変化倍率の閾値を1.5/2.0/2.5倍で変えながら、閾値未満の銘柄のみでday+1起算5d CARを計算。除外率とCAR改善のトレードオフを表にする",
+      "difficulty": "low"
+    },
+    {
+      "id": "regime-vix-conditional-entry",
+      "question": "K22(ショック規模との用量反応なし)は「ショックの大きさは戦略リターンを予測しない」ことを意味するが、VIX水準(恐怖指数)で条件付ければ異なるか。K7(turnoverはパニック固有=下方のみ)とK9(大型turnover効果も下落時固有)を踏まえると、VIX高水準時のショックは保有者交代(K24)がより激しく発生する可能性がある。VIX中央値で分割したときに、VIX高群でのturnover-high 5d CARがVIX低群より有意に悪化するか。さらにVIX高群限定でショートした場合の年間Sharpe比を計算し、全ショックで均一にエントリーする場合と比較する。",
+      "findings_leveraged": ["K22", "K7", "K9", "K24", "K27"],
+      "what_this_decides": "ショック日を「全部取る」か「VIX高のときだけ取る」かの判断。VIX条件付けが有効なら年間の無駄なエントリーを減らせる",
+      "first_step": "既存パネルにVIX水準(イベント日のVIX終値)を追加し、中央値分割でturnover-high群の5d CARを比較",
+      "difficulty": "low"
+    },
+    {
+      "id": "day2-delayed-entry-improvement",
+      "question": "K27(day1-2のCAR増分はゼロ)とK29(turnover変化倍率は当日消化度proxy)を組み合わせると、day+2遅延エントリーが有効な可能性がある。day+0-1で消化度(turnover変化)を確認してからday+2にエントリーすれば、K29の除外フィルターをより精度良く適用できる。day+2起算の3d CARが、day+1起算の5d CARと同等以上のリターンを維持できるか。さらにday+0-1の2日間のturnover変化で消化度を更新し、消化度低群(=未完了)のみにエントリーした場合のCAR改善幅を確認する。",
+      "findings_leveraged": ["K27", "K29", "K25", "K24"],
+      "what_this_decides": "エントリーをday+1にするかday+2にするかの判断。day+2が有効なら情報量が増え銘柄選定精度が向上するが、下落のday3-4集中(K27)との兼ね合いが鍵",
+      "first_step": "day+2起算3d CARとday+1起算5d CARのturnover-high群平均を比較。day+0-1のturnover累積変化で3分位に分け、消化度低群のCARが改善するか確認",
+      "difficulty": "low"
+    }
+  ],
+  "total_questions": 5
+}
