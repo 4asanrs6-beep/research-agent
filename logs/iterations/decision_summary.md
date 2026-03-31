@@ -5,7 +5,7 @@
 T1で確立した因果チェーン（米国ショック → turnover高群がショック固有に継続下落 → 保有者交代メカニズム → 5日集中）を実際の戦略として構築・検証する。
 
 **T1からの引き継ぎ知見:** K1-K26（`logs/experiments/knowledge.md`）
-**フェーズ:** Q01/Q02完了。次の問い生成待ち
+**フェーズ:** Q03/Q04選定完了。着手順: Q04→Q03。Phase 3（設計）へ
 
 ## T2 知見
 27. ブレークポイントはday 5。下落はday 3-4に集中。固定5日保有が最適
@@ -43,6 +43,32 @@ Phase 5 議論 ......... 済 — Codex裁定: PASS。次の問いへ
 
 ---
 
+### ⬜ T2-Q04 event-clustering-capacity -- 連続ショック時の効果維持
+
+**問い:** ショック間隔5日以内の連続ショックでもturnover効果は維持されるか。VIX統制+感度分析(3/7/10日)
+**詳細:** `logs/iterations/multi_perspective.md` T2 Round 2
+
+Phase 1 生成 ......... 済
+Phase 2 選定 ......... 済
+Phase 3 設計 ......... 未
+Phase 4 実験 ......... 未
+Phase 5 議論 ......... 未
+
+---
+
+### ⬜ T2-Q03 backtest-transaction-cost-viability -- 取引コスト控除後の戦略成立性
+
+**問い:** expanding windowでday+1ショート→5日クローズ。コスト10/20/30bps。年率リターン・Sharpe・最大DD・95%CI
+**詳細:** `logs/iterations/multi_perspective.md` T2 Round 2
+
+Phase 1 生成 ......... 済
+Phase 2 選定 ......... 済
+Phase 3 設計 ......... 未
+Phase 4 実験 ......... 未
+Phase 5 議論 ......... 未
+
+---
+
 ## T1: 米国ショック後の日本株の銘柄固有効果 ← 完了
 
 米国株が急落したとき、日本株の中で特に大きく下がる銘柄の特徴を見つけ、トレードに活かす
@@ -77,6 +103,8 @@ T2: turnoverショック固有効果の戦略化
   |
   +-- ❌ T2-Q01 entry-timing-turnover-observability .. FAIL（K29-30）
   +-- ✅ T2-Q02 optimal-holding-period-decay ........ PASS（K27-28）
+  +-- ⬜ T2-Q03 backtest-transaction-cost-viability .. 未着手（Q04完了後）
+  +-- ⬜ T2-Q04 event-clustering-capacity ............ 未着手（先行実行）
 ```
 
 ```
@@ -240,8 +268,15 @@ Phase 5 議論 ......... 未
 
 ## 直近の動き
 
-### [2026-03-31] T2 Phase 1（問い生成）開始
-T2-Q01/Q02完了。知見K27-K30を踏まえた次の問い候補を生成中
+### [2026-03-31] T2 Phase 2 multi-perspective完了 → Phase 3（設計）へ
+2問を5ロール×2ラウンドで議論。全ロール合意。着手順: Q04(連続ショック)→Q03(バックテスト)
+Q04のキャパ制約をQ03に反映する設計。**次: T2-Q04 Phase 3（設計）**
+
+### [2026-03-31] T2 Phase 2 選定完了
+人間が2問を選定: backtest-transaction-cost-viability, event-clustering-capacity
+
+### [2026-03-31] T2 Phase 1（問い生成）完了
+Claude 5問 + Claude-fallback 4問 = 9問を生成。人間が選定
 
 ### [2026-03-31] T2-Q01 Phase 5完了 → FAIL。turnover変化倍率はエントリー精度を改善しない
 仮説と逆方向。変化倍率高群(2.3倍)は+0.17%で回復。K24(保有者交代)と整合的で当日消化度のproxy。
