@@ -1,0 +1,42 @@
+{
+  "plan": {
+    "revision": "v2 -- Codexレビュー major5件反映",
+    "theme_type": "post_mortem",
+    "files": [
+      {
+        "path": "scripts/t3_q04_momentum_vs_oil.py",
+        "action": "create",
+        "description": "銘柄レベル多重回帰。モメンタム反転vs原油波及vs市場β vs為替βの分解"
+      }
+    ],
+    "sample_definition": "2026年1月末時点のJ-Quants上位200銘柄（時価総額または売買代金ベース）。この時点で固定し、2-3月のリターン計算に使う。欠損基準: 2月または3月の営業日の80%以上にリターンデータがある銘柄のみ",
+    "data_collection": {
+      "jp_stocks": "J-Quantsから固定200銘柄の日次リターン(2024-01-01〜2026-03-31)",
+      "oil": "WTI原油先物(CL=F)日次リターン(2024-01-01〜2026-03-31)",
+      "topix": "TOPIX日次リターン",
+      "usdjpy": "USDJPY日次リターン",
+      "sectors": "J-Quantsのセクター17分類"
+    },
+    "steps": [
+      "Step 1(記述統計): TOPIX-17セクターの2月ret vs 3月retの散布図。相関rを記述統計のみ(検定なし)",
+      "Step 2(β推定): 各銘柄の2024-01〜2026-01-31の日次リターンで以下を推定: (a)原油β(WTI回帰), (b)TOPIXβ(市場β), (c)USDJPYβ(為替感応度)。2月以降除外で先読み回避",
+      "Step 3(銘柄レベル回帰): 3月超過ret(=3月ret - TOPIX3月ret) = α + β1×2月ret + β2×原油β + β3×TOPIXβ + β4×USDJPYβ + セクターFE + ε。**セクタークラスタSE**。HC1は補助。n=200+",
+      "Step 4(寄与度分解): 各説明変数を平均中心化した上でfitted valueを計算。momentum部分(β1×centered_feb_ret)、oil部分(β2×centered_oil_β)、market部分(β3×centered_topix_β)、fx部分(β4×centered_usdjpy_β)、sector部分(セクターFE)、residualに分解。各部分の平均値が3月超過リターンへの寄与",
+      "Step 5(頑健性-週次): 3月を4週に分割(最低3営業日のゲート)。各週でStep 3を再実行",
+      "Step 6: 結果JSON + VIF + 単変量回帰の部分R2も保存"
+    ],
+    "pass_criteria": {
+      "momentum_reversal": "β1<0かつsector-cluster SE基準でp<0.10",
+      "oil_transmission": "β2<0かつsector-cluster SE基準でp<0.10",
+      "abandon": "β1もβ2もp>0.20かつR^2<0.10 → **この設計では分離不能**（マクロ一律の断定はしない）。VIF・単変量R2で識別失敗か本当に説明力がないかを切り分け"
+    },
+    "codex_review_v1_responses": {
+      "issue1_controls": "TOPIXβ、USDJPYβを統制変数に追加。原油βの独立説明力を確保",
+      "issue2_se": "HC1→セクタークラスタSEに変更(主判定)。HC1は補助",
+      "issue3_sample": "2026年1月末の時価総額上位200で固定。欠損基準80%明記",
+      "issue4_decomposition": "平均中心化+fitted value分解。切片・FEを含む正式分解",
+      "issue5_abandon": "「マクロ一律」→「この設計では分離不能」に変更。VIF・部分R2で切り分け"
+    },
+    "estimated_complexity": "medium"
+  }
+}
