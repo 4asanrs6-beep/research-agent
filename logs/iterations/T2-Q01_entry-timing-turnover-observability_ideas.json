@@ -1,0 +1,20 @@
+{
+  "source": "claude",
+  "goal": "day+0のturnover変化倍率をシグナルにしてday+1エントリーの精度を上げられるか",
+  "ideas": [
+    {
+      "id": "1",
+      "title": "turnover変化倍率の五分位分析 + day+1起算CAR",
+      "what": "ショック日の各銘柄のturnover変化倍率（当日出来高/前20日平均）を五分位に分け、各分位のday+1起算5d CARを比較。K27(下落はday3-4集中)を踏まえ、day+1エントリーでday3-4の下落を捕捉できるか確認",
+      "diff_from_previous": "Q10はturnover変化の上昇/低下2分割。今回は五分位で用量反応を検証+day+1起算で実行可能性を確認",
+      "reuse": "run_symmetry_test.pyのパネル構築、volume pivot",
+      "new_work": "五分位分析、day+1起算CARの計算",
+      "risk": "K22(用量反応なし)と同様、五分位間に単調関係がない可能性",
+      "cost": "low"
+    }
+  ],
+  "recommendation": {
+    "id": "1",
+    "reason": "multi-perspective v2で五分位分析（n不足時フォールバック）に収束済み。コスト低く情報価値高い。"
+  }
+}

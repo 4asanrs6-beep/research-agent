@@ -1,85 +1,89 @@
 {
-  "question_id": "T2-Q02",
-  "question_slug": "optimal-holding-period-decay",
+  "question_id": "T2-Q01",
+  "question_slug": "entry-timing-turnover-observability",
   "reviewer": "independent (Codex-fallback)",
-  "timestamp": "2026-03-31T18:00:00+09:00",
+  "timestamp": "2026-03-31T21:00:00+09:00",
   "decision": "conditional_approve",
-  "confidence": 0.78,
-  "summary": "Plan skeleton is sound — daily CAR profile at 1-day granularity is a natural and valuable extension of Q04/Q09's single-point 20d CAR. Implementation cost is low. However, three methodological gaps must be addressed before coding: (1) breakpoint detection lacks a concrete statistical test specification, (2) turnover normalization 'return to baseline' criterion is ambiguously defined and has no censoring rule, (3) excess return benchmark adjustment method is unstated.",
+  "confidence": 0.75,
+  "summary": "Plan is conceptually sound — quintile dose-response on turnover change ratio with day+0/day+1 起算 CAR comparison is a natural next step from Q10's binary split. However, four issues require attention before coding: (1) the plan says baseline=t-21..t-2 but the existing _compute_turnover uses t-19..t0 including the event day, so a new function is needed; (2) day+0 vs day+1 definitions must be clarified relative to the existing compute_post_event_car which already starts at reaction_day+1; (3) the 0.3% threshold lacks theoretical grounding; (4) multiple comparison correction is absent despite 10+ comparisons.",
+
   "checklist": {
-    "Q1_daily_CAR_profile_well_defined": {
-      "pass": "warning",
-      "severity": "LOW",
-      "detail": "The plan specifies '1日刻みCAR(excess_ret累積)' which is operationally clear as a cumulative sum of daily excess returns from t+1 to t+d for d=1..20. However, the definition of excess_ret is not stated. It presumably inherits the market-adjusted return used in compute_post_event_car from prior questions, but this must be made explicit. If sector-adjusted or FF3 residuals are used instead, interpretation changes materially. Additionally, cross-sectional averaging of CARs across events of different stocks requires equal weighting to be stated explicitly.",
-      "recommendation": "State excess_ret definition in plan (e.g., 'ret_i,t − ret_TOPIX,t'). Confirm equal-weighted cross-sectional average."
-    },
-    "Q2_breakpoint_detection_statistical_method": {
-      "pass": false,
-      "severity": "HIGH",
-      "detail": "Pass criteria state '連続3日以上CAR増分が統計的にゼロと区別できない' but no test is specified. 'Statistically indistinguishable from zero' requires: (a) a test — most naturally a cross-sectional t-test on daily CAR increments Δ_t = CAR_t − CAR_{t-1} with H0: E[Δ_t] = 0, (b) a significance level — recommend p > 0.10 for each day, consistent with the exploratory nature, (c) a rule for what constitutes 'consecutive 3 days' when the sequence is non-monotonic (e.g., days 7,8 pass but day 9 fails then days 10,11,12 pass — is breakpoint day 7 or day 10?). Without this specification, two implementations could produce different breakpoints from the same data.",
-      "recommendation": "Specify: for each d in 1..20, compute t-stat of mean(Δ_d) across all events. Breakpoint = first d such that d, d+1, d+2 all have |t-stat| < 1.65 (≈ p>0.10 two-sided). If no breakpoint found by d=18, report 'no clear breakpoint detected' and default to 20 days."
-    },
-    "Q3_turnover_normalization_calculation_valid": {
+    "Q1_quintile_calculation_sound": {
       "pass": "warning",
       "severity": "MEDIUM",
-      "detail": "The idea of measuring when post-shock turnover returns to pre-shock baseline is conceptually valid and practically useful. Three issues: (1) Baseline window: 'ショック前20日平均' should exclude t-1 (the shock day itself or its immediate predecessor) since shock-day volume is by definition elevated. Use t-21 to t-2. (2) 'Returns to baseline' criterion: Does a single day below the mean suffice, or must it be sustained? A single day below mean has ~50% probability by construction on any random day, making the detected normalization day unreliably early. Require at least 2 consecutive days at or below the pre-shock mean. (3) Right-censoring: If turnover remains elevated through day 20, the normalization day is undefined. Options: (a) set to 20 and note censoring, (b) exclude from Spearman correlation, (c) use a censoring-aware rank correlation. Option (a) is simplest but biases rho toward zero; option (b) loses data; option (c) is cleanest. At minimum, report the censoring rate.",
-      "recommendation": "Use baseline window t-21..t-2. Require 2 consecutive days ≤ baseline mean. Set censored cases to 21 (beyond the window) and report censoring rate. If censoring rate > 20%, also report Spearman excluding censored cases as sensitivity check."
+      "detail": "The quintile split itself (pd.qcut on turnover change ratio) is standard and appropriate. The problem lies in the underlying turnover change ratio calculation. The plan specifies baseline=t-21..t-2 to avoid contamination, which is correct methodology. However, the existing _compute_turnover() in core/stock_allocation/margin_event_study.py (line 396-421) uses code_data[code_data.index <= event_date].tail(window), which includes the event day t0 in both the 20-day average (denominator) and the latest value (numerator, which is also t0). This means: (a) the denominator is contaminated by event-day volume, and (b) the ratio is structurally compressed toward 1.0 since t0 appears in both numerator and denominator. The plan correctly identifies the need for t-21..t-2 baseline but does not acknowledge that the existing function cannot be reused — a new function must be written.",
+      "recommendation": "Implement a new function compute_turnover_change_ratio(prices, code, event_date) that explicitly uses volume[t0] / mean(volume[t-21..t-2]). Do NOT reuse _compute_turnover. Add a unit test confirming t0 is excluded from the denominator."
     },
-    "Q4_spearman_threshold_appropriate": {
+    "Q2_day1_vs_day0_comparison_valid": {
+      "pass": "warning",
+      "severity": "MEDIUM",
+      "detail": "The plan's core value proposition — comparing day+0 and day+1 起算 CAR to assess observability advantage — is valid and practically important. However, there is a definitional ambiguity. The existing compute_post_event_car() (line 310-342) defines event_date as the US shock date and starts CAR accumulation from jp_dates_after[1] (i.e., the day AFTER the JP reaction day). In the plan's terminology: if day+0 = JP reaction day, then the existing CAR is already day+1起算. To get day+0起算, a new calculation with start_idx=0 is needed. If day+0 = US shock date, then existing CAR is day+2起算. This ambiguity could lead to off-by-one errors that invalidate the comparison entirely.",
+      "recommendation": "Define explicitly in code comments: 'day+0 = JP reaction day (first JP trading day after US shock). day+0起算CAR = cumulative excess return from day+0 to day+0+w. day+1起算CAR = cumulative excess return from day+1 to day+1+w.' Then implement both variants with separate start_idx values. The comparison day+0 vs day+1 is valid for assessing whether waiting one day to observe turnover costs alpha."
+    },
+    "Q3_threshold_0_3pct_appropriate": {
+      "pass": "weak_pass",
+      "severity": "LOW",
+      "detail": "The 0.3% threshold for the difference between top-quintile and all-turnover-high group CAR has no stated derivation. For context: if the full-sample 5d CAR for down-shock events is roughly -1% to -2% (typical in prior knowledge), 0.3% represents a 15-30% relative deterioration in the top quintile, which is economically meaningful. However, the threshold is applied as a joint criterion with p<0.10, which partially mitigates the arbitrariness. The real concern is that 0.3% is small enough to be within bid-ask spread noise for many small/mid-cap stocks, so the signal may not be tradable even if statistically significant.",
+      "recommendation": "Report the full distribution of quintile CARs and confidence intervals rather than relying on a single 0.3% cutoff. Add a secondary check: is the 0.3% difference larger than the median bid-ask spread of stocks in the top quintile? If not, the signal has no practical trading value."
+    },
+    "Q4_survivorship_lookahead_issues": {
       "pass": true,
       "severity": "OK",
-      "detail": "rho > 0.3 with p < 0.05 is a reasonable exploratory threshold. Cohen (1988) classifies rho=0.3 as a medium effect size. For a dynamic exit signal to be practically useful in trading, rho=0.3 implies only ~9% of variance explained, which is marginal but sufficient as a first-pass filter. The plan correctly positions this as a 'can we use turnover normalization as an exit signal' feasibility test rather than a definitive trading rule. The p < 0.05 requirement guards against spurious correlation given likely sample size (hundreds of events).",
-      "recommendation": "Report bootstrap 95% CI for rho alongside the point estimate. This adds minimal implementation cost and strengthens the conclusion regardless of which side of 0.3 rho falls on."
+      "detail": "Look-ahead bias: The plan's key insight is correct — turnover change ratio on day+0 is observable at market close, so using it to decide day+1 entry involves no look-ahead. This is the plan's strongest methodological point. Survivorship bias: The 5-day CAR window is short enough that delisting within the measurement window is extremely rare for listed Japanese stocks. The panel construction uses event_date-contemporary listed stocks, which is appropriate. One minor concern: if jp_prices_raw includes stocks that were delisted between data collection periods, the panel could have stale entries, but this is a data quality issue rather than a plan design flaw.",
+      "recommendation": "No action required for 5d window. If the analysis is later extended to 20d CAR, add a delisting filter."
     }
   },
+
   "findings_summary": [
     {
       "id": 1,
-      "severity": "HIGH",
-      "title": "Breakpoint detection test unspecified — define t-test on daily Δ_t with |t| < 1.65 for 3 consecutive days",
+      "severity": "MEDIUM",
+      "title": "Existing _compute_turnover includes t0 in baseline — new function needed for uncontaminated t-21..t-2 baseline",
       "action_required": true
     },
     {
       "id": 2,
       "severity": "MEDIUM",
-      "title": "Turnover normalization 'return to baseline' requires 2-day sustained criterion and censoring rule",
+      "title": "Day+0/day+1 definition ambiguous relative to existing compute_post_event_car — clarify and implement both起算 variants",
       "action_required": true
     },
     {
       "id": 3,
-      "severity": "LOW",
-      "title": "excess_ret benchmark adjustment (market/sector/FF3) not stated — inherit and document from prior Qs",
+      "severity": "MEDIUM",
+      "title": "No multiple comparison correction despite 10+ tests (5 quintiles × 2 起算 variants) — add Benjamini-Hochberg",
       "action_required": true
     },
     {
       "id": 4,
       "severity": "LOW",
-      "title": "Baseline turnover window should be t-21..t-2 to avoid shock-day contamination",
-      "action_required": true
+      "title": "0.3% threshold lacks theoretical basis — report full CI and compare against bid-ask spread",
+      "action_required": false
     },
     {
       "id": 5,
       "severity": "LOW",
-      "title": "Breakpoint fallback when no convergence is detected within 20 days — default to 20 and flag",
-      "action_required": false
+      "title": "Quintile n-count fallback (to terciles) mentioned in ideas but not in plan — add explicitly",
+      "action_required": true
     },
     {
       "id": 6,
       "severity": "LOW",
-      "title": "Bootstrap CI for Spearman rho would strengthen conclusions at minimal cost",
+      "title": "Spearman monotonicity test on 5 quintile means has very low power — use Jonckheere-Terpstra on individual observations instead",
       "action_required": false
     }
   ],
+
   "conditions_for_full_approval": [
-    "Address Finding #1: Specify breakpoint detection as cross-sectional t-test on Δ_t with |t|<1.65 for 3 consecutive days, plus fallback rule",
-    "Address Finding #2: Define turnover normalization as '2 consecutive days ≤ pre-shock mean (t-21..t-2)', with censoring at day 21 and censoring-rate reporting",
-    "Address Finding #3: State excess_ret definition explicitly in plan (e.g., market-adjusted daily return)",
-    "Address Finding #4: Set baseline window to t-21..t-2"
+    "Finding #1: Implement new compute_turnover_change_ratio() with baseline t-21..t-2, excluding t-1 and t0 from denominator",
+    "Finding #2: Define day+0/day+1 起算 explicitly in code comments and implement both CAR variants with correct start_idx",
+    "Finding #3: Apply Benjamini-Hochberg FDR correction across all quintile comparisons, report both raw and adjusted p-values",
+    "Finding #5: Add fallback to tercile split when quintile n < 30 per group"
   ],
+
   "optional_improvements": [
-    "Finding #5: Add fallback — if breakpoint not found by d=18, report 'no breakpoint' and use 20d",
-    "Finding #6: Report bootstrap 95% CI for Spearman rho (1000 resamples)",
-    "Output daily Δ_t t-statistics in result JSON for downstream inspection",
-    "Consider Bai-Perron structural break test as a robustness check if primary method yields ambiguous results"
+    "Finding #4: Report bootstrap 95% CI for quintile CAR differences; compare top-quintile signal magnitude against median bid-ask spread",
+    "Finding #6: Use Jonckheere-Terpstra test on individual observations rather than Spearman on 5 group means",
+    "Add a 'signal strength vs transaction cost' break-even analysis to assess practical tradability",
+    "Output per-quintile summary statistics (n, mean, std, median CAR) in result JSON for downstream inspection"
   ]
 }

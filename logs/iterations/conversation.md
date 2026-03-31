@@ -1242,3 +1242,15 @@ Phase 4 実験: 実行中
 - `--t2q02` フラグ追加
 - 1日刻みCAR、ブレークポイント検出、turnover正常化日、Spearman
 - Codexレビュー待ち
+
+## T2-Q01 entry-timing-turnover-observability Phase 3 設計
+
+### idea-generation
+**目標:** turnover変化倍率の五分位でday+1エントリーの精度を検証
+**推奨:** 五分位分析+day+1起算CAR。コスト: low
+
+### implementation-planning
+- `--t2q01` フラグ追加
+- 五分位×day+0/day+1起算5d CAR比較
+- パス: 上位1/5群が全体より0.3%以上悪い(p<0.10)
+- Codexレビュー待ち

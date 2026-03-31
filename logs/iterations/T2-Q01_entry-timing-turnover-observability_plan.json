@@ -1,0 +1,31 @@
+{
+  "plan": {
+    "files": [
+      {
+        "path": "scripts/run_symmetry_test.py",
+        "action": "modify",
+        "description": "--t2q01フラグを追加。turnover変化倍率の五分位分析 + day+1起算5d CAR"
+      }
+    ],
+    "functions": [
+      {
+        "name": "run_t2q01",
+        "signature": "def run_t2q01(section in main())",
+        "purpose": "Step 1: ショック日のturnover変化倍率を計算（当日出来高/前20日平均、前日baseline=t-21..t-2で汚染回避）。Step 2: 五分位に分け各分位のday+0起算5d CARとday+1起算5d CARを比較。Step 3: 上位1/5群のCARが全turnover-high群より有意に悪いか検定"
+      }
+    ],
+    "data_flow": "下方ショックパネル → 各銘柄のturnover変化倍率計算 → 五分位分割 → 各分位のday+0起算/day+1起算5d CAR → 分位間の単調性検定 + 上位群vs全体の差の検定",
+    "pass_criteria": {
+      "primary": "turnover変化倍率の上位1/5群のday+1起算5d CARが全turnover-high群のday+1起算5d CARより0.3%以上悪い（p<0.10）",
+      "secondary": "五分位間に単調関係（Spearman rho between quintile rank and CAR, p<0.10）"
+    },
+    "implementation_order": [
+      "1. --t2q01フラグ追加",
+      "2. turnover変化倍率計算（baseline=t-21..t-2）",
+      "3. 五分位分割 + day+0/day+1起算5d CAR",
+      "4. 分位間比較 + 単調性検定",
+      "5. JSON出力"
+    ],
+    "estimated_complexity": "low"
+  }
+}
