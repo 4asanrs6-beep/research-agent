@@ -1,86 +1,85 @@
 {
-  "question_id": "T1-Q10",
-  "question_slug": "turnover-decline-mechanism-separation",
+  "question_id": "T2-Q02",
+  "question_slug": "optimal-holding-period-decay",
   "reviewer": "independent (Codex-fallback)",
-  "timestamp": "2026-03-31T12:30:00+09:00",
+  "timestamp": "2026-03-31T18:00:00+09:00",
   "decision": "conditional_approve",
-  "confidence": 0.80,
-  "summary": "Plan is well-structured. The 2-way classification (turnover rise=holder turnover, turnover fall=liquidity drought) is a pragmatic and defensible simplification. DiD design for turnover change rate is valid. Main concerns: (1) time-horizon mismatch between 5d turnover window and 20d CAR, (2) unspecified classification threshold, (3) non-shock day selection criteria not stated, (4) no outlier handling mentioned.",
+  "confidence": 0.78,
+  "summary": "Plan skeleton is sound — daily CAR profile at 1-day granularity is a natural and valuable extension of Q04/Q09's single-point 20d CAR. Implementation cost is low. However, three methodological gaps must be addressed before coding: (1) breakpoint detection lacks a concrete statistical test specification, (2) turnover normalization 'return to baseline' criterion is ambiguously defined and has no censoring rule, (3) excess return benchmark adjustment method is unstated.",
   "checklist": {
-    "Q1_turnover_change_rate_well_defined": {
-      "pass": true,
-      "severity": "OK",
-      "detail": "Calculation is defined as post-5d avg turnover / pre-20d avg turnover. Data flow traces back to jp_prices_raw volume pivot. The ratio is a clean relative measure. Note: 'turnover' here is raw volume, not volume/shares-outstanding, but since DiD compares same-ticker shock vs non-shock days the scale cancels out. No issue."
-    },
-    "Q2_DiD_for_turnover_change_valid": {
-      "pass": true,
+    "Q1_daily_CAR_profile_well_defined": {
+      "pass": "warning",
       "severity": "LOW",
-      "detail": "Using DiD to test whether post-shock turnover change rate differs from non-shock-day turnover change rate is a valid and natural extension of Q09's framework. However, the plan does not specify how non-shock (placebo) days are selected. Presumably inherits Q09/Q05's placebo design, but this should be stated explicitly to avoid ambiguity. Also, if another shock occurs within the post-5d window, that event should be excluded — not mentioned in plan.",
-      "recommendation": "Explicitly state placebo day selection rule and overlapping-shock exclusion criterion."
+      "detail": "The plan specifies '1日刻みCAR(excess_ret累積)' which is operationally clear as a cumulative sum of daily excess returns from t+1 to t+d for d=1..20. However, the definition of excess_ret is not stated. It presumably inherits the market-adjusted return used in compute_post_event_car from prior questions, but this must be made explicit. If sector-adjusted or FF3 residuals are used instead, interpretation changes materially. Additionally, cross-sectional averaging of CARs across events of different stocks requires equal weighting to be stated explicitly.",
+      "recommendation": "State excess_ret definition in plan (e.g., 'ret_i,t − ret_TOPIX,t'). Confirm equal-weighted cross-sectional average."
     },
-    "Q3_two_way_classification_criteria_clear": {
+    "Q2_breakpoint_detection_statistical_method": {
+      "pass": false,
+      "severity": "HIGH",
+      "detail": "Pass criteria state '連続3日以上CAR増分が統計的にゼロと区別できない' but no test is specified. 'Statistically indistinguishable from zero' requires: (a) a test — most naturally a cross-sectional t-test on daily CAR increments Δ_t = CAR_t − CAR_{t-1} with H0: E[Δ_t] = 0, (b) a significance level — recommend p > 0.10 for each day, consistent with the exploratory nature, (c) a rule for what constitutes 'consecutive 3 days' when the sequence is non-monotonic (e.g., days 7,8 pass but day 9 fails then days 10,11,12 pass — is breakpoint day 7 or day 10?). Without this specification, two implementations could produce different breakpoints from the same data.",
+      "recommendation": "Specify: for each d in 1..20, compute t-stat of mean(Δ_d) across all events. Breakpoint = first d such that d, d+1, d+2 all have |t-stat| < 1.65 (≈ p>0.10 two-sided). If no breakpoint found by d=18, report 'no clear breakpoint detected' and default to 20 days."
+    },
+    "Q3_turnover_normalization_calculation_valid": {
       "pass": "warning",
       "severity": "MEDIUM",
-      "detail": "The conceptual split (turnover ratio >1 = rise, <1 = fall) is intuitive but the threshold is never explicitly stated. More importantly, no neutral band is defined. On non-shock days, the ratio will cluster around 1.0 with noise, so many shock-day observations near 1.0 will be ambiguously classified. A median-split within shock-day observations may be more robust than a fixed threshold of 1.0.",
-      "recommendation": "Option A: Use median split of turnover change ratio among shock events (avoids threshold choice). Option B: If using 1.0 as threshold, exclude ratio in [0.95, 1.05] as indeterminate. Either way, state the rule explicitly."
+      "detail": "The idea of measuring when post-shock turnover returns to pre-shock baseline is conceptually valid and practically useful. Three issues: (1) Baseline window: 'ショック前20日平均' should exclude t-1 (the shock day itself or its immediate predecessor) since shock-day volume is by definition elevated. Use t-21 to t-2. (2) 'Returns to baseline' criterion: Does a single day below the mean suffice, or must it be sustained? A single day below mean has ~50% probability by construction on any random day, making the detected normalization day unreliably early. Require at least 2 consecutive days at or below the pre-shock mean. (3) Right-censoring: If turnover remains elevated through day 20, the normalization day is undefined. Options: (a) set to 20 and note censoring, (b) exclude from Spearman correlation, (c) use a censoring-aware rank correlation. Option (a) is simplest but biases rho toward zero; option (b) loses data; option (c) is cleanest. At minimum, report the censoring rate.",
+      "recommendation": "Use baseline window t-21..t-2. Require 2 consecutive days ≤ baseline mean. Set censored cases to 21 (beyond the window) and report censoring rate. If censoring rate > 20%, also report Spearman excluding censored cases as sensitivity check."
     },
-    "Q4_post5d_vs_pre20d_window_issues": {
-      "pass": "warning",
-      "severity": "MEDIUM",
-      "detail": "Three concerns with the asymmetric window: (a) Baseline contamination — if the pre-20d window overlaps a prior shock, the baseline turnover is inflated, making the post/pre ratio artificially low. Should require 30+ day gap from previous shock event. (b) Time-horizon mismatch — turnover change is measured over 5 days but the cross-tabulation partner (20d CAR) spans 20 days. A stock whose turnover spikes for 3 days then normalizes will be classified as 'high turnover change' but its 20d CAR reflects 15 additional days of different dynamics. This weakens the interpretive link between mechanism and outcome. (c) Small-sample noise — 5 trading days is a thin sample for a mean; individual high-volume days can dominate. Winsorization or log-transform is advisable.",
-      "recommendation": "Add a robustness check using post-20d turnover window to match the CAR horizon. Report both 5d and 20d results. Apply winsorization at 1st/99th percentile on the ratio."
-    },
-    "idea_selection": {
+    "Q4_spearman_threshold_appropriate": {
       "pass": true,
       "severity": "OK",
-      "detail": "Recommendation of idea 2 (no short-selling data) over idea 1 is correct. Short-selling data from J-Quants is unreliable at daily individual-stock granularity. The 2-way classification is sufficient for the strategic decision (avoid vs. short). The plan wisely keeps idea 1 as an optional extension if data becomes available."
-    },
-    "statistical_design": {
-      "pass": true,
-      "severity": "OK",
-      "detail": "Step 1 (DiD on turnover change rate) + Step 2 (cross-tab with 20d CAR) is a logical two-stage approach. p<0.10 threshold is consistent with the exploratory nature of the research. Cross-tabulation of turnover-change group × CAR sign is straightforward and interpretable."
+      "detail": "rho > 0.3 with p < 0.05 is a reasonable exploratory threshold. Cohen (1988) classifies rho=0.3 as a medium effect size. For a dynamic exit signal to be practically useful in trading, rho=0.3 implies only ~9% of variance explained, which is marginal but sufficient as a first-pass filter. The plan correctly positions this as a 'can we use turnover normalization as an exit signal' feasibility test rather than a definitive trading rule. The p < 0.05 requirement guards against spurious correlation given likely sample size (hundreds of events).",
+      "recommendation": "Report bootstrap 95% CI for rho alongside the point estimate. This adds minimal implementation cost and strengthens the conclusion regardless of which side of 0.3 rho falls on."
     }
   },
   "findings_summary": [
     {
       "id": 1,
-      "severity": "MEDIUM",
-      "title": "5d turnover window vs 20d CAR time-horizon mismatch — add 20d turnover robustness check",
+      "severity": "HIGH",
+      "title": "Breakpoint detection test unspecified — define t-test on daily Δ_t with |t| < 1.65 for 3 consecutive days",
       "action_required": true
     },
     {
       "id": 2,
       "severity": "MEDIUM",
-      "title": "2-way classification threshold not explicitly defined — use median split or state threshold with neutral band",
+      "title": "Turnover normalization 'return to baseline' requires 2-day sustained criterion and censoring rule",
       "action_required": true
     },
     {
       "id": 3,
       "severity": "LOW",
-      "title": "Non-shock (placebo) day selection criteria not stated — inherit and document from Q09/Q05",
+      "title": "excess_ret benchmark adjustment (market/sector/FF3) not stated — inherit and document from prior Qs",
       "action_required": true
     },
     {
       "id": 4,
       "severity": "LOW",
-      "title": "No outlier handling for turnover ratio — apply winsorize 1%/99% or log-transform",
-      "action_required": false
+      "title": "Baseline turnover window should be t-21..t-2 to avoid shock-day contamination",
+      "action_required": true
     },
     {
       "id": 5,
       "severity": "LOW",
-      "title": "Overlapping shock exclusion rule not mentioned — exclude events where another shock occurs within post-window",
+      "title": "Breakpoint fallback when no convergence is detected within 20 days — default to 20 and flag",
+      "action_required": false
+    },
+    {
+      "id": 6,
+      "severity": "LOW",
+      "title": "Bootstrap CI for Spearman rho would strengthen conclusions at minimal cost",
       "action_required": false
     }
   ],
   "conditions_for_full_approval": [
-    "Address Finding #1: Add post-20d turnover window as robustness check alongside the primary post-5d window",
-    "Address Finding #2: Explicitly define the turnover-change classification rule (median split recommended) in implementation",
-    "Address Finding #3: Document which placebo-day selection method is inherited from Q05/Q09"
+    "Address Finding #1: Specify breakpoint detection as cross-sectional t-test on Δ_t with |t|<1.65 for 3 consecutive days, plus fallback rule",
+    "Address Finding #2: Define turnover normalization as '2 consecutive days ≤ pre-shock mean (t-21..t-2)', with censoring at day 21 and censoring-rate reporting",
+    "Address Finding #3: State excess_ret definition explicitly in plan (e.g., market-adjusted daily return)",
+    "Address Finding #4: Set baseline window to t-21..t-2"
   ],
   "optional_improvements": [
-    "Finding #4: Winsorize turnover ratio at 1st/99th percentile before classification",
-    "Finding #5: Exclude shock events where pre-20d or post-5d windows overlap with another shock event",
-    "Report turnover-change ratio distribution statistics (mean, median, p5, p95) in output JSON"
+    "Finding #5: Add fallback — if breakpoint not found by d=18, report 'no breakpoint' and use 20d",
+    "Finding #6: Report bootstrap 95% CI for Spearman rho (1000 resamples)",
+    "Output daily Δ_t t-statistics in result JSON for downstream inspection",
+    "Consider Bai-Perron structural break test as a robustness check if primary method yields ambiguous results"
   ]
 }

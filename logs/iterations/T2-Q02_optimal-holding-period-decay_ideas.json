@@ -1,0 +1,20 @@
+{
+  "source": "claude",
+  "goal": "turnover高群のポストショック下落が停止する正確な日数を特定し、turnover正常化との連動を検証する",
+  "ideas": [
+    {
+      "id": "1",
+      "title": "日次CARプロファイル + turnover正常化相関",
+      "what": "Step 1: turnover高群の1日刻み20日分CARプロファイルを描画し、傾きゼロのブレークポイントを特定。Step 2: ショック後turnoverが前水準に戻る日数を計算し、CAR停止日との相関（Spearman rho>0.3で動的エグジット）を検証",
+      "diff_from_previous": "Q04/Q09は20日CARの一点のみ。今回は1日刻みの時間構造を解明",
+      "reuse": "run_symmetry_test.pyのパネル構築、volume pivot",
+      "new_work": "1日刻みCAR計算、ブレークポイント検出、turnover正常化日の計算",
+      "risk": "CARプロファイルがノイジーでブレークポイントが明確にならない",
+      "cost": "low"
+    }
+  ],
+  "recommendation": {
+    "id": "1",
+    "reason": "multi-perspective v2の設計そのもの。実装コスト低く情報価値高い。"
+  }
+}

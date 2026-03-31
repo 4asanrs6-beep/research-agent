@@ -14,22 +14,23 @@ T1で確立した因果チェーン（米国ショック → turnover高群が�
 
 Phase 1 生成 ......... 済
 Phase 2 選定 ......... 済
-Phase 3 設計 ......... 未
+Phase 3 設計 ......... 未（Q02完了後）
 Phase 4 実験 ......... 未
 Phase 5 議論 ......... 未
 
 ---
 
-### ⬜ T2-Q02 optimal-holding-period-decay — 最適保有期間
+### ✅ T2-Q02 optimal-holding-period-decay — 固定5日保有が最適
 
-**問い:** 日次CARプロファイルで下落停止日を特定。turnover正常化日と一致するか
-**詳細:** `logs/iterations/brainstorm_discussion.md` T2 Round 1
+**結論:** PASS。ブレークポイントday 5。下落はday 3-4に集中。動的エグジットは不可（rho=-0.007）
+**得られた知見:** K27-K28追加
+**詳細:** `logs/experiments/T2-Q02_optimal-holding-period-decay_review.md`
 
 Phase 1 生成 ......... 済
 Phase 2 選定 ......... 済
-Phase 3 設計 ......... 未
-Phase 4 実験 ......... 未
-Phase 5 議論 ......... 未
+Phase 3 設計 ......... 済 — Codex conditional approve
+Phase 4 実験 ......... 済 — **PASS**
+Phase 5 議論 ......... 済 — Codex裁定: PASS。次の問いへ
 
 ---
 
@@ -222,6 +223,10 @@ Phase 5 議論 ......... 未
 ---
 
 ## 直近の動き
+
+### [2026-03-31] T2-Q02 Phase 5完了 → PASS。固定5日保有が最適
+ブレークポイントday 5。下落はday 3-4に集中。動的エグジットは不可。K27-K28追加。
+**次: T2-Q01 entry-timing-turnover-observability**
 
 ### [2026-03-31] T2 Phase 2完了 → Phase 3（設計）へ
 着手順: Q02(保有期間)→Q01(エントリー)。Q02が先（実行コスト低・情報価値高）。

@@ -1231,3 +1231,14 @@ Phase 4 実験: 実行中
 - Step2: turnover変化上昇/低下群×20d CARクロス集計
 - Step3: 空売り取れれば3分類
 - Codexレビュー待ち
+
+## T2-Q02 optimal-holding-period-decay Phase 3 設計
+
+### idea-generation
+**目標:** 下落停止日を1日刻みCARで特定 + turnover正常化との相関
+**推奨:** 日次CARプロファイル+Spearman rho>0.3。コスト: low
+
+### implementation-planning
+- `--t2q02` フラグ追加
+- 1日刻みCAR、ブレークポイント検出、turnover正常化日、Spearman
+- Codexレビュー待ち

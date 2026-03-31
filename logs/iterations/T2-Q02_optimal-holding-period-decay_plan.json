@@ -1,0 +1,32 @@
+{
+  "plan": {
+    "files": [
+      {
+        "path": "scripts/run_symmetry_test.py",
+        "action": "modify",
+        "description": "--t2q02フラグを追加。日次CARプロファイル + turnover正常化相関"
+      }
+    ],
+    "functions": [
+      {
+        "name": "run_t2q02",
+        "signature": "def run_t2q02(section in main())",
+        "purpose": "Step 1: turnover高群の1-20日CARを1日刻みで計算。各日のCAR増分を出し、傾きゼロ転換点を検出。Step 2: 各銘柄×イベントでturnoverが前水準に戻る日数を計算。CAR停止日との相関（Spearman）。Step 3: 動的エグジット（turnover正常化日で決済）のシミュレーション"
+      }
+    ],
+    "data_flow": "下方ショックパネル → turnover高群 → 1日刻みCAR(excess_ret累積) → 日次CAR増分プロット → ブレークポイント検出 → turnover正常化日算出 → Spearman相関",
+    "pass_criteria": {
+      "primary": "ブレークポイントが明確（連続3日以上CAR増分が統計的にゼロと区別できない）かつ、そのブレークポイントが5-10日の範囲内",
+      "secondary": "turnover正常化日とCAR停止日のSpearman rho>0.3 (p<0.05)。成立すればturnover正常化を動的エグジットシグナルとして使える"
+    },
+    "implementation_order": [
+      "1. --t2q02フラグ追加",
+      "2. 1日刻みCAR計算（compute_post_event_carを1日版に拡張）",
+      "3. 日次CAR増分の計算とブレークポイント検出",
+      "4. turnover正常化日の計算（ショック後turnoverがショック前20日平均に戻る日）",
+      "5. Spearman相関",
+      "6. JSON出力"
+    ],
+    "estimated_complexity": "low"
+  }
+}

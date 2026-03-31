@@ -540,6 +540,7 @@ def main():
     parser.add_argument("--q06", action="store_true", help="T1-Q06 turnover-momentum-disentangle分析を実行")
     parser.add_argument("--q09", action="store_true", help="T1-Q09 turnover-postshock-specificity-did分析を実行")
     parser.add_argument("--q10", action="store_true", help="T1-Q10 turnover-decline-mechanism-separation分析を実行")
+    parser.add_argument("--t2q02", action="store_true", help="T2-Q02 optimal-holding-period-decay分析を実行")
     parser.add_argument("--q07", action="store_true", help="T1-Q07 size-regime-interaction分析を実行")
     parser.add_argument("--skip-symmetry", action="store_true", help="対称性テストをスキップ（Q05/Q06のみ実行時）")
     args = parser.parse_args()
@@ -1764,6 +1765,154 @@ def main():
             q10_results["verdict"] = verdict
             print(f"総合判定: {verdict}")
 
+    # === T2-Q02: 最適保有期間（日次CARプロファイル + turnover正常化） ===
+    t2q02_results = {}
+    if args.t2q02:
+        from scipy import stats as scipy_stats
+        print("\n" + "=" * 60)
+        print("=== T2-Q02 optimal-holding-period-decay ===")
+        print("=" * 60)
+
+        down_panel = panels.get("down")
+        if down_panel is None or len(down_panel) == 0:
+            print("NG: 下方パネルがない。中止")
+        else:
+            # 1-20日の日次CARを計算
+            down_panel_daily = compute_post_event_car(jp_returns, topix_returns, down_panel,
+                                                      windows=list(range(1, 21)))
+            turn_median = down_panel_daily["turnover"].median()
+            turn_high = down_panel_daily[down_panel_daily["turnover"] > turn_median]
+
+            # --- Step 1: 日次CARプロファイル ---
+            print("\n--- Step 1: 日次CARプロファイル（turnover高群）---")
+            daily_cars = []
+            daily_increments = []
+            prev_car = 0
+            for d in range(1, 21):
+                col = f"car_{d}d"
+                if col not in turn_high.columns:
+                    continue
+                car = turn_high[col].dropna().mean()
+                increment = car - prev_car
+                # クロスセクショナルt検定（CAR増分がゼロか）
+                if d == 1:
+                    inc_values = turn_high[col].dropna()
+                else:
+                    prev_col = f"car_{d-1}d"
+                    if prev_col in turn_high.columns:
+                        both = turn_high[[col, prev_col]].dropna()
+                        inc_values = both[col] - both[prev_col]
+                    else:
+                        inc_values = pd.Series(dtype=float)
+                t_val, p_val = scipy_stats.ttest_1samp(inc_values, 0) if len(inc_values) > 10 else (0, 1)
+                daily_cars.append({"day": d, "car": float(car), "increment": float(increment),
+                                   "t": float(t_val), "p": float(p_val)})
+                prev_car = car
+                sig = "*" if abs(t_val) >= 1.65 else " "
+                print(f"  day {d:2d}: CAR={car*100:+.3f}%  inc={increment*100:+.3f}%  t={t_val:+.2f} {sig}")
+                daily_increments.append({"day": d, "t": abs(t_val)})
+
+            t2q02_results["daily_car_profile"] = daily_cars
+
+            # ブレークポイント検出: |t| < 1.65 が3日連続
+            print("\n--- ブレークポイント検出 ---")
+            breakpoint = None
+            for i in range(len(daily_increments) - 2):
+                if all(daily_increments[i+j]["t"] < 1.65 for j in range(3)):
+                    breakpoint = daily_increments[i]["day"]
+                    break
+            if breakpoint:
+                print(f"  ブレークポイント: day {breakpoint}（day {breakpoint}-{breakpoint+2}でCAR増分がゼロと区別不能）")
+            else:
+                print("  ブレークポイント未検出（20日以内に3連続ゼロ増分なし）")
+                breakpoint = 20  # フォールバック
+            t2q02_results["breakpoint"] = breakpoint
+
+            # --- Step 2: turnover正常化日 ---
+            print("\n--- Step 2: turnover正常化日 ---")
+            vol_col = "volume" if "volume" in jp_prices_raw.columns else "adj_volume"
+            vol_pivot = jp_prices_raw.pivot_table(index="date", columns="code", values=vol_col).sort_index()
+
+            norm_days = []
+            car_at_norm = []
+            for _, row in turn_high.iterrows():
+                code = row["code"]
+                ed = row["event_date"]
+                if code not in vol_pivot.columns:
+                    norm_days.append(np.nan)
+                    car_at_norm.append(np.nan)
+                    continue
+                # ベースライン: t-21..t-2（ショック日汚染回避）
+                pre_dates = vol_pivot.index[vol_pivot.index <= ed]
+                if len(pre_dates) < 22:
+                    norm_days.append(np.nan)
+                    car_at_norm.append(np.nan)
+                    continue
+                baseline = vol_pivot.loc[pre_dates[-21:-1], code].mean()
+                if baseline < 1 or np.isnan(baseline):
+                    norm_days.append(np.nan)
+                    car_at_norm.append(np.nan)
+                    continue
+                # ショック後にturnoverがベースラインに戻る日（2連続日以下）
+                post_dates = vol_pivot.index[vol_pivot.index > ed]
+                found = False
+                for i in range(len(post_dates) - 1):
+                    if i >= 20:
+                        break
+                    v1 = vol_pivot.loc[post_dates[i], code]
+                    v2 = vol_pivot.loc[post_dates[i+1], code] if i+1 < len(post_dates) else np.nan
+                    if v1 <= baseline and (not np.isnan(v2) and v2 <= baseline):
+                        norm_days.append(i + 1)
+                        # その日のCARを取得
+                        car_col = f"car_{i+1}d" if f"car_{i+1}d" in turn_high.columns else None
+                        if car_col and not np.isnan(row.get(car_col, np.nan)):
+                            car_at_norm.append(row[car_col])
+                        else:
+                            car_at_norm.append(np.nan)
+                        found = True
+                        break
+                if not found:
+                    norm_days.append(np.nan)  # 20日以内に正常化せず
+                    car_at_norm.append(np.nan)
+
+            valid_norms = [n for n in norm_days if not np.isnan(n)]
+            if valid_norms:
+                print(f"  正常化日の中央値: {np.median(valid_norms):.1f}日")
+                print(f"  正常化日の平均: {np.mean(valid_norms):.1f}日")
+                print(f"  20日以内に正常化: {len(valid_norms)}/{len(norm_days)} ({len(valid_norms)/len(norm_days)*100:.0f}%)")
+                t2q02_results["normalization"] = {
+                    "median_day": float(np.median(valid_norms)),
+                    "mean_day": float(np.mean(valid_norms)),
+                    "pct_normalized": len(valid_norms) / len(norm_days),
+                }
+
+            # Spearman相関: 正常化日 vs その時点のCAR
+            valid_pairs = [(n, c) for n, c in zip(norm_days, car_at_norm) if not np.isnan(n) and not np.isnan(c)]
+            if len(valid_pairs) >= 20:
+                ns, cs = zip(*valid_pairs)
+                rho, p_rho = scipy_stats.spearmanr(ns, cs)
+                print(f"\n  Spearman(正常化日, CAR): rho={rho:.3f}, p={p_rho:.4f}")
+                t2q02_results["normalization_car_correlation"] = {
+                    "spearman_rho": float(rho),
+                    "spearman_p": float(p_rho),
+                    "n": len(valid_pairs),
+                }
+
+            # --- 最終判定 ---
+            print("\n" + "=" * 60)
+            print("=== T2-Q02 最終判定 ===")
+            print("=" * 60)
+            bp_pass = breakpoint is not None and 5 <= breakpoint <= 10
+            corr = t2q02_results.get("normalization_car_correlation", {})
+            corr_pass = corr.get("spearman_rho", 0) > 0.3 and corr.get("spearman_p", 1) < 0.05
+            print(f"Primary (ブレークポイント5-10日): {'PASS' if bp_pass else 'FAIL'} (day={breakpoint})")
+            print(f"Secondary (Spearman rho>0.3): {'PASS' if corr_pass else 'FAIL'}")
+            verdict = "PASS" if bp_pass else "PARTIAL"
+            if corr_pass:
+                verdict += "+DYNAMIC_EXIT"
+            t2q02_results["verdict"] = verdict
+            print(f"総合判定: {verdict}")
+
     # === JSON保存 ===
     output = {
         "experiment": "symmetry-test",
@@ -1782,6 +1931,8 @@ def main():
         output["q09_turnover_postshock_did"] = q09_results
     if args.q10:
         output["q10_turnover_mechanism"] = q10_results
+    if args.t2q02:
+        output["t2q02_holding_period"] = t2q02_results
     if args.q07:
         output["q07_size_regime_interaction"] = q07_results
 
@@ -1796,6 +1947,8 @@ def main():
         output_path = Path("logs/iterations/T1-Q09_turnover-postshock-specificity-did_result.json")
     if args.q10:
         output_path = Path("logs/iterations/T1-Q10_turnover-decline-mechanism-separation_result.json")
+    if args.t2q02:
+        output_path = Path("logs/iterations/T2-Q02_optimal-holding-period-decay_result.json")
     if args.q07:
         output_path = Path("logs/iterations/T1-Q07_size-regime-interaction_result.json")
     output_path.parent.mkdir(parents=True, exist_ok=True)
