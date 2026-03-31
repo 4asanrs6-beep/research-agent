@@ -1369,4 +1369,11 @@ Phase 4 実験: 実行中
 4. style-rotation-lag-structure: 日米スタイルローテーションのラグ
 5. rate-regime-shift-impact: 金利レジーム転換の影響
 
-→ 人間が選定待ち
+Claude-fallback(Codex代替)で追加5論点を生成:
+6. oil-shock-sector-contagion-path: 原油波及のセクター経路
+7. defensive-hedge-failure-asymmetry: ヘッジ崩壊の条件
+8. yen-stock-correlation-reversal: FX-株の相関反転
+9. momentum-crash-realworld-test: T1-T2知見のリアルワールドテスト
+10. week1-amplification-decomposition: 第1週の増幅要因分解
+
+→ 人間が選定待ち（Claude 5問 + Claude-fallback 5問 = 10問）
