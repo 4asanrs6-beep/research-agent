@@ -73,6 +73,13 @@ Phase 5 議論 ......... 済 — Codex裁定: PASS。次の問いへ
 ## 問いの系譜と進捗
 
 ```
+T2: turnoverショック固有効果の戦略化
+  |
+  +-- ❌ T2-Q01 entry-timing-turnover-observability .. FAIL（K29-30）
+  +-- ✅ T2-Q02 optimal-holding-period-decay ........ PASS（K27-28）
+```
+
+```
 T1: 米国ショック後の日本株の銘柄固有効果
   |
   +-- ❌ T1-Q01 margin-shock ............. 棄却（知見1-3）
