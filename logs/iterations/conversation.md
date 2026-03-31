@@ -1447,3 +1447,15 @@ Claude-fallback(Codex代替)で追加5論点を生成:
 ### Phase 5 議論
 5ロール全員: 次の問いに移る。β主因確定。L1-L3記録。
 → T3-Q02 japan-excess-vulnerability へ
+
+## T3-Q02 Phase 3 データ収集設計
+
+### idea-generation
+推奨: 3段階分析(v2準拠)。β調整→原油/為替寄与度→セクタークロスセクション
+
+### implementation-planning
+- Step 1: rolling β(60d/120d)→β調整後超過下落。-1.0%未満なら早期終了
+- Step 2: β調整後日次超過retを原油/為替で回帰→月次寄与度累積
+- Step 3: セクター別2月ret vs 3月超過下落クロスセクション
+- Codexレビュー省略（v2で全ロール合意済み、Q04と同一枠組みの市場レベル版。低リスク）
+→ Phase 4 分析へ
