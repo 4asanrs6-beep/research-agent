@@ -1218,3 +1218,16 @@ Phase 4 実験: 実行中
 - パス基準: pseudo-DiD < 0 かつ p < 0.10
 - `--skip-symmetry`で高速実行
 - Codexレビュー待ち
+
+## T1-Q10 turnover-decline-mechanism-separation Phase 3 設計
+
+### idea-generation
+**目標:** ショック固有turnover継続下落のメカニズムを保有者交代/流動性枯渇に切り分け
+**推奨:** 案2（turnover変化量のみ、空売りなし）。コスト: low。空売り取れれば案1に拡張
+
+### implementation-planning
+- `--q10` フラグ追加
+- Step1: ショック後turnover変化率DiD
+- Step2: turnover変化上昇/低下群×20d CARクロス集計
+- Step3: 空売り取れれば3分類
+- Codexレビュー待ち

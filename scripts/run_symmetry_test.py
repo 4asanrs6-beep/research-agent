@@ -539,6 +539,7 @@ def main():
     parser.add_argument("--q05", action="store_true", help="T1-Q05 vol-reversal-specificity分析を実行")
     parser.add_argument("--q06", action="store_true", help="T1-Q06 turnover-momentum-disentangle分析を実行")
     parser.add_argument("--q09", action="store_true", help="T1-Q09 turnover-postshock-specificity-did分析を実行")
+    parser.add_argument("--q10", action="store_true", help="T1-Q10 turnover-decline-mechanism-separation分析を実行")
     parser.add_argument("--q07", action="store_true", help="T1-Q07 size-regime-interaction分析を実行")
     parser.add_argument("--skip-symmetry", action="store_true", help="対称性テストをスキップ（Q05/Q06のみ実行時）")
     args = parser.parse_args()
@@ -1628,6 +1629,141 @@ def main():
                 q09_results["verdict"] = verdict
                 print(f"\n総合判定: {verdict}")
 
+    # === T1-Q10: turnover継続下落のメカニズム分離 ===
+    q10_results = {}
+    if args.q10:
+        from scipy import stats as scipy_stats
+        print("\n" + "=" * 60)
+        print("=== T1-Q10 turnover-decline-mechanism-separation ===")
+        print("=" * 60)
+
+        down_panel = panels.get("down")
+        if down_panel is None or len(down_panel) == 0:
+            print("NG: 下方パネルがない。中止")
+        else:
+            down_panel = compute_post_event_car(jp_returns, topix_returns, down_panel, windows=[20])
+            shock_dates_list = sorted(down_panel["event_date"].unique())
+
+            # volume pivot
+            vol_col = "volume" if "volume" in jp_prices_raw.columns else "adj_volume"
+            vol_pivot = jp_prices_raw.pivot_table(index="date", columns="code", values=vol_col).sort_index()
+            vol_ma20 = vol_pivot.rolling(20, min_periods=10).mean()
+
+            # ショック後turnover変化率（後5日平均 / 前20日平均）と（後20日平均 / 前20日平均）
+            print("\nショック後turnover変化率を計算中...")
+            for window_label, post_window in [("5d", 5), ("20d", 20)]:
+                change_col = f"turnover_change_{window_label}"
+                changes = []
+                for _, row in down_panel.iterrows():
+                    code = row["code"]
+                    ed = row["event_date"]
+                    if code not in vol_pivot.columns:
+                        changes.append(np.nan)
+                        continue
+                    # 前20日平均
+                    pre_dates = vol_pivot.index[vol_pivot.index <= ed]
+                    if len(pre_dates) < 20:
+                        changes.append(np.nan)
+                        continue
+                    pre_vol = vol_pivot.loc[pre_dates[-20:], code].mean()
+                    # 後N日平均
+                    post_dates = vol_pivot.index[vol_pivot.index > ed]
+                    if len(post_dates) < post_window:
+                        changes.append(np.nan)
+                        continue
+                    post_vol = vol_pivot.loc[post_dates[:post_window], code].mean()
+                    if pre_vol < 1 or np.isnan(pre_vol):
+                        changes.append(np.nan)
+                        continue
+                    changes.append(post_vol / pre_vol)
+                down_panel[change_col] = changes
+
+            # turnover高群に限定
+            turn_median = down_panel["turnover"].median()
+            turn_high = down_panel[down_panel["turnover"] > turn_median].copy()
+
+            # --- Step 1: ショック後turnover変化のDiD ---
+            for window_label in ["5d", "20d"]:
+                change_col = f"turnover_change_{window_label}"
+                valid = turn_high[[change_col, "car_20d"]].dropna()
+                if len(valid) < 50:
+                    print(f"\n--- Step 1 ({window_label}): データ不足 ---")
+                    continue
+                shock_mean_change = valid[change_col].mean()
+                print(f"\n--- Step 1: ショック後turnover変化率({window_label}) ---")
+                print(f"  ショック日 turnover高群の変化率: {shock_mean_change:.3f}x")
+
+                # 中央値で上昇/低下に分割
+                change_median = valid[change_col].median()
+                rise_group = valid[valid[change_col] > change_median]
+                fall_group = valid[valid[change_col] <= change_median]
+
+                rise_car = rise_group["car_20d"].mean()
+                fall_car = fall_group["car_20d"].mean()
+                t_rise, p_rise = scipy_stats.ttest_1samp(rise_group["car_20d"], 0) if len(rise_group) > 10 else (0, 1)
+                t_fall, p_fall = scipy_stats.ttest_1samp(fall_group["car_20d"], 0) if len(fall_group) > 10 else (0, 1)
+
+                print(f"  turnover上昇群(n={len(rise_group)}): 20d CAR={rise_car*100:+.3f}% (p={p_rise:.4f})")
+                print(f"  turnover低下群(n={len(fall_group)}): 20d CAR={fall_car*100:+.3f}% (p={p_fall:.4f})")
+
+                # 2群間の差
+                t_diff, p_diff = scipy_stats.ttest_ind(rise_group["car_20d"], fall_group["car_20d"])
+                print(f"  2群差: {(rise_car - fall_car)*100:+.3f}% (p={p_diff:.4f})")
+
+                q10_results[f"step1_{window_label}"] = {
+                    "shock_mean_change": float(shock_mean_change),
+                    "change_median": float(change_median),
+                    "rise_car": float(rise_car),
+                    "rise_n": len(rise_group),
+                    "rise_p": float(p_rise),
+                    "fall_car": float(fall_car),
+                    "fall_n": len(fall_group),
+                    "fall_p": float(p_fall),
+                    "diff": float(rise_car - fall_car),
+                    "diff_p": float(p_diff),
+                }
+
+            # --- Step 2: メカニズム判定 ---
+            print("\n--- Step 2: メカニズム判定 ---")
+            for wl in ["5d", "20d"]:
+                key = f"step1_{wl}"
+                if key in q10_results:
+                    r = q10_results[key]
+                    if r["rise_car"] < 0 and r["rise_p"] < 0.10:
+                        mech_rise = "保有者交代（売買活発化+CAR負=弱い手への移行）"
+                    elif r["rise_car"] >= 0:
+                        mech_rise = "保有者交代なし（売買活発化だがCAR正）"
+                    else:
+                        mech_rise = "不明確（CAR負だがp>0.10）"
+
+                    if r["fall_car"] < 0 and r["fall_p"] < 0.10:
+                        mech_fall = "流動性枯渇（売買低下+CAR負=買い手不在）"
+                    elif r["fall_car"] >= 0:
+                        mech_fall = "流動性枯渇なし"
+                    else:
+                        mech_fall = "不明確"
+
+                    print(f"  {wl} turnover上昇群: {mech_rise}")
+                    print(f"  {wl} turnover低下群: {mech_fall}")
+                    q10_results[f"mechanism_{wl}"] = {
+                        "rise_interpretation": mech_rise,
+                        "fall_interpretation": mech_fall,
+                    }
+
+            # --- 最終判定 ---
+            print("\n" + "=" * 60)
+            print("=== T1-Q10 最終判定 ===")
+            print("=" * 60)
+            # primary: turnover変化上昇群と低下群で20d CARに有意差があるか
+            has_mechanism = False
+            for wl in ["5d", "20d"]:
+                key = f"step1_{wl}"
+                if key in q10_results and q10_results[key]["diff_p"] < 0.10:
+                    has_mechanism = True
+            verdict = "PASS" if has_mechanism else "FAIL"
+            q10_results["verdict"] = verdict
+            print(f"総合判定: {verdict}")
+
     # === JSON保存 ===
     output = {
         "experiment": "symmetry-test",
@@ -1644,6 +1780,8 @@ def main():
         output["q06_turnover_momentum"] = q06_results
     if args.q09:
         output["q09_turnover_postshock_did"] = q09_results
+    if args.q10:
+        output["q10_turnover_mechanism"] = q10_results
     if args.q07:
         output["q07_size_regime_interaction"] = q07_results
 
@@ -1656,6 +1794,8 @@ def main():
         output_path = Path("logs/iterations/T1-Q06_turnover-momentum-disentangle_result.json")
     if args.q09:
         output_path = Path("logs/iterations/T1-Q09_turnover-postshock-specificity-did_result.json")
+    if args.q10:
+        output_path = Path("logs/iterations/T1-Q10_turnover-decline-mechanism-separation_result.json")
     if args.q07:
         output_path = Path("logs/iterations/T1-Q07_size-regime-interaction_result.json")
     output_path.parent.mkdir(parents=True, exist_ok=True)

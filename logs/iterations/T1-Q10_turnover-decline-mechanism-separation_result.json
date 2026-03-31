@@ -1,0 +1,46 @@
+{
+  "experiment": "symmetry-test",
+  "thresholds": {
+    "2.0sigma": {},
+    "1.5pct": {},
+    "1.0sigma": {}
+  },
+  "direction_results": {},
+  "size_stratified": {},
+  "vix_stratified": {},
+  "q10_turnover_mechanism": {
+    "step1_5d": {
+      "shock_mean_change": 1.3994437809022697,
+      "change_median": 1.3323408398478187,
+      "rise_car": -0.006618658165741212,
+      "rise_n": 2024,
+      "rise_p": 0.00522597529487037,
+      "fall_car": 0.0014694926978413934,
+      "fall_n": 2024,
+      "fall_p": 0.4469100206584421,
+      "diff": -0.008088150863582605,
+      "diff_p": 0.008149649452223691
+    },
+    "step1_20d": {
+      "shock_mean_change": 1.2696063690360286,
+      "change_median": 1.1559510982827463,
+      "rise_car": -0.003808386020815268,
+      "rise_n": 2024,
+      "rise_p": 0.12871440091358038,
+      "fall_car": -0.001340779447084551,
+      "fall_n": 2024,
+      "fall_p": 0.44432639143587094,
+      "diff": -0.002467606573730717,
+      "diff_p": 0.4197298688261162
+    },
+    "mechanism_5d": {
+      "rise_interpretation": "保有者交代（売買活発化+CAR負=弱い手への移行）",
+      "fall_interpretation": "流動性枯渇なし"
+    },
+    "mechanism_20d": {
+      "rise_interpretation": "不明確（CAR負だがp>0.10）",
+      "fall_interpretation": "不明確"
+    },
+    "verdict": "PASS"
+  }
+}

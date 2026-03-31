@@ -47,8 +47,8 @@ T1: 米国ショック後の日本株の銘柄固有効果
               +-- ❌ T1-Q07 size-regime-interaction .. FAIL（K18-19）
               +-- ⏭️ T1-Q08 cross-factor-portfolio .. スキップ（前提崩壊）
               +-- ✅ T1-Q09 turnover-postshock-specificity-did .. **PASS (MAJOR)**（K21-23）
-              +-- ⬜ T1-Q10 turnover-decline-mechanism-separation .. 次
-              +-- ⬜ T1-Q11 vol-drift-as-alternative-theme .. Q09 PASSにより不要
+              +-- ✅ T1-Q10 turnover-decline-mechanism-separation .. **PASS**（K24-26）
+              +-- ⏭️ T1-Q11 vol-drift-as-alternative-theme .. Q09 PASSにより不要
 ```
 
 ## 各問いの詳細
@@ -161,16 +161,17 @@ Phase 5 議論 ......... 済 — Codex裁定: 次の問いに移る（Q10へ）
 
 ---
 
-### ⬜ T1-Q10 turnover-decline-mechanism-separation — 継続下落のメカニズム（Q09がPASS後）
+### ✅ T1-Q10 turnover-decline-mechanism-separation — メカニズムは保有者交代
 
-**問い:** ショック後のturnover変化+空売り比率で「保有者交代」vs「情報劣位者集中」vs「流動性枯渇」を分類
-**詳細:** `logs/iterations/multi_perspective.md` Round 3
+**結論:** PASS。turnover上昇群CAR=-0.662%(p=0.005)。流動性枯渇ではなく保有者交代。ショートが可能
+**得られた知見:** K24-K26追加
+**詳細:** `logs/experiments/T1-Q10_turnover-decline-mechanism-separation_review.md`
 
 Phase 1 生成 ......... 済
 Phase 2 選定 ......... 済
-Phase 3 設計 ......... 未
-Phase 4 実験 ......... 未
-Phase 5 議論 ......... 未
+Phase 3 設計 ......... 済 — Codex conditional approve
+Phase 4 実験 ......... 済 — **PASS**
+Phase 5 議論 ......... 済 — Codex裁定: 戦略実装フェーズへ移行
 
 ---
 
@@ -188,6 +189,10 @@ Phase 5 議論 ......... 未
 ---
 
 ## 直近の動き
+
+### [2026-03-31] T1-Q10 Phase 5完了 → PASS! メカニズムは保有者交代
+turnover上昇群CAR=-0.662%(p=0.005)。ショートが可能。T1メカニズム解明完了。
+**次: 戦略実装フェーズ（リアルタイムシグナル設計、バックテスト）へ移行。人間の判断待ち**
 
 ### [2026-03-31] T1-Q09 Phase 5完了 → PASS! turnover継続下落はショック固有
 pseudo-DiD=-0.703%(p<0.0001)。T1テーマの戦略価値が確定。K21-K23追加。

@@ -1,0 +1,32 @@
+{
+  "plan": {
+    "files": [
+      {
+        "path": "scripts/run_symmetry_test.py",
+        "action": "modify",
+        "description": "--q10フラグを追加。ショック後turnover変化DiD + 20d CARとの関係分析"
+      }
+    ],
+    "functions": [
+      {
+        "name": "run_q10",
+        "signature": "def run_q10(section in main())",
+        "purpose": "Step 1: ショック後turnover変化率（後5日/前20日）を計算し、非ショック日と比較（DiD）。Step 2: turnover変化の上昇/低下群別に20d CARを比較。上昇+CAR負=保有者交代、低下+CAR負=流動性枯渇。Step 3: 空売り比率データが取れれば3分類に拡張"
+      }
+    ],
+    "data_flow": "jp_prices_raw volume → ショック前20日平均turnover / ショック後5日平均turnover → 変化率 → 非ショック日でも同計算 → DiDで比較 → turnover変化上昇/低下群×20d CARのクロス集計",
+    "pass_criteria": {
+      "primary": "ショック後turnover変化率がショック固有（DiD p<0.10）かつ、turnover変化上昇群と低下群で20d CARに有意差（p<0.10）",
+      "interpretation": "turnover上昇+CAR負=保有者交代（弱い手への移行）→ショート可能。turnover低下+CAR負=流動性枯渇→回避のみ"
+    },
+    "implementation_order": [
+      "1. --q10フラグ追加",
+      "2. ショック後turnover変化率の計算（volume pivot活用）",
+      "3. 非ショック日でも同計算→DiD",
+      "4. turnover変化群別×20d CARクロス集計",
+      "5. 空売り比率の取得を試み、取れれば3分類に拡張",
+      "6. JSON出力"
+    ],
+    "estimated_complexity": "low-medium"
+  }
+}
