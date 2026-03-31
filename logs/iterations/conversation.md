@@ -1301,4 +1301,57 @@ Phase 4 実験: 実行中
 
 ### Codex設計レビュー 2回目
 🟠 Codex | 判定: **approve** (score: 0.81)
-→ Phase 4 実装へ進む
+→ Phase 4 実装へ
+
+---
+
+## T2-Q03 Phase 3 設計
+
+### idea-generation
+
+🔵 Claude | idea-generation (T2-Q03 backtest-transaction-cost-viability)
+
+**目標:** 取引コスト控除後にturnover-highショート戦略が年率正のリターンを生むかをexpanding windowバックテストで検証
+
+**案:**
+
+| ID | アプローチ | 何をするか | 前回との違い | コスト |
+|---|---|---|---|---|
+| 1 | expanding window全期間BT（v2準拠） | 2020-2026全ショック日でexpanding window + コスト3段階 + K29除外 + 95%CI | 初のポートフォリオレベルBT | medium |
+| 2 | 固定中央値の簡易BT | ルックアヘッドありの上限推定。案1との差で過大評価を定量化 | expanding window省略 | low |
+| 3 | 年次ジャックナイフ付きBT | 案1+各年除外で特定年依存を検出 | 6年で5点のジャックナイフ | medium |
+
+**推奨:** 案1 -- v2準拠。expanding windowでルックアヘッド排除。Q04受け渡し（スキップなし）反映済み
+**頑健性確認:** 案2の固定中央値版を「上限推定」として併走
+
+### implementation-planning
+
+- `run_symmetry_test.py` に `--t2q03` フラグ追加
+- Step1: expanding window中央値（各ショック日以前のデータのみ）。2019年burnin
+- Step2: turnover-high銘柄をday+1ショート→5日クローズ。等ウェイト
+- Step3: コスト片道10/20/30bps×2の3段階控除
+- Step4: K29除外フィルター(変化倍率>2.0除外)ありなし比較
+- Step5: 全期間集計（年率リターン・Sharpe・最大DD・95%CI）
+- Step6: 年次集計（各年のイベント数・リターン）
+- Step7: 事後分析 -- 連続ショック期(2020年2-3月)切り出し
+- Step8: 固定中央値版（上限推定）も併走
+- パス: コスト20bps×2控除後の年率リターン95%CI下限>0 かつ Sharpe>=0.3
+- Q04受け渡し: 間隔スキップなし（暫定判断、K31保留）
+
+### Codex設計レビュー 1回目
+🟠 Codex | 判定: **revise** (0.68) -- CI推定を日次ブロックブートストラップに、重複ポジション合成ルール固定、主仕様1本に固定
+
+### Codex設計レビュー 2回目
+🟠 Codex | 判定: **revise** (0.69) -- 主判定対象をイベントリターン→日次ポートフォリオ収益率に、年率リターンの資本分母を固定
+
+### implementation-planning (v3 -- Codex指摘反映)
+- 主仕様: expanding window + K29除外 + 同一銘柄1本 + コスト20bps×2
+- 日次ポートフォリオ収益率ベース（初期ショート額100%固定）
+- 年率化: 日次リターン×252
+- CI: ブロックブートストラップ(ブロック長5)で年率CI
+- パス: 年率リターン95%CI下限>0 かつ Sharpe>=0.3
+- 感度: K29除外なし/固定中央値/コスト10,30bps
+
+### Codex設計レビュー 3回目
+🟠 Codex | 判定: **approve** (0.83)
+→ Phase 4 実装へ

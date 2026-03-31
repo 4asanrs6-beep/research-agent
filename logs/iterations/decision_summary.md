@@ -271,6 +271,9 @@ Phase 5 議論 ......... 未
 
 ## 直近の動き
 
+### [2026-03-31] T2-Q03 Phase 3 設計開始
+/idea-generationを実行中。Q03: expanding windowバックテスト + 取引コスト検証
+
 ### [2026-03-31] T2-Q04 Phase 5完了 → insufficient_power。スキップ不要(暫定)。Q03へ
 等価性確定不能(CI幅0.93%)だが短間隔CAR=-0.145%は負。間隔スキップなしでQ03バックテストへ。
 K31(保留), K32追加。**次: T2-Q03 backtest-transaction-cost-viability**

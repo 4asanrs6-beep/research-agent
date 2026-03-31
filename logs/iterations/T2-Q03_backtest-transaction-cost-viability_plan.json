@@ -1,0 +1,53 @@
+{
+  "plan": {
+    "revision": "v3 -- Codexレビュー2回目の指摘2件を追加反映",
+    "files": [
+      {
+        "path": "scripts/run_symmetry_test.py",
+        "action": "modify",
+        "description": "--t2q03フラグ。expanding window + K29除外(主仕様) + 同一銘柄1本制約 + ブートストラップCI"
+      }
+    ],
+    "primary_specification": {
+      "description": "expanding window中央値 + K29除外(変化倍率>2.0除外) + 同一銘柄は保有中に再シグナル無視",
+      "cost": "片道20bps×2 = 往復40bps",
+      "pass": "年率リターンのブートストラップ95%CI下限>0 かつ Sharpe>=0.3"
+    },
+    "sensitivity_analyses": [
+      "K29除外なし（影響量の確認）",
+      "固定中央値版（ルックアヘッド上限推定）",
+      "コスト片道10bps/30bps（コスト感度）"
+    ],
+    "position_management_rule": "同一銘柄は1本まで。保有中に同一銘柄の再シグナルが出ても追加建てしない。異なる銘柄の新規シグナルは別ポジションとして建てる。日次リバランスなし。イベント単位で等ウェイト",
+    "return_definition": {
+      "unit": "日次ポートフォリオ収益率（ショートポジションの日次PnL / 資本分母）",
+      "capital_base": "各ショック日のショート額を100%とする。ポジション保有中は初期ショート額で固定（日次リバランスなし）。複数イベントが重複する場合は各イベントのPnLを加算し、総ショート額で割る",
+      "annualization": "日次ポートフォリオ収益率を年率化: 平均日次リターン × 252。Sharpe = (年率リターン - 0) / 年率標準偏差"
+    },
+    "ci_estimation": "日次ポートフォリオ収益率系列に対するブロックブートストラップ(ブロック長=5取引日)で年率リターンの95%CIを算出。イベント単位CIはt分布で補助指標として併記",
+    "steps": [
+      "Step0: --t2q03フラグ追加",
+      "Step1: expanding window中央値計算（2019年burnin）",
+      "Step2: 各ショック日でK29除外(変化倍率>2.0除外)後のturnover-high銘柄特定",
+      "Step3: 同一銘柄1本制約の適用（保有中ならスキップ）",
+      "Step4: day+1寄付きショート→5日後クローズ。等ウェイト。各イベントのリターン計算",
+      "Step5: コスト控除（往復40bps主仕様、10/30bps感度）",
+      "Step6: 全期間集計（年率リターン、ブートストラップ95%CI、Sharpe、最大DD）",
+      "Step7: 年次集計（イベント数、平均リターン、勝率、合計リターン）+ 平均同時保有数・実効回転率",
+      "Step8: 感度分析（K29除外なし、固定中央値版）",
+      "Step9: 事後分析(descriptive_only) -- 連続ショック期(2020年2-3月)のリターン",
+      "Step10: 総合判定 + JSON保存"
+    ],
+    "output_structure": {
+      "verdict_inputs": "主仕様の全期間指標（年率リターン、CI、Sharpe、DD）",
+      "sensitivity": "除外なし、固定中央値、コスト感度の各指標",
+      "descriptive_only": "年次集計、連続ショック期、t分布CI(補助)"
+    },
+    "codex_review_v1_responses": {
+      "issue1_ci": "ブロックブートストラップ(ブロック長5)を主判定CI。t分布は補助",
+      "issue2_overlap": "同一銘柄1本まで。保有中の再シグナルは無視。異なる銘柄は独立ポジション",
+      "issue3_primary": "expanding + K29除外 + コスト20bps×2を主仕様に固定。除外なし/固定中央値は感度分析"
+    },
+    "estimated_complexity": "medium"
+  }
+}
