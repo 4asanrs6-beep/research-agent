@@ -179,6 +179,14 @@ Claude-fallbackはCodexと異なるモデルであり、独立した視点では
 
 各Phaseには前提条件がある。条件を満たさずに次のPhaseの成果物を作成した場合、プロセス違反。
 
+### Phase 1（生成）→ Phase 2（選定）ゲート
+人間に論点/問いを提示するには以下が必須:
+1. `/brainstorm`（Claude）で3-5問を生成済み
+2. **Codex（またはClaude-fallback）でも独立に3-5問を生成済み**
+3. 両方の結果が `brainstorm_discussion.md` に記録済み
+4. `conversation.md` に両系統の結果サマリが記録済み
+5. 上記が揃っていない限り、人間に選定を求めてはならない
+
 ### Phase 2（選定）→ Phase 3（設計）ゲート
 設計に入るには以下が必須:
 1. `/multi-perspective` の実行ログが `logs/iterations/multi_perspective.md` に記録済み
