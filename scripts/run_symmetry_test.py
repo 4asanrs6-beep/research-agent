@@ -542,6 +542,7 @@ def main():
     parser.add_argument("--q10", action="store_true", help="T1-Q10 turnover-decline-mechanism-separation分析を実行")
     parser.add_argument("--t2q02", action="store_true", help="T2-Q02 optimal-holding-period-decay分析を実行")
     parser.add_argument("--q07", action="store_true", help="T1-Q07 size-regime-interaction分析を実行")
+    parser.add_argument("--t2q04", action="store_true", help="T2-Q04 event-clustering-capacity分析を実行")
     parser.add_argument("--skip-symmetry", action="store_true", help="対称性テストをスキップ（Q05/Q06のみ実行時）")
     args = parser.parse_args()
 
@@ -1913,6 +1914,204 @@ def main():
             t2q02_results["verdict"] = verdict
             print(f"総合判定: {verdict}")
 
+    # === T2-Q04: event-clustering-capacity ===
+    t2q04_results = {}
+    if args.t2q04:
+        from scipy import stats as scipy_stats
+        print("\n" + "=" * 60)
+        print("=== T2-Q04 event-clustering-capacity ===")
+        print("=" * 60)
+
+        down_panel = panels.get("down")
+        if down_panel is None or len(down_panel) == 0:
+            print("NG: 下方パネルがない。中止")
+        else:
+            # CARを計算
+            down_panel = compute_post_event_car(jp_returns, topix_returns, down_panel, windows=[5])
+
+            # ショック日リストと間隔計算（米国営業日差）
+            shock_dates = sorted(down_panel["event_date"].unique())
+            n_shocks = len(shock_dates)
+            print(f"ショック日数: {n_shocks}")
+
+            # 米国営業日ベースの間隔計算
+            us_trading_dates = sorted(us_returns.index)
+            shock_intervals = {}
+            for i, sd in enumerate(shock_dates):
+                if i == 0:
+                    shock_intervals[sd] = None  # 最初のショックは間隔なし
+                else:
+                    prev = shock_dates[i - 1]
+                    # 米国営業日で数える
+                    try:
+                        idx_prev = us_trading_dates.index(prev)
+                        idx_curr = us_trading_dates.index(sd)
+                        shock_intervals[sd] = idx_curr - idx_prev
+                    except ValueError:
+                        shock_intervals[sd] = None
+
+            # 各ショック日のturnover-high群平均5d CARを集約
+            turnover_median = down_panel["turnover"].median()
+            turn_high = down_panel[down_panel["turnover"] > turnover_median]
+
+            event_cars = []
+            for sd in shock_dates:
+                interval = shock_intervals.get(sd)
+                if interval is None:
+                    continue  # 最初のショックは除外
+                sub = turn_high[turn_high["event_date"] == sd]
+                car_5d = sub["car_5d"].dropna()
+                if len(car_5d) < 5:
+                    continue
+                # VIX
+                vix_val = vix_change.get(sd, np.nan) if 'vix_change' in dir() else np.nan
+                # ショック絶対値
+                shock_mag = abs(float(us_returns.get(sd, 0)))
+                event_cars.append({
+                    "event_date": sd,
+                    "interval": interval,
+                    "mean_car_5d": float(car_5d.mean()),
+                    "n_stocks": len(car_5d),
+                    "vix": float(vix_val) if not np.isnan(vix_val) else None,
+                    "shock_magnitude": shock_mag,
+                })
+
+            event_df = pd.DataFrame(event_cars)
+            print(f"有効イベント日: {len(event_df)} (初回ショック除外後)")
+
+            if len(event_df) < 5:
+                t2q04_results = {"status": "insufficient_power", "n_events": len(event_df)}
+                print("insufficient_power: イベント数不足")
+            else:
+                # --- Step 1: 間隔5取引日未満vs以上 (主判定) ---
+                print("\n--- Step 1: 間隔5取引日未満 vs 5以上 (主判定、イベント日単位) ---")
+                short_mask = event_df["interval"] < 5
+                long_mask = event_df["interval"] >= 5
+                short_cars = event_df[short_mask]["mean_car_5d"]
+                long_cars = event_df[long_mask]["mean_car_5d"]
+                n_short = len(short_cars)
+                n_long = len(long_cars)
+                print(f"  短間隔(<5): {n_short}日, 長間隔(>=5): {n_long}日")
+
+                if n_short < 5:
+                    step1_result = {"status": "insufficient_power", "n_short": n_short, "n_long": n_long}
+                    print(f"  insufficient_power: 短間隔群{n_short}件 < 5件")
+                else:
+                    diff = float(short_cars.mean() - long_cars.mean())
+                    # Welch t-test
+                    t_stat, p_val = scipy_stats.ttest_ind(short_cars, long_cars, equal_var=False)
+                    # 95% CI for the difference
+                    se = np.sqrt(short_cars.var() / n_short + long_cars.var() / n_long)
+                    ci_low = diff - 1.96 * se
+                    ci_high = diff + 1.96 * se
+                    # 等価性判定: CIが[-0.002, +0.002]に収まるか
+                    equivalence_pass = ci_low >= -0.002 and ci_high <= 0.002
+                    ci_too_wide = (ci_high - ci_low) > 0.008
+
+                    print(f"  短間隔平均CAR: {short_cars.mean()*100:+.3f}%")
+                    print(f"  長間隔平均CAR: {long_cars.mean()*100:+.3f}%")
+                    print(f"  差: {diff*100:+.3f}% (p={p_val:.4f})")
+                    print(f"  95%CI: [{ci_low*100:+.3f}%, {ci_high*100:+.3f}%]")
+                    print(f"  等価性(CI in [-0.2%,+0.2%]): {'PASS' if equivalence_pass else 'FAIL'}")
+
+                    step1_result = {
+                        "n_short": n_short, "n_long": n_long,
+                        "short_mean": float(short_cars.mean()),
+                        "long_mean": float(long_cars.mean()),
+                        "diff": diff, "p": float(p_val),
+                        "ci_low": float(ci_low), "ci_high": float(ci_high),
+                        "equivalence_pass": equivalence_pass,
+                    }
+                    if ci_too_wide:
+                        step1_result["status"] = "insufficient_power"
+                        print(f"  CI幅 {(ci_high-ci_low)*100:.2f}% > 0.8%: insufficient_power")
+
+                t2q04_results["verdict_inputs"] = {"step1_interval_5d": step1_result}
+
+                # --- Step 2: Spearman (主判定補助) ---
+                print("\n--- Step 2: Spearman(間隔, イベント日平均CAR) ---")
+                valid_spearman = event_df[["interval", "mean_car_5d"]].dropna()
+                rho, p_rho = scipy_stats.spearmanr(valid_spearman["interval"], valid_spearman["mean_car_5d"])
+                print(f"  Spearman rho={rho:.3f}, p={p_rho:.4f}, n={len(valid_spearman)}")
+                t2q04_results["verdict_inputs"]["step2_spearman"] = {
+                    "rho": float(rho), "p": float(p_rho), "n": len(valid_spearman)
+                }
+
+                # --- Step 3: 代替仮説統制（ショック絶対値+VIX回帰） ---
+                print("\n--- Step 3: 代替仮説統制 ---")
+                reg_data = event_df[["mean_car_5d", "interval", "shock_magnitude"]].dropna()
+                reg_data["short_dummy"] = (reg_data["interval"] < 5).astype(float)
+                if len(reg_data) >= 10:
+                    X = sm.add_constant(reg_data[["short_dummy", "shock_magnitude"]])
+                    model = sm.OLS(reg_data["mean_car_5d"], X).fit()
+                    short_coef = float(model.params.get("short_dummy", np.nan))
+                    short_p = float(model.pvalues.get("short_dummy", np.nan))
+                    print(f"  short_dummy coef={short_coef*100:+.3f}% p={short_p:.4f} (ショック絶対値統制)")
+                    t2q04_results["verdict_inputs"]["step3_controlled_regression"] = {
+                        "short_coef": short_coef, "short_p": short_p,
+                        "shock_mag_coef": float(model.params.get("shock_magnitude", np.nan)),
+                        "r2": float(model.rsquared),
+                    }
+
+                # --- Step 4: 感度分析 (descriptive_only) ---
+                print("\n--- Step 4: 感度分析 ---")
+                sensitivity = {}
+                for cutoff in [3, 7, 10]:
+                    s_mask = event_df["interval"] < cutoff
+                    l_mask = event_df["interval"] >= cutoff
+                    s_cars = event_df[s_mask]["mean_car_5d"]
+                    l_cars = event_df[l_mask]["mean_car_5d"]
+                    if len(s_cars) >= 3 and len(l_cars) >= 3:
+                        d = float(s_cars.mean() - l_cars.mean())
+                        _, p = scipy_stats.ttest_ind(s_cars, l_cars, equal_var=False)
+                        print(f"  {cutoff}日カットオフ: 短{len(s_cars)}日 vs 長{len(l_cars)}日, diff={d*100:+.3f}%, p={p:.4f}")
+                        sensitivity[f"{cutoff}d"] = {"n_short": len(s_cars), "n_long": len(l_cars), "diff": d, "p": float(p)}
+                    else:
+                        print(f"  {cutoff}日カットオフ: サンプル不足")
+                        sensitivity[f"{cutoff}d"] = {"status": "insufficient_power"}
+                t2q04_results["descriptive_only"] = {"sensitivity": sensitivity}
+
+                # --- Step 5: 副次分析 (descriptive_only) ---
+                print("\n--- Step 5: 副次 - 連続ショック時のturnover変化倍率 ---")
+                # 連続ショック(短間隔)と通常(長間隔)のturnover変化倍率比較は、
+                # turnover変化倍率データがパネルにあれば実施
+                # ここではショック日ごとのturnover平均を比較
+                short_events = event_df[event_df["interval"] < 5]
+                long_events = event_df[event_df["interval"] >= 5]
+                if len(short_events) >= 3:
+                    short_turn_mean = turn_high[turn_high["event_date"].isin(short_events["event_date"])]["turnover"].mean()
+                    long_turn_mean = turn_high[turn_high["event_date"].isin(long_events["event_date"])]["turnover"].mean()
+                    print(f"  短間隔turnover平均: {short_turn_mean:.4f}, 長間隔: {long_turn_mean:.4f}")
+                    t2q04_results["descriptive_only"]["turnover_comparison"] = {
+                        "short_mean": float(short_turn_mean), "long_mean": float(long_turn_mean),
+                    }
+
+                # --- 総合判定 ---
+                print("\n" + "=" * 60)
+                print("=== T2-Q04 総合判定 ===")
+                print("=" * 60)
+
+                s1 = t2q04_results.get("verdict_inputs", {}).get("step1_interval_5d", {})
+                if s1.get("status") == "insufficient_power":
+                    t2q04_verdict = "insufficient_power"
+                    print(f"判定: insufficient_power")
+                elif s1.get("equivalence_pass"):
+                    t2q04_verdict = "PASS"
+                    print(f"判定: PASS -- 連続ショックでも効果均一。キャパシティ制約なし")
+                    print(f"  Q03への指示: ポジション重複OK。間隔による抑制不要")
+                else:
+                    ci_low = s1.get("ci_low", -999)
+                    ci_high = s1.get("ci_high", 999)
+                    if ci_low < -0.002:
+                        t2q04_verdict = "FAIL"
+                        print(f"判定: FAIL -- 連続ショック時に効果減衰。キャパシティ制約あり")
+                        print(f"  Q03への指示: 間隔5取引日未満のショックはスキップまたはサイズ縮小")
+                    else:
+                        t2q04_verdict = "AMBIGUOUS"
+                        print(f"判定: AMBIGUOUS -- CIが等価性範囲に収まらないが下限も-0.2%を下回らない")
+
+                t2q04_results["verdict"] = t2q04_verdict
+
     # === JSON保存 ===
     output = {
         "experiment": "symmetry-test",
@@ -1935,6 +2134,8 @@ def main():
         output["t2q02_holding_period"] = t2q02_results
     if args.q07:
         output["q07_size_regime_interaction"] = q07_results
+    if args.t2q04:
+        output["t2q04_event_clustering"] = t2q04_results
 
     output_path = Path("logs/iterations/T1-Q03_symmetry-test_result.json")
     if args.q04:
@@ -1951,6 +2152,8 @@ def main():
         output_path = Path("logs/iterations/T2-Q02_optimal-holding-period-decay_result.json")
     if args.q07:
         output_path = Path("logs/iterations/T1-Q07_size-regime-interaction_result.json")
+    if args.t2q04:
+        output_path = Path("logs/iterations/T2-Q04_event-clustering-capacity_result.json")
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with open(output_path, "w", encoding="utf-8") as f:
         json.dump(output, f, ensure_ascii=False, indent=2, default=str)

@@ -1,0 +1,65 @@
+{
+  "experiment": "symmetry-test",
+  "thresholds": {
+    "2.0sigma": {},
+    "1.5pct": {},
+    "1.0sigma": {}
+  },
+  "direction_results": {},
+  "size_stratified": {},
+  "vix_stratified": {},
+  "t2q04_event_clustering": {
+    "verdict_inputs": {
+      "step1_interval_5d": {
+        "n_short": 17,
+        "n_long": 25,
+        "short_mean": -0.0014470792067439366,
+        "long_mean": 0.0010584329924728966,
+        "diff": -0.0025055121992168332,
+        "p": 0.2969455053505576,
+        "ci_low": -0.007139194793165212,
+        "ci_high": 0.002128170394731545,
+        "equivalence_pass": "False",
+        "status": "insufficient_power"
+      },
+      "step2_spearman": {
+        "rho": 0.10059920725531471,
+        "p": 0.5261503516091197,
+        "n": 42
+      },
+      "step3_controlled_regression": {
+        "short_coef": -0.0026619427685198364,
+        "short_p": 0.31500226540781384,
+        "shock_mag_coef": 0.009430981572488582,
+        "r2": 0.02850009853211033
+      }
+    },
+    "descriptive_only": {
+      "sensitivity": {
+        "3d": {
+          "n_short": 11,
+          "n_long": 31,
+          "diff": -0.003574932410626395,
+          "p": 0.2171202599468288
+        },
+        "7d": {
+          "n_short": 17,
+          "n_long": 25,
+          "diff": -0.0025055121992168332,
+          "p": 0.2969455053505576
+        },
+        "10d": {
+          "n_short": 23,
+          "n_long": 19,
+          "diff": 4.04619125695355e-05,
+          "p": 0.986119525923267
+        }
+      },
+      "turnover_comparison": {
+        "short_mean": 1.414604926610451,
+        "long_mean": 1.4573293372462928
+      }
+    },
+    "verdict": "insufficient_power"
+  }
+}

@@ -1253,4 +1253,52 @@ Phase 4 実験: 実行中
 - `--t2q01` フラグ追加
 - 五分位×day+0/day+1起算5d CAR比較
 - パス: 上位1/5群が全体より0.3%以上悪い(p<0.10)
-- Codexレビュー待ち
+
+---
+
+## T2-Q04 Phase 3 設計
+
+### idea-generation
+
+🔵 Claude | idea-generation (T2-Q04 event-clustering-capacity)
+
+**目標:** 連続ショック時（間隔5日以内）にturnover効果が減衰するかを検証し、戦略のキャパシティ制約を確定する
+
+**案:**
+
+| ID | アプローチ | 何をするか | 前回との違い | コスト |
+|---|---|---|---|---|
+| 1 | 離散+連続の二段構え（v2準拠） | 間隔5日未満vs5日以上でCAR比較 + Spearman + VIX統制 + 感度分析(3/7/10日) | Q09/Q10はメカニズム検証→Q04は時間依存性 | low |
+| 2 | 銘柄レベル重複ポジション分析 | 2連続turnover-high銘柄のCAR比較 | イベント間隔→銘柄状態遷移 | low |
+| 3 | ローリングウィンドウ頻度分析 | 過去30日ショック回数とCARの関係 | 隣接間隔→広い窓での頻度 | low |
+
+**推奨:** 案1 — v2で全ロール合意済みの設計に完全準拠。Q03への受け渡し項目を直接算出可能。
+**頑健性確認:** 案2の2連続high銘柄CARを副次分析として組み込む
+
+### implementation-planning
+
+- `run_symmetry_test.py` に `--t2q04` フラグ追加
+- Step1: ショック間隔計算（日リスト差分）
+- Step2: 間隔5日未満vs5日以上でturnover-high群5d CAR比較
+- Step3: Spearman(間隔, CAR) — イベント日レベル
+- Step4: VIX中央値分割×間隔分割の2×2
+- Step5: 感度分析(3/7/10日カットオフ)
+- Step6: 副次 — 連続ショック時のturnover変化倍率低下
+- Step7: 副次 — 2連続turnover-high銘柄のCAR
+- パス: 間隔5日未満/以上のCAR差<0.2%(p>0.20) → 効果均一(キャパ制約なし)
+- sample gate: 間隔5日未満が3件未満→insufficient_power
+
+### Codex設計レビュー 1回目
+🟠 Codex | 判定: **revise** (score: 0.63) — major3件: 分析単位をイベント日に統一、等価性検証、代替仮説統制
+
+### implementation-planning (v2 -- Codex指摘反映)
+- 分析単位: イベント日（各ショック日のturnover-high群平均5d CARを1点に集約）
+- 間隔定義: 米国営業日差（主）、暦日（感度）
+- PASS: 95%CIが[-0.2%, +0.2%]に収まる（等価性）
+- 統制: ショック絶対値回帰 + VIX + K29除外
+- Step5(変化倍率低下/2連続high)はdescriptive_only
+- sample gate: 短間隔群5件未満 or CI幅>0.8% → insufficient_power
+
+### Codex設計レビュー 2回目
+🟠 Codex | 判定: **approve** (score: 0.81)
+→ Phase 4 実装へ進む

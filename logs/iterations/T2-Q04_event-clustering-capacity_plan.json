@@ -1,0 +1,36 @@
+{
+  "plan": {
+    "revision": "v2 -- Codexレビュー指摘3件を反映",
+    "files": [
+      {
+        "path": "scripts/run_symmetry_test.py",
+        "action": "modify",
+        "description": "--t2q04フラグを追加。分析単位をイベント日に統一。等価性検証(95%CI)。ショック絶対値/K29除外も統制"
+      }
+    ],
+    "analysis_unit": "イベント日（各ショック日のturnover-high群平均5d CARを1点に集約）",
+    "interval_definition": "米国営業日差（S&P500リターンが存在する日の差分）。K27のday5と整合。感度分析で暦日も併記",
+    "data_flow": "既存下方ショック日リスト → 米国営業日ベースで間隔計算 → 各ショック日のturnover-high群平均5d CARを集約(1日1点) → 短間隔群vs長間隔群のイベント単位比較 → 等価性CI → ショック絶対値/VIX/K29除外統制 → JSON保存",
+    "steps": [
+      "Step1(主判定): 各ショック日のturnover-high群平均5d CARを1点に集約。間隔5取引日未満vs5取引日以上でイベント単位t検定 + 差の95%CI",
+      "Step2(主判定): Spearman(間隔取引日数, イベント日平均CAR) — n=ショック日数",
+      "Step3(代替仮説統制): ショック絶対値(S&P500下落幅)を統制した回帰: CAR_i = a + b*short_interval_dummy + c*shock_magnitude + e。VIX統制も同様に追加",
+      "Step4(感度分析): 3/7/10取引日カットオフで同じStep1を再実行",
+      "Step5(descriptive_only): 連続ショック時のturnover変化倍率。2連続turnover-high銘柄のCAR。K29除外併用時のCAR変化"
+    ],
+    "pass_criteria": {
+      "primary": "PASS(キャパ制約なし): 短間隔-長間隔のCAR差の95%CIが[-0.2%, +0.2%]に収まる",
+      "fail": "FAIL(キャパ制約あり): 差の95%CIの下限が-0.2%を下回る(短間隔で効果が有意に減衰)",
+      "insufficient_power": "短間隔群のイベント数が5件未満、または95%CIの幅が0.8%を超える場合",
+      "note": "FAIL時はQ03に渡す抑制条件として「間隔N取引日未満のショックはスキップ」を具体化"
+    },
+    "codex_review_v1_responses": {
+      "issue1_analysis_unit": "イベント日に統一。各ショック日のturnover-high群平均5d CARを1点に集約して比較",
+      "issue2_equivalence": "95%CIが±0.2%以内に収まればPASS(等価性)。「p>0.20で差なし」は廃止",
+      "issue3_alternative_control": "ショック絶対値回帰+VIX統制+K29除外併用を事前設計に組み込み",
+      "issue4_interval_def": "米国営業日差を主定義。暦日は感度分析",
+      "issue5_descriptive": "Step5-6はdescriptive_onlyとして主判定から分離"
+    },
+    "estimated_complexity": "low"
+  }
+}
