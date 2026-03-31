@@ -1437,3 +1437,13 @@ Claude-fallback(Codex代替)で追加5論点を生成:
 ### Codex設計レビュー 2回目
 🟠 Codex | 判定: **approve** (0.82)
 → Phase 4 分析へ
+
+### Phase 4 結果
+- R2=0.605。**TOPIXβ(coef=-0.115, p=0.0000)がほぼ全て(単変量R2=0.557)**
+- feb_ret(モメンタム反転) p=0.713 → β統制で消失
+- oil_beta(原油波及) p=0.541 → 非有意
+- 「モメンタム粛清」は実態として「高β粛清」
+
+### Phase 5 議論
+5ロール全員: 次の問いに移る。β主因確定。L1-L3記録。
+→ T3-Q02 japan-excess-vulnerability へ
