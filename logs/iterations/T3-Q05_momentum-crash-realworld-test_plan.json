@@ -1,0 +1,26 @@
+{
+  "plan": {
+    "theme_type": "post_mortem",
+    "files": [
+      {
+        "path": "scripts/t3_q05_momentum_crash_test.py",
+        "action": "create",
+        "description": "K37リアルワールドテスト。KS検定+モメンタム上位/下位リターン差+K37仮想適用"
+      }
+    ],
+    "steps": [
+      "Step 1(KS検定): 3月第1週(3/2-3/6)の下落銘柄の2月リターン分布 vs 全銘柄の2月リターン分布をKS検定。モメンタムクラッシュ（2月勝者が過剰に下落）の有無",
+      "Step 2(モメンタム上位vs下位): 2月リターン上位20%銘柄のday+1(3/3)～3月末リターンと下位20%のリターン差。Welchのt検定。LS損失のモメンタム起因分の直接測定",
+      "Step 3(K37仮想適用): ショック判定(S&P500基準: 日次-2sigma / 日経基準: 日次-2sigma)。該当日のturnover-high銘柄をday+1寄りで解消した場合の損失軽減幅。day+0損失は回避不能として含めない",
+      "Step 4: N=1アウトオブサンプル確認としての限定的結論",
+      "Step 5: JSON保存"
+    ],
+    "pass_criteria": {
+      "momentum_crash_confirmed": "KS検定 p<0.10 かつ 上位-下位差>1.0%(p<0.20)",
+      "k37_useful": "K37仮想適用の損失軽減幅>1.0%",
+      "not_applicable": "KS p>0.20 かつ 上位-下位差<1.0% → 一律下落でK37適用外"
+    },
+    "note": "Q04でβが全て説明(R2=0.557)のため、β統制後にモメンタム/turnover固有効果が残らない可能性が高い。その場合は「3月はβ主導でありK37の想定シナリオ（銘柄固有のturnover効果）とは異なる」という教訓になる",
+    "estimated_complexity": "medium"
+  }
+}

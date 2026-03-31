@@ -1448,6 +1448,20 @@ Claude-fallback(Codex代替)で追加5論点を生成:
 5ロール全員: 次の問いに移る。β主因確定。L1-L3記録。
 → T3-Q02 japan-excess-vulnerability へ
 
+### T3-Q02 Phase 4-5 結果
+- β調整後超過下落=-9.79%。定常β=0.32→実現β=1.86
+- 為替がR2=0.554で統計的主因(因果は未確定)。原油p=0.60で非有意
+- L4-L6記録。Codex裁定: 次の問いに移る
+
+## T3-Q05 Phase 3 データ収集設計
+
+### idea-generation + implementation-planning
+- Step 1: KS検定(3月第1週下落銘柄に2月勝者が過剰集中しているか)
+- Step 2: 2月モメンタム上位20% vs 下位20%のday+1〜3月末リターン差(Welch t)
+- Step 3: K37仮想適用(S&P500基準+日経基準でショック判定→turnover-highをday+1解消)
+- N=1アウトオブサンプル確認として限定的結論
+→ Phase 4 分析へ
+
 ## T3-Q02 Phase 3 データ収集設計
 
 ### idea-generation

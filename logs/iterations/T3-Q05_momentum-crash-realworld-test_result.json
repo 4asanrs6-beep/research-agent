@@ -1,0 +1,37 @@
+{
+  "experiment": "T3-Q05",
+  "step1_ks_test": {
+    "n_all": 173,
+    "n_decline": 138,
+    "ks_stat": 0.11217223758063165,
+    "ks_p": 0.26269995234862403,
+    "top20_threshold": 0.1157799758065305,
+    "top20_in_decline": 32,
+    "top20_ratio": 0.2318840579710145
+  },
+  "step2_momentum_diff": {
+    "n_top": 34,
+    "n_bot": 34,
+    "top_mean": -0.11559492154719986,
+    "bot_mean": 0.02701347050322448,
+    "diff": -0.14260839205042433,
+    "t_stat": -4.541170376380642,
+    "p": 2.715685877923482e-05
+  },
+  "step3_k37_simulation": {
+    "sp_shock_days": [],
+    "nk_shock_days": [
+      "2026-03-09 00:00:00"
+    ],
+    "k37_savings": [
+      {
+        "shock_day": "2026-03-09 00:00:00",
+        "n_high": 89,
+        "avg_post_5d_ret": 0.00055178717971396
+      }
+    ],
+    "avg_avoided": 0.00055178717971396
+  },
+  "verdict": "ambiguous",
+  "note": "N=1 out-of-sample confirmation. Not a definitive test of K37."
+}
