@@ -55,6 +55,9 @@ T2: 戦略パラメータ最適化
 | 32 | 連続ショック時のturnover変化倍率は通常とほぼ同等(1.41 vs 1.46)。K24(保有者交代)の枯渇仮説は支持されず、保有者プールは5日以内でも補充される示唆 | T2-Q04 |
 | 33 | **裸ショート(市場ヘッジなし)では戦略不成立**。expanding window + K29除外で年率-3.16%, Sharpe=-0.92。固定中央値でも-2.71%。CARは超過リターンだが裸ショートは絶対リターンに賭けておりミスマッチ | T2-Q03 v1 |
 | 34 | 年次リターンは不安定。2020(-7.0%), 2022(-11.4%), 2025(+1.9%)。戦略の安定性に疑問 | T2-Q03 v1 |
+| 35 | **マーケットニュートラル(low-long/high-short)でも戦略不成立**。年率-4.58%, Sharpe=-1.11。v1(裸ショート-3.16%)より悪化。2レッグコスト(80bps)が効果量を超過 | T2-Q03 v2 |
+| 36 | **コスト最小(2×10bps=40bps)でも年率-1.74%で損失**。効果量(K27: 5d CAR差≈0.2%)がどのコスト水準でもペイしない。統計的有意性(p<0.0001)と戦略的収益性は別概念 | T2-Q03 v2 |
+| 37 | **T1-T2の知見はリスク管理用途に限定される**。ショック時にturnover-high銘柄を保有していたら解消する（回避戦略）としての価値は残るが、積極的にショートして利益を出す戦略としては成立しない | T2-Q03 総括 |
 
 ### 記録ルール
 
@@ -426,7 +429,8 @@ verdict=PASS（5dウィンドウ）
 ```
 T2-Q01 entry-timing-turnover-observability -> FAIL -> 知見29-30(探索的)
 T2-Q02 optimal-holding-period-decay -> **PASS** -> 知見27-28, 知見25補強, 知見12補強
-T2-Q03 backtest-transaction-cost-viability v1 -> FAIL(裸ショート) -> 知見33-34 -> v2(マーケットニュートラル)で再実験
+T2-Q03 backtest-transaction-cost-viability v1 -> FAIL(裸ショート) -> 知見33-34
+T2-Q03 backtest-transaction-cost-viability v2 -> FAIL(マーケットニュートラル) -> 知見35-37
 T2-Q04 event-clustering-capacity -> insufficient_power -> 知見31(保留)-32
 ```
 
