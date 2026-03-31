@@ -1376,4 +1376,12 @@ Claude-fallback(Codex代替)で追加5論点を生成:
 9. momentum-crash-realworld-test: T1-T2知見のリアルワールドテスト
 10. week1-amplification-decomposition: 第1週の増幅要因分解
 
-→ 人間が選定待ち（Claude 5問 + Claude-fallback 5問 = 10問）
+### Phase 2 選定完了
+人間が5問を選定:
+- T3-Q01 vix-creep-early-signal
+- T3-Q02 japan-excess-vulnerability
+- T3-Q03 rate-regime-shift-impact
+- T3-Q04 oil-shock-sector-contagion-path
+- T3-Q05 momentum-crash-realworld-test
+
+→ /multi-perspective へ

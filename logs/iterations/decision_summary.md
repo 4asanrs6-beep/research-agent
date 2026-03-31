@@ -278,8 +278,11 @@ Phase 5 議論 ......... 未
 
 ## 直近の動き
 
+### [2026-03-31] T3 Phase 2 選定完了 → multi-perspective実行中
+人間が5問を選定: vix-creep-early-signal, japan-excess-vulnerability, rate-regime-shift-impact, oil-shock-sector-contagion-path, momentum-crash-realworld-test
+
 ### [2026-03-31] T3テーマ開始（事後分析型）: 2026年3月LS敗因分析
-市場データ取得済み(T3_market_analysis_2026q1.json)。Phase 1（論点生成）に進む
+市場データ取得済み。Phase 1でClaude5問+Claude-fallback5問=10問生成
 
 ### [2026-03-31] T2-Q03 v2もFAIL。マーケットニュートラルでも年率-4.58%
 v1(裸ショート-3.16%)より悪化。コスト最小(40bps)でも-1.74%。
