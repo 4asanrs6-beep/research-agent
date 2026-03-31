@@ -278,7 +278,11 @@ Phase 5 議論 ......... 未
 
 ## 直近の動き
 
-### [2026-03-31] T3 Phase 2 選定完了 → multi-perspective実行中
+### [2026-03-31] T3 Phase 2 multi-perspective完了 → Phase 3（データ収集設計）へ
+5問を5ロール×2ラウンドで議論。着手順: Q04→Q02→Q05→Q03→Q01。
+Q04(モメンタム反転vs原油分解)が全体の前提。**次: T3-Q04 Phase 3**
+
+### [2026-03-31] T3 Phase 2 選定完了
 人間が5問を選定: vix-creep-early-signal, japan-excess-vulnerability, rate-regime-shift-impact, oil-shock-sector-contagion-path, momentum-crash-realworld-test
 
 ### [2026-03-31] T3テーマ開始（事後分析型）: 2026年3月LS敗因分析

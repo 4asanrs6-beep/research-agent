@@ -1384,4 +1384,12 @@ Claude-fallback(Codex代替)で追加5論点を生成:
 - T3-Q04 oil-shock-sector-contagion-path
 - T3-Q05 momentum-crash-realworld-test
 
-→ /multi-perspective へ
+### Phase 2 multi-perspective完了
+5問を5ロール×2ラウンドで議論。着手順:
+1. T3-Q04 oil-shock-sector-contagion-path（最優先: モメンタム反転vs原油波及の分解）
+2. T3-Q02 japan-excess-vulnerability（Q04と並行可能: マクロ超過下落の主因）
+3. T3-Q05 momentum-crash-realworld-test（Q04の後: K37テスト）
+4. T3-Q03 rate-regime-shift-impact（Q02の後: 金利レジーム、リスクオフ一体化なら早期終了）
+5. T3-Q01 vix-creep-early-signal（最後: 他4問の知見を踏まえてVIXシミュレーション）
+
+→ Phase 3（データ収集設計）へ。T3-Q04から
