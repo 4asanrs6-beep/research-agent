@@ -1,0 +1,1111 @@
+{
+  "metadata": {
+    "generated_at": "2026-03-31 21:31:41",
+    "period": "2026-01-01 to 2026-03-30",
+    "tickers": {
+      "SP500": "^GSPC",
+      "NASDAQ": "^IXIC",
+      "Russell2000": "^RUT",
+      "VIX": "^VIX",
+      "Nikkei225": "^N225",
+      "TOPIX_ETF": "1306.T",
+      "USDJPY": "JPY=X",
+      "US10Y": "^TNX",
+      "US2Y": "2YY=F",
+      "XLK": "XLK",
+      "XLF": "XLF",
+      "XLE": "XLE",
+      "XLV": "XLV",
+      "XLI": "XLI",
+      "XLP": "XLP",
+      "XLU": "XLU",
+      "IWF": "IWF",
+      "IWD": "IWD",
+      "MTUM": "MTUM",
+      "QUAL": "QUAL",
+      "JP_Banks": "1615.T",
+      "JP_Foods": "1617.T",
+      "JP_Machine": "1620.T"
+    },
+    "failed_tickers": [],
+    "data_rows": 64,
+    "notes": "TOPIX_ETF (1306.T) の3/30終値は株式分割(10:1)の影響で376.4となり、Q1リターン(-89.48%)は異常値。1306.Tのデータは3/27以前の値のみ信頼できる。"
+  },
+  "q1_summary": {
+    "SP500": {
+      "q1_return_pct": -7.3301,
+      "q1_volatility_ann_pct": 13.2531,
+      "q1_max_drawdown_pct": -9.0975
+    },
+    "NASDAQ": {
+      "q1_return_pct": -10.5299,
+      "q1_volatility_ann_pct": 17.4012,
+      "q1_max_drawdown_pct": -12.838
+    },
+    "Russell2000": {
+      "q1_return_pct": -2.7358,
+      "q1_volatility_ann_pct": 20.4567,
+      "q1_max_drawdown_pct": -11.2095
+    },
+    "VIX": {
+      "q1_return_pct": 104.7492,
+      "q1_volatility_ann_pct": 140.9387,
+      "q1_max_drawdown_pct": -24.1438
+    },
+    "Nikkei225": {
+      "q1_return_pct": 3.0719,
+      "q1_volatility_ann_pct": 30.0033,
+      "q1_max_drawdown_pct": -12.4635
+    },
+    "TOPIX_ETF": {
+      "q1_return_pct": -89.4831,
+      "q1_volatility_ann_pct": 193.2013,
+      "q1_max_drawdown_pct": -90.8884
+    },
+    "USDJPY": {
+      "q1_return_pct": 2.4429,
+      "q1_volatility_ann_pct": 9.3259,
+      "q1_max_drawdown_pct": -4.2254
+    },
+    "US10Y": {
+      "q1_return_pct": 4.2998,
+      "q1_volatility_ann_pct": 16.7168,
+      "q1_max_drawdown_pct": -7.7532
+    },
+    "US2Y": {
+      "q1_return_pct": 9.7744,
+      "q1_volatility_ann_pct": 20.795,
+      "q1_max_drawdown_pct": -4.1998
+    },
+    "XLK": {
+      "q1_return_pct": -11.3298,
+      "q1_volatility_ann_pct": 23.5223,
+      "q1_max_drawdown_pct": -14.4552
+    },
+    "XLF": {
+      "q1_return_pct": -11.2496,
+      "q1_volatility_ann_pct": 18.0054,
+      "q1_max_drawdown_pct": -14.7948
+    },
+    "XLE": {
+      "q1_return_pct": 39.4874,
+      "q1_volatility_ann_pct": 21.0133,
+      "q1_max_drawdown_pct": -3.7535
+    },
+    "XLV": {
+      "q1_return_pct": -6.7111,
+      "q1_volatility_ann_pct": 14.7604,
+      "q1_max_drawdown_pct": -10.2067
+    },
+    "XLI": {
+      "q1_return_pct": 1.2442,
+      "q1_volatility_ann_pct": 17.8593,
+      "q1_max_drawdown_pct": -12.2135
+    },
+    "XLP": {
+      "q1_return_pct": 6.0001,
+      "q1_volatility_ann_pct": 15.2861,
+      "q1_max_drawdown_pct": -9.6878
+    },
+    "XLU": {
+      "q1_return_pct": 8.3182,
+      "q1_volatility_ann_pct": 16.8071,
+      "q1_max_drawdown_pct": -6.453
+    },
+    "IWF": {
+      "q1_return_pct": -13.1055,
+      "q1_volatility_ann_pct": 16.9829,
+      "q1_max_drawdown_pct": -13.8247
+    },
+    "IWD": {
+      "q1_return_pct": -0.0586,
+      "q1_volatility_ann_pct": 11.8936,
+      "q1_max_drawdown_pct": -6.7858
+    },
+    "MTUM": {
+      "q1_return_pct": -7.7237,
+      "q1_volatility_ann_pct": 23.041,
+      "q1_max_drawdown_pct": -11.5438
+    },
+    "QUAL": {
+      "q1_return_pct": -5.9065,
+      "q1_volatility_ann_pct": 13.9019,
+      "q1_max_drawdown_pct": -9.0346
+    },
+    "JP_Banks": {
+      "q1_return_pct": 8.7656,
+      "q1_volatility_ann_pct": 40.9688,
+      "q1_max_drawdown_pct": -18.909
+    },
+    "JP_Foods": {
+      "q1_return_pct": 8.1781,
+      "q1_volatility_ann_pct": 19.8846,
+      "q1_max_drawdown_pct": -9.0928
+    },
+    "JP_Machine": {
+      "q1_return_pct": 8.1972,
+      "q1_volatility_ann_pct": 27.5135,
+      "q1_max_drawdown_pct": -12.5
+    }
+  },
+  "monthly": {
+    "2026-01": {
+      "SP500": {
+        "return_pct": 1.3663,
+        "volatility_ann_pct": 10.7045,
+        "max_drawdown_pct": -2.5857
+      },
+      "NASDAQ": {
+        "return_pct": 0.9458,
+        "volatility_ann_pct": 13.6548,
+        "max_drawdown_pct": -3.2847
+      },
+      "Russell2000": {
+        "return_pct": 5.3116,
+        "volatility_ann_pct": 16.3168,
+        "max_drawdown_pct": -3.8631
+      },
+      "VIX": {
+        "return_pct": 16.6555,
+        "volatility_ann_pct": 129.0293,
+        "max_drawdown_pct": -22.1503
+      },
+      "Nikkei225": {
+        "return_pct": 5.9265,
+        "volatility_ann_pct": 20.5562,
+        "max_drawdown_pct": -2.8829
+      },
+      "TOPIX_ETF": {
+        "return_pct": 4.6102,
+        "volatility_ann_pct": 17.7713,
+        "max_drawdown_pct": -3.7883
+      },
+      "USDJPY": {
+        "return_pct": -2.0785,
+        "volatility_ann_pct": 10.5272,
+        "max_drawdown_pct": -4.2254
+      },
+      "US10Y": {
+        "return_pct": 1.8737,
+        "volatility_ann_pct": 12.4791,
+        "max_drawdown_pct": -1.9092
+      },
+      "US2Y": {
+        "return_pct": 1.9086,
+        "volatility_ann_pct": 7.6994,
+        "max_drawdown_pct": 0.0
+      },
+      "XLK": {
+        "return_pct": -0.0625,
+        "volatility_ann_pct": 19.4525,
+        "max_drawdown_pct": -3.5851
+      },
+      "XLF": {
+        "return_pct": -2.4283,
+        "volatility_ann_pct": 17.2974,
+        "max_drawdown_pct": -6.0461
+      },
+      "XLE": {
+        "return_pct": 14.1803,
+        "volatility_ann_pct": 22.7913,
+        "max_drawdown_pct": -3.7535
+      },
+      "XLV": {
+        "return_pct": -0.0388,
+        "volatility_ann_pct": 14.6815,
+        "max_drawdown_pct": -3.6578
+      },
+      "XLI": {
+        "return_pct": 6.6529,
+        "volatility_ann_pct": 16.3794,
+        "max_drawdown_pct": -2.0192
+      },
+      "XLP": {
+        "return_pct": 7.5052,
+        "volatility_ann_pct": 14.4691,
+        "max_drawdown_pct": -1.3773
+      },
+      "XLU": {
+        "return_pct": 1.3118,
+        "volatility_ann_pct": 14.5939,
+        "max_drawdown_pct": -3.0338
+      },
+      "IWF": {
+        "return_pct": -1.5529,
+        "volatility_ann_pct": 13.4678,
+        "max_drawdown_pct": -3.8952
+      },
+      "IWD": {
+        "return_pct": 4.526,
+        "volatility_ann_pct": 11.0864,
+        "max_drawdown_pct": -1.4872
+      },
+      "MTUM": {
+        "return_pct": 2.2292,
+        "volatility_ann_pct": 17.0047,
+        "max_drawdown_pct": -2.3595
+      },
+      "QUAL": {
+        "return_pct": 1.9132,
+        "volatility_ann_pct": 11.7067,
+        "max_drawdown_pct": -2.3013
+      },
+      "JP_Banks": {
+        "return_pct": 13.2715,
+        "volatility_ann_pct": 31.1795,
+        "max_drawdown_pct": -5.3592
+      },
+      "JP_Foods": {
+        "return_pct": 1.8389,
+        "volatility_ann_pct": 15.9275,
+        "max_drawdown_pct": -4.9897
+      },
+      "JP_Machine": {
+        "return_pct": 4.2587,
+        "volatility_ann_pct": 23.3503,
+        "max_drawdown_pct": -5.199
+      },
+      "_VIX_stats": {
+        "mean": 16.046,
+        "month_end": 17.44,
+        "month_high": 20.09,
+        "month_low": 14.49
+      }
+    },
+    "2026-02": {
+      "SP500": {
+        "return_pct": -0.8668,
+        "volatility_ann_pct": 13.727,
+        "max_drawdown_pct": -2.552
+      },
+      "NASDAQ": {
+        "return_pct": -3.3826,
+        "volatility_ann_pct": 18.7979,
+        "max_drawdown_pct": -4.4571
+      },
+      "Russell2000": {
+        "return_pct": 0.7124,
+        "volatility_ann_pct": 21.3558,
+        "max_drawdown_pct": -2.7229
+      },
+      "VIX": {
+        "return_pct": 13.8761,
+        "volatility_ann_pct": 137.8684,
+        "max_drawdown_pct": -20.2572
+      },
+      "Nikkei225": {
+        "return_pct": 10.3659,
+        "volatility_ann_pct": 25.1633,
+        "max_drawdown_pct": -1.8804
+      },
+      "TOPIX_ETF": {
+        "return_pct": 10.3365,
+        "volatility_ann_pct": 19.7898,
+        "max_drawdown_pct": -3.066
+      },
+      "USDJPY": {
+        "return_pct": 1.7609,
+        "volatility_ann_pct": 8.8075,
+        "max_drawdown_pct": -2.8395
+      },
+      "US10Y": {
+        "return_pct": -6.5786,
+        "volatility_ann_pct": 12.2711,
+        "max_drawdown_pct": -7.3216
+      },
+      "US2Y": {
+        "return_pct": -4.1998,
+        "volatility_ann_pct": 7.8132,
+        "max_drawdown_pct": -2.0882
+      },
+      "XLK": {
+        "return_pct": -3.5585,
+        "volatility_ann_pct": 28.6267,
+        "max_drawdown_pct": -6.6295
+      },
+      "XLF": {
+        "return_pct": -3.7612,
+        "volatility_ann_pct": 22.8466,
+        "max_drawdown_pct": -6.5057
+      },
+      "XLE": {
+        "return_pct": 9.5397,
+        "volatility_ann_pct": 22.3448,
+        "max_drawdown_pct": -2.2372
+      },
+      "XLV": {
+        "return_pct": 3.5285,
+        "volatility_ann_pct": 14.2196,
+        "max_drawdown_pct": -1.5091
+      },
+      "XLI": {
+        "return_pct": 7.072,
+        "volatility_ann_pct": 15.1604,
+        "max_drawdown_pct": -1.3542
+      },
+      "XLP": {
+        "return_pct": 7.7835,
+        "volatility_ann_pct": 14.3682,
+        "max_drawdown_pct": -2.0556
+      },
+      "XLU": {
+        "return_pct": 10.3584,
+        "volatility_ann_pct": 15.6082,
+        "max_drawdown_pct": -1.914
+      },
+      "IWF": {
+        "return_pct": -3.3823,
+        "volatility_ann_pct": 19.1751,
+        "max_drawdown_pct": -4.5713
+      },
+      "IWD": {
+        "return_pct": 2.5744,
+        "volatility_ann_pct": 10.4962,
+        "max_drawdown_pct": -1.1653
+      },
+      "MTUM": {
+        "return_pct": -1.145,
+        "volatility_ann_pct": 26.2858,
+        "max_drawdown_pct": -5.5078
+      },
+      "QUAL": {
+        "return_pct": 1.2054,
+        "volatility_ann_pct": 14.1738,
+        "max_drawdown_pct": -2.2039
+      },
+      "JP_Banks": {
+        "return_pct": 8.2902,
+        "volatility_ann_pct": 37.8574,
+        "max_drawdown_pct": -8.587
+      },
+      "JP_Foods": {
+        "return_pct": 11.5704,
+        "volatility_ann_pct": 14.0467,
+        "max_drawdown_pct": -0.7597
+      },
+      "JP_Machine": {
+        "return_pct": 15.0491,
+        "volatility_ann_pct": 15.4174,
+        "max_drawdown_pct": -1.4619
+      },
+      "_VIX_stats": {
+        "mean": 19.2395,
+        "month_end": 19.86,
+        "month_high": 21.77,
+        "month_low": 16.34
+      }
+    },
+    "2026-03": {
+      "SP500": {
+        "return_pct": -7.7798,
+        "volatility_ann_pct": 14.9304,
+        "max_drawdown_pct": -7.8165
+      },
+      "NASDAQ": {
+        "return_pct": -8.2652,
+        "volatility_ann_pct": 19.7072,
+        "max_drawdown_pct": -8.8253
+      },
+      "Russell2000": {
+        "return_pct": -8.2948,
+        "volatility_ann_pct": 22.9171,
+        "max_drawdown_pct": -9.109
+      },
+      "VIX": {
+        "return_pct": 54.1289,
+        "volatility_ann_pct": 162.2913,
+        "max_drawdown_pct": -24.1438
+      },
+      "Nikkei225": {
+        "return_pct": -11.8341,
+        "volatility_ann_pct": 39.3057,
+        "max_drawdown_pct": -11.2678
+      },
+      "TOPIX_ETF": {
+        "return_pct": -90.8884,
+        "volatility_ann_pct": 328.9731,
+        "max_drawdown_pct": -90.8061
+      },
+      "USDJPY": {
+        "return_pct": 2.807,
+        "volatility_ann_pct": 7.5946,
+        "max_drawdown_pct": -1.1709
+      },
+      "US10Y": {
+        "return_pct": 9.5911,
+        "volatility_ann_pct": 20.6392,
+        "max_drawdown_pct": -2.2072
+      },
+      "US2Y": {
+        "return_pct": 12.4408,
+        "volatility_ann_pct": 32.6998,
+        "max_drawdown_pct": 0.0
+      },
+      "XLK": {
+        "return_pct": -8.0005,
+        "volatility_ann_pct": 23.4029,
+        "max_drawdown_pct": -9.0945
+      },
+      "XLF": {
+        "return_pct": -5.4859,
+        "volatility_ann_pct": 14.6131,
+        "max_drawdown_pct": -6.6878
+      },
+      "XLE": {
+        "return_pct": 11.5251,
+        "volatility_ann_pct": 17.1212,
+        "max_drawdown_pct": -2.5246
+      },
+      "XLV": {
+        "return_pct": -9.8556,
+        "volatility_ann_pct": 14.462,
+        "max_drawdown_pct": -9.2607
+      },
+      "XLI": {
+        "return_pct": -11.3413,
+        "volatility_ann_pct": 18.1876,
+        "max_drawdown_pct": -12.2135
+      },
+      "XLP": {
+        "return_pct": -8.5203,
+        "volatility_ann_pct": 13.741,
+        "max_drawdown_pct": -8.3643
+      },
+      "XLU": {
+        "return_pct": -3.1195,
+        "volatility_ann_pct": 17.8465,
+        "max_drawdown_pct": -5.742
+      },
+      "IWF": {
+        "return_pct": -8.6449,
+        "volatility_ann_pct": 18.7302,
+        "max_drawdown_pct": -9.2236
+      },
+      "IWD": {
+        "return_pct": -6.7858,
+        "volatility_ann_pct": 12.8741,
+        "max_drawdown_pct": -6.6326
+      },
+      "MTUM": {
+        "return_pct": -8.6904,
+        "volatility_ann_pct": 25.9206,
+        "max_drawdown_pct": -8.9567
+      },
+      "QUAL": {
+        "return_pct": -8.7726,
+        "volatility_ann_pct": 15.1093,
+        "max_drawdown_pct": -8.5986
+      },
+      "JP_Banks": {
+        "return_pct": -11.3289,
+        "volatility_ann_pct": 50.6274,
+        "max_drawdown_pct": -12.7235
+      },
+      "JP_Foods": {
+        "return_pct": -4.7913,
+        "volatility_ann_pct": 26.3891,
+        "max_drawdown_pct": -8.704
+      },
+      "JP_Machine": {
+        "return_pct": -9.7971,
+        "volatility_ann_pct": 36.676,
+        "max_drawdown_pct": -12.5
+      },
+      "_VIX_stats": {
+        "mean": 25.6133,
+        "month_end": 30.61,
+        "month_high": 31.05,
+        "month_low": 21.15
+      }
+    }
+  },
+  "march_weekly": {
+    "W10 (2026-03-02 ~ 2026-03-06)": {
+      "SP500": {
+        "return_pct": -2.0186
+      },
+      "NASDAQ": {
+        "return_pct": -1.2376
+      },
+      "Russell2000": {
+        "return_pct": -4.0671
+      },
+      "VIX": {
+        "return_pct": 48.4894
+      },
+      "Nikkei225": {
+        "return_pct": -5.4875
+      },
+      "TOPIX_ETF": {
+        "return_pct": -5.5192
+      },
+      "USDJPY": {
+        "return_pct": 1.0747
+      },
+      "US10Y": {
+        "return_pct": 4.316
+      },
+      "US2Y": {
+        "return_pct": 1.0071
+      },
+      "XLK": {
+        "return_pct": -1.0594
+      },
+      "XLF": {
+        "return_pct": -1.6722
+      },
+      "XLE": {
+        "return_pct": 1.1624
+      },
+      "XLV": {
+        "return_pct": -4.6816
+      },
+      "XLI": {
+        "return_pct": -4.0646
+      },
+      "XLP": {
+        "return_pct": -4.6995
+      },
+      "XLU": {
+        "return_pct": -2.0742
+      },
+      "IWF": {
+        "return_pct": -0.6953
+      },
+      "IWD": {
+        "return_pct": -3.4587
+      },
+      "MTUM": {
+        "return_pct": -4.5383
+      },
+      "QUAL": {
+        "return_pct": -3.0265
+      },
+      "JP_Banks": {
+        "return_pct": -7.4703
+      },
+      "JP_Foods": {
+        "return_pct": -4.8339
+      },
+      "JP_Machine": {
+        "return_pct": -5.0187
+      }
+    },
+    "W11 (2026-03-09 ~ 2026-03-13)": {
+      "SP500": {
+        "return_pct": -1.5998
+      },
+      "NASDAQ": {
+        "return_pct": -1.2611
+      },
+      "Russell2000": {
+        "return_pct": -1.7919
+      },
+      "VIX": {
+        "return_pct": -7.7993
+      },
+      "Nikkei225": {
+        "return_pct": -3.2384
+      },
+      "TOPIX_ETF": {
+        "return_pct": -2.4084
+      },
+      "USDJPY": {
+        "return_pct": 1.0614
+      },
+      "US10Y": {
+        "return_pct": 3.6777
+      },
+      "US2Y": {
+        "return_pct": 0.0
+      },
+      "XLK": {
+        "return_pct": -0.3569
+      },
+      "XLF": {
+        "return_pct": -3.3221
+      },
+      "XLE": {
+        "return_pct": 1.9975
+      },
+      "XLV": {
+        "return_pct": -1.9057
+      },
+      "XLI": {
+        "return_pct": -3.1129
+      },
+      "XLP": {
+        "return_pct": -1.2124
+      },
+      "XLU": {
+        "return_pct": 0.4707
+      },
+      "IWF": {
+        "return_pct": -1.9617
+      },
+      "IWD": {
+        "return_pct": -1.3687
+      },
+      "MTUM": {
+        "return_pct": 0.8117
+      },
+      "QUAL": {
+        "return_pct": -1.7668
+      },
+      "JP_Banks": {
+        "return_pct": -5.2544
+      },
+      "JP_Foods": {
+        "return_pct": -1.9691
+      },
+      "JP_Machine": {
+        "return_pct": -1.9393
+      }
+    },
+    "W12 (2026-03-16 ~ 2026-03-20)": {
+      "SP500": {
+        "return_pct": -1.8955
+      },
+      "NASDAQ": {
+        "return_pct": -2.0708
+      },
+      "Russell2000": {
+        "return_pct": -1.6774
+      },
+      "VIX": {
+        "return_pct": -1.5079
+      },
+      "Nikkei225": {
+        "return_pct": -0.8307
+      },
+      "TOPIX_ETF": {
+        "return_pct": -0.4726
+      },
+      "USDJPY": {
+        "return_pct": -0.8052
+      },
+      "US10Y": {
+        "return_pct": 2.4737
+      },
+      "US2Y": {
+        "return_pct": 11.3196
+      },
+      "XLK": {
+        "return_pct": -1.1038
+      },
+      "XLF": {
+        "return_pct": 0.3886
+      },
+      "XLE": {
+        "return_pct": 2.7903
+      },
+      "XLV": {
+        "return_pct": -2.9775
+      },
+      "XLI": {
+        "return_pct": -1.8099
+      },
+      "XLP": {
+        "return_pct": -4.0713
+      },
+      "XLU": {
+        "return_pct": -4.9191
+      },
+      "IWF": {
+        "return_pct": -2.3897
+      },
+      "IWD": {
+        "return_pct": -1.2229
+      },
+      "MTUM": {
+        "return_pct": -0.6998
+      },
+      "QUAL": {
+        "return_pct": -1.4604
+      },
+      "JP_Banks": {
+        "return_pct": 1.162
+      },
+      "JP_Foods": {
+        "return_pct": 0.1141
+      },
+      "JP_Machine": {
+        "return_pct": -2.2069
+      }
+    },
+    "W13 (2026-03-23 ~ 2026-03-27)": {
+      "SP500": {
+        "return_pct": -2.1153
+      },
+      "NASDAQ": {
+        "return_pct": -3.2301
+      },
+      "Russell2000": {
+        "return_pct": 0.4614
+      },
+      "VIX": {
+        "return_pct": 15.9447
+      },
+      "Nikkei225": {
+        "return_pct": 0.001
+      },
+      "TOPIX_ETF": {
+        "return_pct": 0.9496
+      },
+      "USDJPY": {
+        "return_pct": 1.1271
+      },
+      "US10Y": {
+        "return_pct": 1.1159
+      },
+      "US2Y": {
+        "return_pct": 0.0
+      },
+      "XLK": {
+        "return_pct": -3.8499
+      },
+      "XLF": {
+        "return_pct": -2.0869
+      },
+      "XLE": {
+        "return_pct": 6.1689
+      },
+      "XLV": {
+        "return_pct": -1.0191
+      },
+      "XLI": {
+        "return_pct": -1.2511
+      },
+      "XLP": {
+        "return_pct": 1.169
+      },
+      "XLU": {
+        "return_pct": 2.8191
+      },
+      "IWF": {
+        "return_pct": -3.4227
+      },
+      "IWD": {
+        "return_pct": -0.5963
+      },
+      "MTUM": {
+        "return_pct": -2.3849
+      },
+      "QUAL": {
+        "return_pct": -2.392
+      },
+      "JP_Banks": {
+        "return_pct": 2.2973
+      },
+      "JP_Foods": {
+        "return_pct": 3.2604
+      },
+      "JP_Machine": {
+        "return_pct": 0.4396
+      }
+    },
+    "W14 (2026-03-30 ~ 2026-03-30)": {
+      "SP500": {
+        "return_pct": -0.3946
+      },
+      "NASDAQ": {
+        "return_pct": -0.7338
+      },
+      "Russell2000": {
+        "return_pct": -1.4569
+      },
+      "VIX": {
+        "return_pct": -1.4171
+      },
+      "Nikkei225": {
+        "return_pct": -2.7865
+      },
+      "TOPIX_ETF": {
+        "return_pct": -90.1646
+      },
+      "USDJPY": {
+        "return_pct": 0.3319
+      },
+      "US10Y": {
+        "return_pct": -2.2072
+      },
+      "US2Y": {
+        "return_pct": 0.0
+      },
+      "XLK": {
+        "return_pct": -1.8627
+      },
+      "XLF": {
+        "return_pct": 1.1504
+      },
+      "XLE": {
+        "return_pct": -0.9591
+      },
+      "XLV": {
+        "return_pct": 0.3909
+      },
+      "XLI": {
+        "return_pct": -1.6269
+      },
+      "XLP": {
+        "return_pct": 0.1223
+      },
+      "XLU": {
+        "return_pct": 0.7238
+      },
+      "IWF": {
+        "return_pct": -0.4603
+      },
+      "IWD": {
+        "return_pct": -0.2999
+      },
+      "MTUM": {
+        "return_pct": -2.1166
+      },
+      "QUAL": {
+        "return_pct": -0.4325
+      },
+      "JP_Banks": {
+        "return_pct": -2.2627
+      },
+      "JP_Foods": {
+        "return_pct": -1.2806
+      },
+      "JP_Machine": {
+        "return_pct": -1.4006
+      }
+    }
+  },
+  "march_turning_points": {
+    "SP500": {
+      "largest_gains": [
+        {
+          "date": "2026-03-23",
+          "return_pct": 1.1453
+        },
+        {
+          "date": "2026-03-16",
+          "return_pct": 1.0131
+        },
+        {
+          "date": "2026-03-09",
+          "return_pct": 0.8304
+        },
+        {
+          "date": "2026-03-04",
+          "return_pct": 0.7756
+        },
+        {
+          "date": "2026-03-25",
+          "return_pct": 0.5419
+        }
+      ],
+      "largest_losses": [
+        {
+          "date": "2026-03-26",
+          "return_pct": -1.7406
+        },
+        {
+          "date": "2026-03-27",
+          "return_pct": -1.6722
+        },
+        {
+          "date": "2026-03-12",
+          "return_pct": -1.5228
+        },
+        {
+          "date": "2026-03-20",
+          "return_pct": -1.5138
+        },
+        {
+          "date": "2026-03-18",
+          "return_pct": -1.3608
+        }
+      ]
+    },
+    "NASDAQ": {
+      "largest_gains": [
+        {
+          "date": "2026-03-23",
+          "return_pct": 1.3819
+        },
+        {
+          "date": "2026-03-09",
+          "return_pct": 1.377
+        },
+        {
+          "date": "2026-03-04",
+          "return_pct": 1.2914
+        },
+        {
+          "date": "2026-03-16",
+          "return_pct": 1.2161
+        },
+        {
+          "date": "2026-03-25",
+          "return_pct": 0.7717
+        }
+      ],
+      "largest_losses": [
+        {
+          "date": "2026-03-26",
+          "return_pct": -2.3791
+        },
+        {
+          "date": "2026-03-27",
+          "return_pct": -2.1474
+        },
+        {
+          "date": "2026-03-20",
+          "return_pct": -2.0057
+        },
+        {
+          "date": "2026-03-12",
+          "return_pct": -1.7791
+        },
+        {
+          "date": "2026-03-06",
+          "return_pct": -1.5882
+        }
+      ]
+    },
+    "Russell2000": {
+      "largest_gains": [
+        {
+          "date": "2026-03-23",
+          "return_pct": 2.2875
+        },
+        {
+          "date": "2026-03-25",
+          "return_pct": 1.2349
+        },
+        {
+          "date": "2026-03-09",
+          "return_pct": 1.1234
+        },
+        {
+          "date": "2026-03-04",
+          "return_pct": 1.06
+        },
+        {
+          "date": "2026-03-16",
+          "return_pct": 0.9371
+        }
+      ],
+      "largest_losses": [
+        {
+          "date": "2026-03-06",
+          "return_pct": -2.331
+        },
+        {
+          "date": "2026-03-20",
+          "return_pct": -2.2552
+        },
+        {
+          "date": "2026-03-12",
+          "return_pct": -2.12
+        },
+        {
+          "date": "2026-03-05",
+          "return_pct": -1.9135
+        },
+        {
+          "date": "2026-03-03",
+          "return_pct": -1.7914
+        }
+      ]
+    },
+    "Nikkei225": {
+      "largest_gains": [
+        {
+          "date": "2026-03-10",
+          "return_pct": 2.8821
+        },
+        {
+          "date": "2026-03-18",
+          "return_pct": 2.8659
+        },
+        {
+          "date": "2026-03-25",
+          "return_pct": 2.8656
+        },
+        {
+          "date": "2026-03-05",
+          "return_pct": 1.9034
+        },
+        {
+          "date": "2026-03-11",
+          "return_pct": 1.4323
+        }
+      ],
+      "largest_losses": [
+        {
+          "date": "2026-03-09",
+          "return_pct": -5.1997
+        },
+        {
+          "date": "2026-03-04",
+          "return_pct": -3.6133
+        },
+        {
+          "date": "2026-03-23",
+          "return_pct": -3.4794
+        },
+        {
+          "date": "2026-03-19",
+          "return_pct": -3.3796
+        },
+        {
+          "date": "2026-03-03",
+          "return_pct": -3.0628
+        }
+      ]
+    },
+    "USDJPY": {
+      "largest_gains": [
+        {
+          "date": "2026-03-23",
+          "return_pct": 0.8295
+        },
+        {
+          "date": "2026-03-12",
+          "return_pct": 0.6078
+        },
+        {
+          "date": "2026-03-19",
+          "return_pct": 0.5702
+        },
+        {
+          "date": "2026-03-09",
+          "return_pct": 0.5669
+        },
+        {
+          "date": "2026-03-26",
+          "return_pct": 0.4196
+        }
+      ],
+      "largest_losses": [
+        {
+          "date": "2026-03-20",
+          "return_pct": -1.1709
+        },
+        {
+          "date": "2026-03-05",
+          "return_pct": -0.5007
+        },
+        {
+          "date": "2026-03-24",
+          "return_pct": -0.4741
+        },
+        {
+          "date": "2026-03-10",
+          "return_pct": -0.3655
+        },
+        {
+          "date": "2026-03-17",
+          "return_pct": -0.2902
+        }
+      ]
+    }
+  }
+}
