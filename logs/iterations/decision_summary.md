@@ -7,16 +7,17 @@ T1で確立した因果チェーン（米国ショック → turnover高群が�
 **T1からの引き継ぎ知見:** K1-K26（`logs/experiments/knowledge.md`）
 **フェーズ:** Phase 2（選定完了、multi-perspective実行中）
 
-### 🔄 T2-Q01 entry-timing-turnover-observability — エントリータイミング
+### ❌ T2-Q01 entry-timing-turnover-observability — エントリータイミング
 
-**問い:** day+0のturnover変化倍率で翌日エントリーの精度を上げられるか。倍率上位1/3の銘柄に絞ると5d CARは改善するか
-**詳細:** `logs/iterations/brainstorm_discussion.md` T2 Round 1
+**結論:** FAIL。仮説と逆方向。turnover変化倍率高群(2.3倍)は+0.17%で回復。変化倍率は当日消化度のproxy
+**得られた知見:** K29追加、K30(探索的)
+**詳細:** `logs/experiments/T2-Q01_entry-timing-turnover-observability_review.md`
 
 Phase 1 生成 ......... 済
 Phase 2 選定 ......... 済
-Phase 3 設計 ......... 実行中
-Phase 4 実験 ......... 未
-Phase 5 議論 ......... 未
+Phase 3 設計 ......... 済
+Phase 4 実験 ......... 済 — FAIL
+Phase 5 議論 ......... 済 — Codex裁定: 次の問いに移る
 
 ---
 
@@ -223,6 +224,10 @@ Phase 5 議論 ......... 未
 ---
 
 ## 直近の動き
+
+### [2026-03-31] T2-Q01 Phase 5完了 → FAIL。turnover変化倍率はエントリー精度を改善しない
+仮説と逆方向。変化倍率高群(2.3倍)は+0.17%で回復。K24(保有者交代)と整合的で当日消化度のproxy。
+Codex裁定: 次の問いに移る。K29-K30追加
 
 ### [2026-03-31] T2-Q02 Phase 5完了 → PASS。固定5日保有が最適
 ブレークポイントday 5。下落はday 3-4に集中。動的エグジットは不可。K27-K28追加。
