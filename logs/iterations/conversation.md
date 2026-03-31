@@ -1355,3 +1355,18 @@ Phase 4 実験: 実行中
 ### Codex設計レビュー 3回目
 🟠 Codex | 判定: **approve** (0.83)
 → Phase 4 実装へ
+
+---
+
+## T3: 2026年3月 日本株ロングショート敗因分析（事後分析型）
+
+### Phase 1 論点生成
+
+市場データ(T3_market_analysis_2026q1.json)の生データ事実F1-F10から5論点を生成:
+1. feb-divergence-warning: 2月の日米乖離は警告だったか
+2. vix-creep-early-signal: VIXの段階的上昇は先行指標か
+3. japan-excess-vulnerability: 日本の超過脆弱性の主因
+4. style-rotation-lag-structure: 日米スタイルローテーションのラグ
+5. rate-regime-shift-impact: 金利レジーム転換の影響
+
+→ 人間が選定待ち

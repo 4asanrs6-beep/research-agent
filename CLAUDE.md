@@ -159,6 +159,22 @@ Codexが利用できない場合（未インストール、API障害等）、Cla
 Claude-fallbackはCodexと異なるモデルであり、独立した視点ではない。
 ログにその旨を明記し、結果の解釈時に「独立レビューではない」ことを考慮すること。
 
+## 各Phase完了時の必須ログ記録（厳守）
+
+**どのPhaseでも、完了時に以下の4ファイルを必ず更新すること。1つでも漏れたら未完了扱い。**
+
+| ファイル | 何を書くか |
+|---------|-----------|
+| **該当スキルの出力先** | brainstorm→brainstorm_discussion.md、設計→conversation.md、議論→*_review.md等。スキルのSKILL.mdに定義された出力先 |
+| **conversation.md** | そのPhaseで何をしたかの要約（Phase番号、問いID、結果の1行サマリ）。**brainstormやexperiment-reviewの結果もconversation.mdに記録する** |
+| **decision_summary.md** | 同期ルール（後述）に従って更新 |
+| **research_diary.md** | Phase 2完了時とPhase 5完了時に更新。新テーマ開始時にもテーマの説明を追記 |
+
+**テーマ開始時の追加記録:**
+- `decision_summary.md` にテーマセクション（知見リスト、系譜ツリー、各問いの詳細）を新設
+- `research_diary.md` にテーマの背景と目的を1段落で記載
+- `conversation.md` にテーマ開始を記録
+
 ## Phase遷移ゲート（厳守）
 
 各Phaseには前提条件がある。条件を満たさずに次のPhaseの成果物を作成した場合、プロセス違反。
