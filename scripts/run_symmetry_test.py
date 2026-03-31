@@ -542,6 +542,7 @@ def main():
     parser.add_argument("--q10", action="store_true", help="T1-Q10 turnover-decline-mechanism-separation分析を実行")
     parser.add_argument("--t2q02", action="store_true", help="T2-Q02 optimal-holding-period-decay分析を実行")
     parser.add_argument("--q07", action="store_true", help="T1-Q07 size-regime-interaction分析を実行")
+    parser.add_argument("--t2q03", action="store_true", help="T2-Q03 backtest-transaction-cost-viability分析を実行")
     parser.add_argument("--t2q04", action="store_true", help="T2-Q04 event-clustering-capacity分析を実行")
     parser.add_argument("--skip-symmetry", action="store_true", help="対称性テストをスキップ（Q05/Q06のみ実行時）")
     args = parser.parse_args()
@@ -1914,6 +1915,266 @@ def main():
             t2q02_results["verdict"] = verdict
             print(f"総合判定: {verdict}")
 
+    # === T2-Q03: backtest-transaction-cost-viability ===
+    t2q03_results = {}
+    if args.t2q03:
+        from scipy import stats as scipy_stats
+        print("\n" + "=" * 60)
+        print("=== T2-Q03 backtest-transaction-cost-viability ===")
+        print("=" * 60)
+
+        down_panel = panels.get("down")
+        if down_panel is None or len(down_panel) == 0:
+            print("NG: 下方パネルがない。中止")
+        else:
+            # CARを計算（5日）
+            down_panel = compute_post_event_car(jp_returns, topix_returns, down_panel, windows=[5])
+
+            shock_dates = sorted(down_panel["event_date"].unique())
+            print(f"全ショック日数: {len(shock_dates)}")
+
+            # Burnin: 2019年のショックはexpanding window構築のみ。2020年以降をバックテスト対象
+            burnin_cutoff = pd.Timestamp("2020-01-01")
+            burnin_shocks = [d for d in shock_dates if d < burnin_cutoff]
+            bt_shocks = [d for d in shock_dates if d >= burnin_cutoff]
+            print(f"Burnin(2019): {len(burnin_shocks)}日, バックテスト対象: {len(bt_shocks)}日")
+
+            if len(bt_shocks) < 5:
+                t2q03_results = {"status": "insufficient_events", "n_bt_shocks": len(bt_shocks)}
+                print("insufficient_events: バックテスト対象のショック日が5日未満")
+            else:
+                # turnover変化倍率を計算（K29除外用）
+                close_col = "adj_close" if "adj_close" in jp_prices_raw.columns else "close"
+                vol_col = "volume" if "volume" in jp_prices_raw.columns else "adj_volume"
+
+                def compute_turnover_change_ratio(panel_row, jp_prices_raw, lookback=20, gap=2):
+                    """turnover変化倍率: 当日出来高 / 前lookback日平均(gap日除外)"""
+                    code = panel_row["code"]
+                    ed = panel_row["event_date"]
+                    code_data = jp_prices_raw[jp_prices_raw["code"] == code].set_index("date").sort_index()
+                    if vol_col not in code_data.columns:
+                        return np.nan
+                    before = code_data[code_data.index <= ed]
+                    if len(before) < lookback + gap + 1:
+                        return np.nan
+                    baseline = before.iloc[-(lookback + gap):-gap][vol_col]
+                    if baseline.mean() < 1:
+                        return np.nan
+                    # 当日の出来高: event_dateの翌営業日(reaction_date)の出来高
+                    after = code_data[code_data.index > ed]
+                    if len(after) == 0:
+                        return np.nan
+                    reaction_vol = after.iloc[0][vol_col] if vol_col in after.columns else np.nan
+                    if np.isnan(reaction_vol) or reaction_vol < 1:
+                        return np.nan
+                    return float(reaction_vol / baseline.mean())
+
+                # --- Expanding window バックテスト ---
+                print("\n--- Expanding Window バックテスト ---")
+                all_event_returns = []  # (date, return_gross, return_net_20, return_net_10, return_net_30, n_stocks, method)
+                cumulative_turnover_data = []  # expanding windowで蓄積
+
+                for sd in shock_dates:
+                    sd_panel = down_panel[down_panel["event_date"] == sd].copy()
+                    # expanding windowにturnoverデータを蓄積
+                    for _, row in sd_panel.iterrows():
+                        cumulative_turnover_data.append(row["turnover"])
+
+                    if sd < burnin_cutoff:
+                        continue  # burninはデータ蓄積のみ
+
+                    # expanding window中央値
+                    if len(cumulative_turnover_data) < 50:
+                        continue  # 最低50obs必要
+                    expanding_median = float(np.median(cumulative_turnover_data))
+                    turn_high = sd_panel[sd_panel["turnover"] > expanding_median]
+
+                    if len(turn_high) < 5:
+                        continue
+
+                    # K29除外: turnover変化倍率 > 2.0 を除外
+                    ratios = []
+                    for _, row in turn_high.iterrows():
+                        r = compute_turnover_change_ratio(row, jp_prices_raw)
+                        ratios.append(r)
+                    turn_high = turn_high.copy()
+                    turn_high["change_ratio"] = ratios
+
+                    # 主仕様: K29除外あり
+                    turn_high_filtered = turn_high[
+                        turn_high["change_ratio"].isna() | (turn_high["change_ratio"] <= 2.0)
+                    ]
+
+                    if len(turn_high_filtered) < 3:
+                        turn_high_filtered = turn_high  # 除外しすぎたら全銘柄に戻す
+
+                    # 同一銘柄1本制約: 既存ポジション(直近5日以内にショート済み)の銘柄を除外
+                    recent_short_codes = set()
+                    for prev_evt in all_event_returns:
+                        prev_date = prev_evt["date"]
+                        # 5営業日以内かチェック
+                        days_diff = (sd - prev_date).days
+                        if days_diff <= 7:  # 暦日7日≒営業日5日
+                            recent_short_codes.update(prev_evt.get("codes", []))
+                    available = turn_high_filtered[~turn_high_filtered["code"].isin(recent_short_codes)]
+                    if len(available) < 3:
+                        available = turn_high_filtered  # 除外しすぎたら全銘柄に戻す
+
+                    # 5d CARの等ウェイト平均 = このイベントのグロスリターン
+                    car_5d = available["car_5d"].dropna()
+                    if len(car_5d) == 0:
+                        continue
+                    gross_ret = float(car_5d.mean())
+                    n_stocks = len(car_5d)
+
+                    # コスト控除（ショートなのでCARは負が利益）
+                    # ショートリターン = -CAR - 往復コスト
+                    short_ret_gross = -gross_ret
+                    short_ret_net_10 = short_ret_gross - 0.002  # 往復20bps
+                    short_ret_net_20 = short_ret_gross - 0.004  # 往復40bps
+                    short_ret_net_30 = short_ret_gross - 0.006  # 往復60bps
+
+                    all_event_returns.append({
+                        "date": sd,
+                        "gross_ret": short_ret_gross,
+                        "net_10": short_ret_net_10,
+                        "net_20": short_ret_net_20,
+                        "net_30": short_ret_net_30,
+                        "n_stocks": n_stocks,
+                        "codes": available["code"].tolist(),
+                        "method": "expanding_k29",
+                    })
+
+                n_events = len(all_event_returns)
+                print(f"バックテスト対象イベント数: {n_events}")
+
+                if n_events < 5:
+                    t2q03_results = {"status": "insufficient_events", "n_events": n_events}
+                    print("insufficient_events")
+                else:
+                    event_df = pd.DataFrame(all_event_returns)
+                    event_df["year"] = event_df["date"].apply(lambda d: d.year)
+
+                    # --- 全期間集計 ---
+                    print("\n--- 全期間集計 (主仕様: expanding + K29除外 + コスト20bps×2) ---")
+                    avg_ret = float(event_df["net_20"].mean())
+                    std_ret = float(event_df["net_20"].std())
+                    events_per_year = n_events / ((event_df["date"].max() - event_df["date"].min()).days / 365.25)
+                    annual_ret = avg_ret * events_per_year
+                    annual_std = std_ret * np.sqrt(events_per_year)
+                    sharpe = annual_ret / annual_std if annual_std > 0 else 0
+
+                    # 最大DD（イベント累積ベース）
+                    cum_ret = event_df["net_20"].cumsum()
+                    running_max = cum_ret.cummax()
+                    drawdown = cum_ret - running_max
+                    max_dd = float(drawdown.min())
+
+                    # ブロックブートストラップ CI（ブロック長=1イベント、10000回）
+                    np.random.seed(42)
+                    n_boot = 10000
+                    boot_means = []
+                    net_20_arr = event_df["net_20"].values
+                    for _ in range(n_boot):
+                        idx = np.random.choice(len(net_20_arr), size=len(net_20_arr), replace=True)
+                        boot_means.append(net_20_arr[idx].mean() * events_per_year)
+                    ci_low = float(np.percentile(boot_means, 2.5))
+                    ci_high = float(np.percentile(boot_means, 97.5))
+
+                    # t分布CI（補助）
+                    t_ci = scipy_stats.t.interval(0.95, df=n_events-1, loc=avg_ret*events_per_year, scale=std_ret*np.sqrt(events_per_year)/np.sqrt(n_events))
+
+                    print(f"  イベント数: {n_events}")
+                    print(f"  平均イベントリターン(net20): {avg_ret*100:+.3f}%")
+                    print(f"  年間イベント頻度: {events_per_year:.1f}回/年")
+                    print(f"  年率リターン: {annual_ret*100:+.2f}%")
+                    print(f"  年率σ: {annual_std*100:.2f}%")
+                    print(f"  Sharpe: {sharpe:.3f}")
+                    print(f"  最大DD: {max_dd*100:+.2f}%")
+                    print(f"  Bootstrap 95%CI: [{ci_low*100:+.2f}%, {ci_high*100:+.2f}%]")
+                    print(f"  t分布 95%CI(補助): [{t_ci[0]*100:+.2f}%, {t_ci[1]*100:+.2f}%]")
+
+                    t2q03_results["verdict_inputs"] = {
+                        "n_events": n_events,
+                        "avg_event_return_net20": avg_ret,
+                        "events_per_year": events_per_year,
+                        "annual_return": annual_ret,
+                        "annual_std": annual_std,
+                        "sharpe": sharpe,
+                        "max_dd": max_dd,
+                        "bootstrap_ci_low": ci_low,
+                        "bootstrap_ci_high": ci_high,
+                        "t_ci_low": float(t_ci[0]),
+                        "t_ci_high": float(t_ci[1]),
+                    }
+
+                    # --- 年次集計 ---
+                    print("\n--- 年次集計 ---")
+                    yearly = event_df.groupby("year").agg(
+                        n_events=("net_20", "count"),
+                        mean_ret=("net_20", "mean"),
+                        total_ret=("net_20", "sum"),
+                        win_rate=("net_20", lambda x: (x > 0).mean()),
+                        avg_stocks=("n_stocks", "mean"),
+                    ).reset_index()
+                    yearly_list = []
+                    for _, row in yearly.iterrows():
+                        print(f"  {int(row['year'])}: {int(row['n_events'])}イベント, 平均{row['mean_ret']*100:+.3f}%, 合計{row['total_ret']*100:+.2f}%, 勝率{row['win_rate']*100:.0f}%, 平均{row['avg_stocks']:.0f}銘柄")
+                        yearly_list.append({
+                            "year": int(row["year"]),
+                            "n_events": int(row["n_events"]),
+                            "mean_return": float(row["mean_ret"]),
+                            "total_return": float(row["total_ret"]),
+                            "win_rate": float(row["win_rate"]),
+                            "avg_stocks": float(row["avg_stocks"]),
+                        })
+                    t2q03_results["descriptive_only"] = {"yearly": yearly_list}
+
+                    # --- コスト感度 ---
+                    print("\n--- コスト感度分析 ---")
+                    for label, col in [("10bps", "net_10"), ("20bps(主)", "net_20"), ("30bps", "net_30")]:
+                        ar = float(event_df[col].mean() * events_per_year)
+                        sr = ar / (float(event_df[col].std()) * np.sqrt(events_per_year)) if event_df[col].std() > 0 else 0
+                        print(f"  コスト{label}: 年率{ar*100:+.2f}%, Sharpe={sr:.3f}")
+                    t2q03_results["sensitivity"] = {
+                        "cost_10bps": {"annual_return": float(event_df["net_10"].mean() * events_per_year)},
+                        "cost_20bps": {"annual_return": annual_ret},
+                        "cost_30bps": {"annual_return": float(event_df["net_30"].mean() * events_per_year)},
+                    }
+
+                    # --- 固定中央値版（上限推定） ---
+                    print("\n--- 固定中央値版（上限推定、ルックアヘッドあり） ---")
+                    fixed_median = down_panel["turnover"].median()
+                    fixed_events = []
+                    for sd in bt_shocks:
+                        sd_panel = down_panel[down_panel["event_date"] == sd]
+                        th = sd_panel[sd_panel["turnover"] > fixed_median]
+                        car_5d = th["car_5d"].dropna()
+                        if len(car_5d) >= 3:
+                            sr = -float(car_5d.mean()) - 0.004
+                            fixed_events.append(sr)
+                    if fixed_events:
+                        fixed_annual = float(np.mean(fixed_events) * events_per_year)
+                        print(f"  固定中央値版 年率: {fixed_annual*100:+.2f}% (expanding版との差: {(fixed_annual-annual_ret)*100:+.2f}%)")
+                        t2q03_results["sensitivity"]["fixed_median"] = {"annual_return": fixed_annual, "lookahead_bias_estimate": fixed_annual - annual_ret}
+
+                    # --- 総合判定 ---
+                    print("\n" + "=" * 60)
+                    print("=== T2-Q03 総合判定 ===")
+                    print("=" * 60)
+
+                    if ci_low > 0 and sharpe >= 0.3:
+                        t2q03_verdict = "PASS"
+                        print(f"判定: PASS -- 年率{annual_ret*100:+.2f}%, Sharpe={sharpe:.3f}, CI下限={ci_low*100:+.2f}%>0")
+                    elif ci_low <= 0 and sharpe < 0.3:
+                        t2q03_verdict = "FAIL"
+                        print(f"判定: FAIL -- CI下限={ci_low*100:+.2f}%<=0, Sharpe={sharpe:.3f}<0.3")
+                    else:
+                        t2q03_verdict = "AMBIGUOUS"
+                        print(f"判定: AMBIGUOUS -- 年率{annual_ret*100:+.2f}%, CI=[{ci_low*100:+.2f}%,{ci_high*100:+.2f}%], Sharpe={sharpe:.3f}")
+
+                    t2q03_results["verdict"] = t2q03_verdict
+
     # === T2-Q04: event-clustering-capacity ===
     t2q04_results = {}
     if args.t2q04:
@@ -2134,6 +2395,8 @@ def main():
         output["t2q02_holding_period"] = t2q02_results
     if args.q07:
         output["q07_size_regime_interaction"] = q07_results
+    if args.t2q03:
+        output["t2q03_backtest"] = t2q03_results
     if args.t2q04:
         output["t2q04_event_clustering"] = t2q04_results
 
@@ -2152,6 +2415,8 @@ def main():
         output_path = Path("logs/iterations/T2-Q02_optimal-holding-period-decay_result.json")
     if args.q07:
         output_path = Path("logs/iterations/T1-Q07_size-regime-interaction_result.json")
+    if args.t2q03:
+        output_path = Path("logs/iterations/T2-Q03_backtest-transaction-cost-viability_result.json")
     if args.t2q04:
         output_path = Path("logs/iterations/T2-Q04_event-clustering-capacity_result.json")
     output_path.parent.mkdir(parents=True, exist_ok=True)

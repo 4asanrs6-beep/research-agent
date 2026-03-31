@@ -1,0 +1,86 @@
+{
+  "experiment": "symmetry-test",
+  "thresholds": {
+    "2.0sigma": {},
+    "1.5pct": {},
+    "1.0sigma": {}
+  },
+  "direction_results": {},
+  "size_stratified": {},
+  "vix_stratified": {},
+  "t2q03_backtest": {
+    "verdict_inputs": {
+      "n_events": 40,
+      "avg_event_return_net20": -0.004437765084597786,
+      "events_per_year": 7.1129503407984425,
+      "annual_return": -0.03156560267087325,
+      "annual_std": 0.03418087353072545,
+      "sharpe": -0.9234873018238895,
+      "max_dd": -0.2320682522577591,
+      "bootstrap_ci_low": -0.05899516272142893,
+      "bootstrap_ci_high": -0.003080842845770314,
+      "t_ci_low": -0.042497176359099276,
+      "t_ci_high": -0.020634028982647226
+    },
+    "descriptive_only": {
+      "yearly": [
+        {
+          "year": 2020,
+          "n_events": 19,
+          "mean_return": -0.003707085926814435,
+          "total_return": -0.07043463260947426,
+          "win_rate": 0.3684210526315789,
+          "avg_stocks": 43.26315789473684
+        },
+        {
+          "year": 2021,
+          "n_events": 1,
+          "mean_return": -0.006150690506298637,
+          "total_return": -0.006150690506298637,
+          "win_rate": 0.0,
+          "avg_stocks": 28.0
+        },
+        {
+          "year": 2022,
+          "n_events": 13,
+          "mean_return": -0.008761306456983644,
+          "total_return": -0.11389698394078736,
+          "win_rate": 0.3076923076923077,
+          "avg_stocks": 46.07692307692308
+        },
+        {
+          "year": 2024,
+          "n_events": 2,
+          "mean_return": -0.0030240428317721835,
+          "total_return": -0.006048085663544367,
+          "win_rate": 0.5,
+          "avg_stocks": 77.0
+        },
+        {
+          "year": 2025,
+          "n_events": 5,
+          "mean_return": 0.003803957867238642,
+          "total_return": 0.01901978933619321,
+          "win_rate": 0.8,
+          "avg_stocks": 66.2
+        }
+      ]
+    },
+    "sensitivity": {
+      "cost_10bps": {
+        "annual_return": -0.017339701989276358
+      },
+      "cost_20bps": {
+        "annual_return": -0.03156560267087325
+      },
+      "cost_30bps": {
+        "annual_return": -0.04579150335247013
+      },
+      "fixed_median": {
+        "annual_return": -0.027071212825512326,
+        "lookahead_bias_estimate": 0.004494389845360925
+      }
+    },
+    "verdict": "FAIL"
+  }
+}

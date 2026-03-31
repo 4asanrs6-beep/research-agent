@@ -271,7 +271,10 @@ Phase 5 議論 ......... 未
 
 ## 直近の動き
 
-### [2026-03-31] T2-Q03 Phase 3 設計開始
+### [2026-03-31] T2-Q03 Phase 4 実験実行中
+--t2q03 --skip-symmetryで実行中。T1-T2全体の最終テスト
+
+### [2026-03-31] T2-Q03 Phase 3 設計完了 -- Codex approve (3往復)
 /idea-generationを実行中。Q03: expanding windowバックテスト + 取引コスト検証
 
 ### [2026-03-31] T2-Q04 Phase 5完了 → insufficient_power。スキップ不要(暫定)。Q03へ
