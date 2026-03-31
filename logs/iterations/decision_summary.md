@@ -5,13 +5,15 @@
 T1で確立した因果チェーン（米国ショック → turnover高群がショック固有に継続下落 → 保有者交代メカニズム → 5日集中）を実際の戦略として構築・検証する。
 
 **T1からの引き継ぎ知見:** K1-K26（`logs/experiments/knowledge.md`）
-**フェーズ:** Q03/Q04選定完了。着手順: Q04→Q03。Phase 3（設計）へ
+**フェーズ:** Q04完了(insufficient_power)。Q03(バックテスト)のPhase 3（設計）へ
 
 ## T2 知見
 27. ブレークポイントはday 5。下落はday 3-4に集中。固定5日保有が最適
 28. 動的エグジット（turnover正常化ベース）は不可。rho=-0.007
 29. turnover変化倍率はエントリー精度を改善しない（負の証拠）。当日消化度のproxy
 30. (探索的) 変化倍率のCARは非線形。Q1(1.2倍)が最悪
+31. (保留) 連続ショックでの効果減衰は確定不能だが消失もしていない。スキップ不要（暫定）
+32. 連続ショック時のturnover変化倍率は通常と同等。保有者プール補充は速い
 
 詳細: `logs/experiments/knowledge.md`
 
@@ -43,16 +45,17 @@ Phase 5 議論 ......... 済 — Codex裁定: PASS。次の問いへ
 
 ---
 
-### ⬜ T2-Q04 event-clustering-capacity -- 連続ショック時の効果維持
+### ⚠️ T2-Q04 event-clustering-capacity -- 連続ショック時の効果維持（検出力不足）
 
-**問い:** ショック間隔5日以内の連続ショックでもturnover効果は維持されるか。VIX統制+感度分析(3/7/10日)
-**詳細:** `logs/iterations/multi_perspective.md` T2 Round 2
+**結論:** insufficient_power。等価性確定不能だが短間隔群CAR=-0.145%は依然負。スキップ不要（暫定）
+**得られた知見:** K31(保留), K32追加
+**詳細:** `logs/experiments/T2-Q04_event-clustering-capacity_review.md`
 
 Phase 1 生成 ......... 済
 Phase 2 選定 ......... 済
-Phase 3 設計 ......... 未
-Phase 4 実験 ......... 未
-Phase 5 議論 ......... 未
+Phase 3 設計 ......... 済 -- Codex approve (2往復)
+Phase 4 実験 ......... 済 -- insufficient_power
+Phase 5 議論 ......... 済 -- Codex裁定: 次の問いに移る(Q03)
 
 ---
 
@@ -103,8 +106,8 @@ T2: turnoverショック固有効果の戦略化
   |
   +-- ❌ T2-Q01 entry-timing-turnover-observability .. FAIL（K29-30）
   +-- ✅ T2-Q02 optimal-holding-period-decay ........ PASS（K27-28）
-  +-- ⬜ T2-Q03 backtest-transaction-cost-viability .. 未着手（Q04完了後）
-  +-- ⬜ T2-Q04 event-clustering-capacity ............ 未着手（先行実行）
+  +-- ⬜ T2-Q03 backtest-transaction-cost-viability .. 未着手（次）
+  +-- ⚠️ T2-Q04 event-clustering-capacity ........... insufficient_power（K31保留,K32）
 ```
 
 ```
@@ -268,8 +271,12 @@ Phase 5 議論 ......... 未
 
 ## 直近の動き
 
-### [2026-03-31] T2-Q04 Phase 4 実験実行中
-Codex設計approve(2往復)。--t2q04 --skip-symmetryで実行中
+### [2026-03-31] T2-Q04 Phase 5完了 → insufficient_power。スキップ不要(暫定)。Q03へ
+等価性確定不能(CI幅0.93%)だが短間隔CAR=-0.145%は負。間隔スキップなしでQ03バックテストへ。
+K31(保留), K32追加。**次: T2-Q03 backtest-transaction-cost-viability**
+
+### [2026-03-31] T2-Q04 Phase 3-4完了
+Codex設計approve(2往復)。--t2q04 --skip-symmetryで実行
 
 ### [2026-03-31] T2-Q04 Phase 3 設計完了
 /idea-generationを実行中。Q04: 連続ショック時の効果維持（ショック間隔×CAR）
