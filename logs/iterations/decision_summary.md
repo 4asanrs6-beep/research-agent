@@ -5,7 +5,31 @@
 T1で確立した因果チェーン（米国ショック → turnover高群がショック固有に継続下落 → 保有者交代メカニズム → 5日集中）を実際の戦略として構築・検証する。
 
 **T1からの引き継ぎ知見:** K1-K26（`logs/experiments/knowledge.md`）
-**フェーズ:** Phase 1（問い生成）から開始
+**フェーズ:** Phase 2（選定完了、multi-perspective実行中）
+
+### 🔄 T2-Q01 entry-timing-turnover-observability — エントリータイミング
+
+**問い:** day+0のturnover変化倍率で翌日エントリーの精度を上げられるか。倍率上位1/3の銘柄に絞ると5d CARは改善するか
+**詳細:** `logs/iterations/brainstorm_discussion.md` T2 Round 1
+
+Phase 1 生成 ......... 済
+Phase 2 選定 ......... 済
+Phase 3 設計 ......... 未
+Phase 4 実験 ......... 未
+Phase 5 議論 ......... 未
+
+---
+
+### ⬜ T2-Q02 optimal-holding-period-decay — 最適保有期間
+
+**問い:** 日次CARプロファイルで下落停止日を特定。turnover正常化日と一致するか
+**詳細:** `logs/iterations/brainstorm_discussion.md` T2 Round 1
+
+Phase 1 生成 ......... 済
+Phase 2 選定 ......... 済
+Phase 3 設計 ......... 未
+Phase 4 実験 ......... 未
+Phase 5 議論 ......... 未
 
 ---
 
@@ -199,9 +223,9 @@ Phase 5 議論 ......... 未
 
 ## 直近の動き
 
-### [2026-03-31] T2 Phase 1完了: 8問生成。人間の選定待ち
-3方向（エントリー・エグジット設計/コストとリスク/頑健性と実用性）で8問。
-**次: 人間が3-5問を選ぶ → Phase 2（選定）**
+### [2026-03-31] T2 Phase 2完了 → Phase 3（設計）へ
+着手順: Q02(保有期間)→Q01(エントリー)。Q02が先（実行コスト低・情報価値高）。
+**次: Phase 3（設計）→ optimal-holding-period-decayから**
 
 ### [2026-03-31] テーマ移行: T1完了 → T2開始
 T1（米国ショック後の銘柄固有効果）の研究フェーズ完了。10問で因果チェーン確立。

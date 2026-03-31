@@ -1,0 +1,46 @@
+{
+  "timestamp": "2026-03-31",
+  "source": "multi-perspective-codex",
+  "theme": "T2: turnoverショック固有効果の戦略化",
+  "questions_evaluated": 2,
+  "verdicts": [
+    {
+      "id": "optimal-holding-period-decay",
+      "verdict": "最優先実行",
+      "priority": 1,
+      "confidence": "high",
+      "rationale": "エグジットルールの根幹。日次CARプロファイルは実行コスト極低・情報価値高。K24保有者交代メカニズムの因果検証を兼ねる",
+      "kill_condition": "全区間の傾きがゼロと非区別かつSpearman rho<0.2 → 固定5日確定",
+      "key_steps": [
+        "日次CAR 1-20d描画",
+        "セグメント傾き検定{5,7}",
+        "turnover正常化日計算（ショック前5d平均の+-20%以内に初回回帰）",
+        "銘柄レベルSpearman（rho>0.3で動的エグジット採用）"
+      ],
+      "findings_leveraged": ["K25", "K21", "K24"],
+      "v2_summary": "Step1で日次CARプロファイル描画→セグメント傾き検定{5,7}。Step2で集計レベルturnover正常化日と下落停止日の一致確認。Step3で銘柄レベルSpearman（rho>0.3採用、0.2-0.3でP/Lバックテスト）。Step4で基準期間5d/20dロバスト性"
+    },
+    {
+      "id": "entry-timing-turnover-observability",
+      "verdict": "条件付き実行",
+      "priority": 2,
+      "confidence": "medium",
+      "rationale": "K22（用量反応なし）と類似結論の蓋然性が高いが、ショック規模（市場変数）とturnover変化倍率（銘柄固有変数）は次元が異なる。#1完了後に実行判断",
+      "kill_condition": "十分位Spearman p>0.20かつ最上位vs全体差<0.3% → 二値トリガー確定（K22拡張）",
+      "key_steps": [
+        "turnover変化倍率計算（day+0の前日比）",
+        "十分位/五分位別5d CAR比較",
+        "Spearman単調性検定",
+        "ショック規模層別ロバスト性確認"
+      ],
+      "findings_leveraged": ["K25", "K26", "K22"],
+      "v2_summary": "十分位ごとの5d CARプロファイルで単調性評価（n不足時は五分位フォールバック）。最上位分位vs全体の差検定。K22ショック規模層別下で同一パターンか確認"
+    }
+  ],
+  "execution_order": [
+    "optimal-holding-period-decay",
+    "entry-timing-turnover-observability"
+  ],
+  "next_action": "optimal-holding-period-decayのStep1（日次CARプロファイル描画）を即座に実行",
+  "dependency": "entry-timing-turnover-observabilityはoptimal-holding-period-decayの結果を踏まえて実行要否を最終判断"
+}
