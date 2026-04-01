@@ -1507,4 +1507,11 @@ Claude-fallback(Codex代替)で追加5論点を生成:
 **早期終了条件:** Step 1でIWF-IWD相関>0.9→「リスクオフ一体化で金利レジーム転換は副次的」
 **判定基準:** Step 2 Fisher z p<0.20で相関差あり。p>0.20で検出不能
 
-→ Codex/Claude-fallbackレビューへ
+### Phase 4 結果
+- IWF-IWD相関: 0.45→0.73→0.87(リスクオフ一体化に接近)
+- 金利×スプレッド相関: 2月+0.35→3月-0.29(Fisher z p=0.0506)
+- 検出力37%で正式判定不能。verdict=insufficient_power
+
+### Phase 5
+L9(相関段階的上昇), L10(金利×スプレッド符号反転)記録。
+→ T3-Q01 vix-creep-early-signal（最後の問い）へ
