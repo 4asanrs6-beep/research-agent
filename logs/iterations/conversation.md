@@ -1473,3 +1473,38 @@ Claude-fallback(Codex代替)で追加5論点を生成:
 - Step 3: セクター別2月ret vs 3月超過下落クロスセクション
 - Codexレビュー省略（v2で全ロール合意済み、Q04と同一枠組みの市場レベル版。低リスク）
 → Phase 4 分析へ
+
+## T3-Q03 Phase 3 データ収集設計
+
+### idea-generation
+
+**目標:** 金利レジーム転換（2月金利低下→3月金利上昇）がグロース/バリュー関係を壊したかを分析
+
+**案:**
+
+| ID | アプローチ | 何をするか | 前回との違い | コスト |
+|---|---|---|---|---|
+| 1 | v2準拠の3段階分析 | Step 0: Fisher z検出力→Step 1: IWF/IWD相関で一体化判定→Step 2: 金利×スプレッド相関差→Step 3: 日本株波及 | Q04/Q02はβ/為替。金利×ファクターは未検証 | low |
+| 2 | β急騰の駆動因分析 | 日次実現βの変動を金利/VIXで説明。β急騰の原因が金利にあるか | βの水準ではなく変動要因に踏み込む | medium |
+| 3 | 構造変化テスト | Bai-Perronでブレークポイント検出。金利反転日と一致するか | カレンダー分割→データ駆動 | medium |
+
+**推奨:** 案1 — multi-perspective v2で全ロール合意済みの設計をそのまま実装。Step 1で一体化判定→早期終了も可能で効率的。案2/3はN=22-42日で検出力不足リスク
+**頑健性確認:** 案2の「日次金利変化率×IWF-IWDスプレッド相関」をStep 2の補助分析として追加
+
+→ /implementation-planning へ
+
+### implementation-planning
+
+**ファイル:** `scripts/t3_q03_rate_regime_shift.py`（新規作成。t3_q02と同じパターン）
+
+**実装順序:**
+1. **Step 0: Fisher z検出力分析** — n1=19(2月), n2=22(3月), rho_diff=0.5で解析的にpower計算。power<50%→Step 2省略
+2. **Step 1: IWF/IWD日次リターン相関** — 2月(~2/28)と3月(3/1~)のPearson相関。3月>0.9→verdict=risk_off_unification（早期終了）。1月もベースライン計算
+3. **Step 2: 金利×スプレッド相関差** — IWF-IWDスプレッド vs Δ米10年金利の相関を2月/3月で比較。Fisher z変換で検定
+4. **Step 3: 日本株代理分析** — JP_Banks(1615.T)/JP_Machine(1620.T)で同一分析。金利上昇局面のJP_Banks下落日特定
+5. **総合判定** — risk_off_unification / rate_regime_confirmed / rate_regime_not_detected / insufficient_power
+
+**早期終了条件:** Step 1でIWF-IWD相関>0.9→「リスクオフ一体化で金利レジーム転換は副次的」
+**判定基準:** Step 2 Fisher z p<0.20で相関差あり。p>0.20で検出不能
+
+→ Codex/Claude-fallbackレビューへ

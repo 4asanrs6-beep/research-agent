@@ -1,0 +1,38 @@
+{
+  "plan": {
+    "files": [
+      {
+        "path": "scripts/t3_q03_rate_regime_shift.py",
+        "action": "create",
+        "description": "T3-Q03分析スクリプト。Step 0-3を順次実行し結果JSONを出力。既存t3_q02/q05と同じパターン（main関数+yfinanceデータ取得+JSON保存）"
+      }
+    ],
+    "functions": [
+      {
+        "name": "main",
+        "signature": "def main() -> None",
+        "purpose": "エントリポイント。Step 0→1→2→3を順次実行し、早期終了条件を評価してJSON保存"
+      },
+      {
+        "name": "fisher_z_power",
+        "signature": "def fisher_z_power(n1: int, n2: int, rho_diff: float, alpha: float = 0.05) -> float",
+        "purpose": "Step 0: Fisher z変換の検出力を解析的に計算。相関差rho_diffをn1/n2サンプルで検出できるかを事前判定"
+      },
+      {
+        "name": "fisher_z_test",
+        "signature": "def fisher_z_test(r1: float, n1: int, r2: float, n2: int) -> tuple[float, float]",
+        "purpose": "Step 2: 2つの相関係数の差のFisher z検定。z統計量とp値を返す"
+      }
+    ],
+    "data_flow": "yfinance(IWF/IWD/^TNX/JP_Banks/JP_Machine) → 日次リターン計算 → 2月/3月分割(ブレーク=2/28) → Step0:検出力 → Step1:IWF-IWD相関(一体化判定) → Step2:金利×スプレッド相関差(Fisher z) → Step3:日本株代理で同一分析 → JSON保存(logs/iterations/T3-Q03_..._result.json)",
+    "test_method": "Step 1のIWF-IWD相関>0.9なら早期終了（リスクオフ一体化）。Step 2のFisher z p>0.20なら相関差検出不能。結果は既存Q04/Q02の教訓（β主因、為替主因）と整合するかを確認",
+    "implementation_order": [
+      "Step 0: Fisher z検出力分析 — scipy.stats.normで解析的に計算。n1=19(2月営業日), n2=22(3月営業日), rho_diff=0.5。power<50%ならStep 2省略フラグを立てる",
+      "Step 1: IWF/IWD日次リターン相関 — 2月(1/1-2/28)と3月(3/1-3/31)に分割。各期間のPearson相関を計算。3月相関>0.9なら verdict='risk_off_unification' で早期終了。補助: 1月の相関も算出（ベースライン比較）",
+      "Step 2: 金利×IWF-IWDスプレッド相関差 — IWF日次ret - IWD日次retをスプレッドとして算出。^TNXの日次変化率(Δ金利)との相関を2月/3月それぞれで計算。Fisher z変換で2群の相関差を検定。補助: 散布図用データも保存",
+      "Step 3: 日本株代理分析 — JP_Banks(1615.T)とJP_Machine(1620.T)で同一分析。3月で相関>0.9なら日本もリスクオフ一体化。金利上昇局面(3月)にJP_Banksが下落した日を特定して列挙",
+      "総合判定: verdict決定 — risk_off_unification(Step1で一体化) / rate_regime_confirmed(Step2で相関差有意) / rate_regime_not_detected(Step2非有意) / insufficient_power(Step0で検出力不足)"
+    ],
+    "estimated_complexity": "low"
+  }
+}
