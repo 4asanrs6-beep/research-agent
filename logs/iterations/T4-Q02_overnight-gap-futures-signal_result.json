@@ -1,0 +1,20 @@
+{
+  "step1_gap_prediction": {
+    "correlation": 0.5667224843890653,
+    "corr_p": 4.314157465011033e-06,
+    "r2": 0.35071894854055463,
+    "overnight_coef": 3.1216313564193614,
+    "overnight_p": 9.670387801914244e-07,
+    "fx_coef": -0.6331092093750105,
+    "fx_p": 0.17479979869903906
+  },
+  "step2_intraday_follow": {
+    "gap_intraday_direction_match": 0.40350877192982454,
+    "overnight_intraday_direction_match": 0.42105263157894735,
+    "up_gap_follow_rate": 0.48148148148148145,
+    "down_gap_follow_rate": 0.3333333333333333,
+    "overnight_total_corr": 0.45614226530727287,
+    "overnight_total_p": 0.00036246418844094726
+  },
+  "verdict": "MODERATE_SIGNAL"
+}
