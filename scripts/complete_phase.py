@@ -183,9 +183,28 @@ def check_phase_5(question_id: str, slug: str = "") -> list[str]:
     if not check_file_contains(DIARY, question_id) and not check_file_contains(DIARY, q_slug):
         errors.append(f"[NG] research_diary.md に {question_id} のエントリがない")
 
-    # 5. decision_summary.md更新
+    # 5. decision_summary.md更新（タイムスタンプ）
     if not check_file_updated_recently(SUMMARY):
         errors.append("[WARN] decision_summary.md が直近30分以内に更新されていない")
+
+    # 6. decision_summary.mdの知見/教訓リストに問いIDが含まれるか
+    #    Phase 5で新しいK番号/L番号が出るはずなので、decision_summaryにも反映されているかチェック
+    summary_text = SUMMARY.read_text(encoding="utf-8") if SUMMARY.exists() else ""
+    # 問いIDまたはslugが知見テーブル行（|で始まる行）に含まれるか、
+    # またはPhase進捗が「済」になっているかをチェック
+    search_terms = [question_id, q_slug]
+    if slug:
+        search_terms.append(slug)
+    phase5_recorded = any(
+        f"Phase 5" in line and ("済" in line or "完了" in line)
+        for line in summary_text.split("\n")
+        if any(t in line for t in search_terms)
+    )
+    if not phase5_recorded:
+        # Phase 5が「済」になっていない行がある場合
+        has_question_section = any(t in summary_text for t in search_terms)
+        if has_question_section:
+            errors.append(f"[WARN] decision_summary.md の {question_id} のPhase 5が「済」になっていない可能性。確認してください")
 
     return errors
 
