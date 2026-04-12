@@ -136,9 +136,45 @@ Phase 5の議論で再帰が発生する:
    - ただしテーマIDは分ける（T1→T2）
 4. **新テーマのPhase 1から開始する**
    - テーマ設定 → /brainstorm → 人間が選定 → 以降通常プロセス
+5. **古いテーマのログをアーカイブする**（下記参照）
 
 前テーマの実験コードやデータは新テーマで再利用可能。
 「戦略実装」も研究テーマの一つとして扱い、問い→実験→議論のサイクルで進める。
+
+### ログのアーカイブルール
+
+research_diary.md、decision_summary.md、conversation.mdは追記型で肥大化する。
+以下のルールで管理する:
+
+#### research_diary.md
+- **本体には常に「現在のテーマ + 直近1テーマ」のみ残す**
+- テーマ移行時に、2つ前のテーマを `logs/archive/research_diary_T{N}.md` に切り出す
+  - 例: T4開始時に、T1-T2の内容を `logs/archive/research_diary_T1T2.md` に移動
+  - 本体にはT3とT4だけが残る
+- アーカイブ時に本体の先頭に「過去のテーマは `logs/archive/` を参照」のリンクを残す
+
+#### decision_summary.md
+- **本体には常に「現在のテーマ + 直近1テーマ」のみ残す**（research_diaryと同じ）
+- 古いテーマは `logs/archive/decision_summary_T{N}.md` に切り出す
+- 知見の系譜ツリーと教訓リストは残し、各問いの詳細セクションをアーカイブ
+
+#### conversation.md
+- **テーマ完了時に全体を `logs/archive/conversation_T{N}.md` にアーカイブし、本体を空にする**
+- conversation.mdは監査用であり、日常的に読み返すものではない
+
+#### knowledge.md
+- **アーカイブしない。全テーマの知見/教訓を永続的に蓄積する**
+- knowledge.mdは全テーマ横断の知識ベースであり、常に全量を保持
+
+#### アーカイブ先
+```
+logs/archive/
+  research_diary_T1T2.md
+  decision_summary_T1T2.md
+  conversation_T1.md
+  conversation_T2.md
+  ...
+```
 
 ## Codex代替ルール
 
@@ -376,16 +412,20 @@ research_diary.mdは「研究の物語」であり、人間が現在地と流れ
 ### ファイル構成
 ```
 logs/
-  research_diary.md           <- 研究の解説（人間向け）
+  research_diary.md           <- 研究の解説（人間向け）。現在テーマ+直近1テーマ
   iterations/
-    decision_summary.md       <- 進捗と系譜（人間向け）
+    decision_summary.md       <- 進捗と系譜（人間向け）。現在テーマ+直近1テーマ
     brainstorm_discussion.md  <- 問いの生成と選定（監査用）
     multi_perspective.md      <- 問いの深掘り議論（監査用）
-    conversation.md           <- 設計/実装のCodex査読（監査用）
+    conversation.md           <- 設計/実装のCodex査読（監査用）。テーマ完了時にアーカイブ
   experiments/
-    knowledge.md              <- 知見の蓄積
+    knowledge.md              <- 知見の蓄積（全テーマ永続。アーカイブしない）
     [問いID].md               <- 実験記録（監査用）
     [問いID]_review.md        <- 結果議論ログ（監査用）
+  archive/                    <- 古いテーマのログ
+    research_diary_T1T2.md
+    decision_summary_T1T2.md
+    conversation_T1.md
 ```
 
 ### 命名規則
