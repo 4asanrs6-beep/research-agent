@@ -1,0 +1,88 @@
+{
+  "ls_monthly": {
+    "jan": 0.10828359769283402,
+    "feb": 0.11713287683754325,
+    "mar": -0.1417483531702297
+  },
+  "vix_leads": false,
+  "vix_20_sustained_date": "2026-02-12 00:00:00",
+  "ls_ma5_neg_date": "2026-01-21 00:00:00",
+  "grid_search": {
+    "VIX>15_reduce50%": {
+      "threshold": 15,
+      "reduction_pct": 50,
+      "adjusted_loss": 0.07387667438033509,
+      "saved": 0.005555046842116454,
+      "saved_pct_of_total": 6.993486678400604,
+      "n_days_above": 57
+    },
+    "VIX>15_reduce100%": {
+      "threshold": 15,
+      "reduction_pct": 100,
+      "adjusted_loss": 0.06832162753821862,
+      "saved": 0.011110093684232922,
+      "saved_pct_of_total": 13.986973356801224,
+      "n_days_above": 57
+    },
+    "VIX>20_reduce50%": {
+      "threshold": 20,
+      "reduction_pct": 50,
+      "adjusted_loss": 0.1763261281731732,
+      "saved": -0.09689440695072166,
+      "saved_pct_of_total": -121.98452388985153,
+      "n_days_above": 30
+    },
+    "VIX>20_reduce100%": {
+      "threshold": 20,
+      "reduction_pct": 100,
+      "adjusted_loss": 0.2732205351238949,
+      "saved": -0.19378881390144334,
+      "saved_pct_of_total": -243.96904777970306,
+      "n_days_above": 30
+    },
+    "VIX>25_reduce50%": {
+      "threshold": 25,
+      "reduction_pct": 50,
+      "adjusted_loss": 0.11606430270049731,
+      "saved": -0.03663258147804577,
+      "saved_pct_of_total": -46.118327683539476,
+      "n_days_above": 13
+    },
+    "VIX>25_reduce100%": {
+      "threshold": 25,
+      "reduction_pct": 100,
+      "adjusted_loss": 0.15269688417854305,
+      "saved": -0.0732651629560915,
+      "saved_pct_of_total": -92.23665536707891,
+      "n_days_above": 13
+    },
+    "VIX>30_reduce50%": {
+      "threshold": 30,
+      "reduction_pct": 50,
+      "adjusted_loss": 0.08726058535809988,
+      "saved": -0.007828864135648345,
+      "saved_pct_of_total": -9.856092773972899,
+      "n_days_above": 2
+    },
+    "VIX>30_reduce100%": {
+      "threshold": 30,
+      "reduction_pct": 100,
+      "adjusted_loss": 0.09508944949374823,
+      "saved": -0.01565772827129669,
+      "saved_pct_of_total": -19.712185547945797,
+      "n_days_above": 2
+    }
+  },
+  "pre_post_shock": {
+    "pre_ls_mean": 0.005977042756583422,
+    "post_ls_mean": -0.006748517179577859,
+    "pre_vix_mean": 17.601794927548138,
+    "post_vix_mean": 25.59681831706654,
+    "feb_ls_cum": 0.1162777349646521,
+    "feb_vix_start": 16.34000015258789,
+    "feb_vix_end": 19.860000610351562
+  },
+  "verdict": "vix_useful",
+  "best_threshold": "VIX>15_reduce100%",
+  "note": "N=1 case study. Do not generalize. Requires backtest on historical data."
+}

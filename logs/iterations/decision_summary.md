@@ -213,8 +213,8 @@ T3: 2026年3月の日本株ロングショート敗因分析（事後分析型�
   +-- ✅ T3-Q04 oil-shock-sector-contagion-path .... β主因確定（L1-L3）
   +-- ✅ T3-Q02 japan-excess-vulnerability .......... β調整後超過-9.8%、為替主因（L4-L6）
   +-- ✅ T3-Q05 momentum-crash-realworld-test ....... K37適用外（L7-L8）
-  +-- 🔄 T3-Q03 rate-regime-shift-impact ........... Phase 3 設計中
-  +-- ⬜ T3-Q01 vix-creep-early-signal ............. 未着手
+  +-- ✅ T3-Q03 rate-regime-shift-impact ........... insufficient_power, 方向性明確（L9-L10）
+  +-- 🔄 T3-Q01 vix-creep-early-signal ............. Phase 3-4 実行中
 ```
 
 ```
