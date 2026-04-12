@@ -1548,17 +1548,16 @@ Claude-fallback 4問追加: sq-week-volatility-regime, overnight-futures-gap-asy
 - T4-Q03 intraday-futures-momentum-spillover-timing
 - T4-Q04 sq-week-volatility-regime
 
-### Phase 2 multi-perspective完了
-4問を5ロール×2ラウンドで議論。着手順:
-1. T4-Q01 futures-stock-lead-lag（最優先。T4全体の前提）
-2. T4-Q02 overnight-gap-futures-signal（Q01と並行可。時間帯が独立）
-3. T4-Q03 intraday-futures-momentum-spillover-timing（Q01の後）
-4. T4-Q04 sq-week-volatility-regime（最後。月次イベント）
+### Phase 2 multi-perspective完了（初回選定）
+4問を5ロール×2ラウンドで議論。ただし初回選定はオプション関連が薄かった。
 
-主な設計変更:
-- Q01: NKD=F(ドル建て)→1321.T(日経ETF)に変更。β分位ポートフォリオで集約
-- Q02: USDJPY調整追加。ギャップ予測→日中追随の2段階
-- Q03: 自己相関ベースライン→先物リード→出来高増分の3段階ベンチマーク
-- Q04: メジャーSQ/マイナーSQ分離。週内β比較法
+### Phase 2 再選定
+「次ラウンドでオプション→先物の直接検証をする」前提で、各問いが次の受け皿になる組み合わせに変更:
+1. T4-Q01 futures-stock-lead-lag（基盤。次: ラグ内のオプション起因成分を検証）
+2. T4-Q02 overnight-gap-futures-signal（実務的。次: 夜間のオプション建玉変化を追加）
+3. T4-Q03 put-call-ratio-directional-signal（PCRデータ取得確認+方向予測。次ラウンドの鍵）
+4. T4-Q04 intraday-futures-momentum-spillover-timing（前場→後場。次: 前場オプション出来高を条件に）
+
+gamma(旧Q04)とSQ週(旧Q06)は建玉データが取れてからの方が精度が高いため後回し
 
 → Phase 3（設計）へ。T4-Q01から

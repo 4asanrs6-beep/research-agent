@@ -420,9 +420,11 @@ Phase 5 議論 ......... 未
 ### [2026-04-01] T3-Q03 Phase 3 データ収集設計 実行中
 /idea-generationで分析案を生成中。Q04(β主因)・Q02(為替主因)・Q05(K37適用外)の知見を踏まえた設計。
 
-### [2026-04-12] T4 Phase 2 multi-perspective完了 → Phase 3（設計）へ
-着手順: Q01(lead-lag)→Q02(overnight,並行可)→Q03(intraday)→Q04(SQ週)
+### [2026-04-12] T4 Phase 2 再選定 → 次ラウンド(オプション直接検証)の受け皿になる4問に変更
+Q01(lead-lag)→Q02(overnight)→Q03(PCR)→Q04(intraday)。gamma/SQ週は建玉データ取得後に
 **次: T4-Q01 Phase 3**
+
+### [2026-04-12] T4 Phase 2 multi-perspective完了（初回選定はオプション関連が薄く再選定）
 
 ### [2026-04-12] T4 Phase 2 選定完了
 4問選定: futures-stock-lead-lag, overnight-gap-futures-signal, intraday-futures-momentum-spillover-timing, sq-week-volatility-regime
