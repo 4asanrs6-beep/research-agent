@@ -1,0 +1,25 @@
+{
+  "plan": {
+    "files": [
+      {
+        "path": "scripts/t4_q01_futures_lead_lag.py",
+        "action": "create",
+        "description": "1321.T(日経ETF)の1h足→β分位ポートフォリオの次1hリード・ラグ回帰"
+      }
+    ],
+    "steps": [
+      "Step 0: データ取得 — yfinanceで1321.T, 主要個別株(上位50-100銘柄)の1h足を取得。VIX日次。β推定用に日足も取得(J-Quants)",
+      "Step 1: β分位ポートフォリオ構築 — 過去60日の日次リターンでTOPIX対比βを推定。β上位/中位/下位の各20銘柄を特定。1h足の等ウェイト・出来高加重の両方でポートフォリオリターンを計算",
+      "Step 2: リード・ラグ回帰 — 各β分位ポートフォリオの1hリターンを被説明変数、1321.Tの同時刻/前1h/前2hリターンを説明変数としてOLS。HAC SE(Newey-West, lag=2)。リード係数(前1h)の有意性が主判定",
+      "Step 3: VIX区間分割 — VIX 20以下/20-25/25超（25超が20日未満なら20以下/20超の2区間）でStep 2を再実行。VIX×ETFリターンの交互作用項でも確認",
+      "Step 4: thin trading確認 — 出来高上位20%のみでリード係数を再推定。消えればthin tradingアーティファクト",
+      "Step 5: JSON保存"
+    ],
+    "pass_criteria": {
+      "lead_exists": "Step 2でβ上位ポートフォリオの前1hリード係数がp<0.10かつ正",
+      "vix_dependent": "Step 3でVIX高群のリード係数がVIX低群より有意に大きい",
+      "abandon": "Step 2で全β分位の前1hリード係数がp>0.10、またはStep 4でリード係数が消失"
+    },
+    "estimated_complexity": "medium"
+  }
+}

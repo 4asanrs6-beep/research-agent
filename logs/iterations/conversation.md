@@ -1560,4 +1560,13 @@ Claude-fallback 4問追加: sq-week-volatility-regime, overnight-futures-gap-asy
 
 gamma(旧Q04)とSQ週(旧Q06)は建玉データが取れてからの方が精度が高いため後回し
 
-→ Phase 3（設計）へ。T4-Q01から
+## T4-Q01 Phase 3 設計
+
+### idea-generation + implementation-planning
+- 1321.T(日経ETF)の1h足→β分位ポートフォリオの次1hリード・ラグ回帰
+- Step 1: β上位/中位/下位各20銘柄のポートフォリオ
+- Step 2: 同時刻+前1h+前2hのOLS(HAC SE)
+- Step 3: VIX 3区間(25超不足なら2区間)
+- Step 4: 出来高上位20%でthin trading確認
+
+→ Phase 4 分析実行中
