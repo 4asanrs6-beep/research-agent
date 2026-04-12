@@ -1530,4 +1530,10 @@ L11-L13記録。VIX閾値は早期警戒に不適格。
 
 ## T4: オプション→先物→個別株の波及構造と先回り
 
-テーマ開始。Phase 1（論点生成）へ
+テーマ開始。Phase 1（論点生成）
+
+### Phase 1 論点生成
+Claude 5問: futures-stock-lead-lag, overnight-gap-futures-signal, put-call-ratio-directional-signal, gamma-exposure-regime-detection, futures-basis-mean-reversion
+Claude-fallback 4問: overnight-gap-regime-signal, gamma-regime-intraday-vol, futures-basis-stress-signal, beta-turnover-cascade-intraday
+
+→ 人間が選定待ち（9問）
