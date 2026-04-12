@@ -1541,4 +1541,24 @@ Codex独立生成を試行 → **使用量制限エラー** (Apr 13th, 2026 12:2
 
 Claude-fallback 4問追加: sq-week-volatility-regime, overnight-futures-gap-asymmetry, basis-divergence-individual-stock-reversion, intraday-futures-momentum-spillover-timing
 
-→ 人間が選定待ち（Claude 5問 + Claude-fallback 4問 = 9問）
+### Phase 2 選定完了
+人間が4問を選定:
+- T4-Q01 futures-stock-lead-lag
+- T4-Q02 overnight-gap-futures-signal
+- T4-Q03 intraday-futures-momentum-spillover-timing
+- T4-Q04 sq-week-volatility-regime
+
+### Phase 2 multi-perspective完了
+4問を5ロール×2ラウンドで議論。着手順:
+1. T4-Q01 futures-stock-lead-lag（最優先。T4全体の前提）
+2. T4-Q02 overnight-gap-futures-signal（Q01と並行可。時間帯が独立）
+3. T4-Q03 intraday-futures-momentum-spillover-timing（Q01の後）
+4. T4-Q04 sq-week-volatility-regime（最後。月次イベント）
+
+主な設計変更:
+- Q01: NKD=F(ドル建て)→1321.T(日経ETF)に変更。β分位ポートフォリオで集約
+- Q02: USDJPY調整追加。ギャップ予測→日中追随の2段階
+- Q03: 自己相関ベースライン→先物リード→出来高増分の3段階ベンチマーク
+- Q04: メジャーSQ/マイナーSQ分離。週内β比較法
+
+→ Phase 3（設計）へ。T4-Q01から

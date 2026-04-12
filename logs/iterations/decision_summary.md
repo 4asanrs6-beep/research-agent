@@ -8,7 +8,7 @@
 **最終目標:** 個別株の売買判断に使えるシグナルの構築
 **データ制約:** J-Quantsでは日中足が取得不可。yfinanceでは日経先物(NKD=F)・個別株(*.T)の1時間足が取得可能
 
-**フェーズ:** Phase 1（論点生成）待ち
+**フェーズ:** Phase 2（選定完了）→ multi-perspective実行中
 
 ### T4 利用可能データ（予備確認済み）
 | データ | ソース | 粒度 | 備考 |
@@ -419,6 +419,13 @@ Phase 5 議論 ......... 未
 
 ### [2026-04-01] T3-Q03 Phase 3 データ収集設計 実行中
 /idea-generationで分析案を生成中。Q04(β主因)・Q02(為替主因)・Q05(K37適用外)の知見を踏まえた設計。
+
+### [2026-04-12] T4 Phase 2 multi-perspective完了 → Phase 3（設計）へ
+着手順: Q01(lead-lag)→Q02(overnight,並行可)→Q03(intraday)→Q04(SQ週)
+**次: T4-Q01 Phase 3**
+
+### [2026-04-12] T4 Phase 2 選定完了
+4問選定: futures-stock-lead-lag, overnight-gap-futures-signal, intraday-futures-momentum-spillover-timing, sq-week-volatility-regime
 
 ### [2026-04-12] テーマ移行: T3完了 → T4開始
 T4: オプション→先物→個別株の波及構造を先回りに活かす
