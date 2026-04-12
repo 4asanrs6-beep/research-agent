@@ -1536,4 +1536,9 @@ L11-L13記録。VIX閾値は早期警戒に不適格。
 Claude 5問: futures-stock-lead-lag, overnight-gap-futures-signal, put-call-ratio-directional-signal, gamma-exposure-regime-detection, futures-basis-mean-reversion
 Claude-fallback 4問: overnight-gap-regime-signal, gamma-regime-intraday-vol, futures-basis-stress-signal, beta-turnover-cascade-intraday
 
-→ 人間が選定待ち（9問）
+Codex独立生成を試行 → **使用量制限エラー** (Apr 13th, 2026 12:22 AM まで利用不可)
+ルールに従いClaude-fallbackにフォールバック
+
+Claude-fallback 4問追加: sq-week-volatility-regime, overnight-futures-gap-asymmetry, basis-divergence-individual-stock-reversion, intraday-futures-momentum-spillover-timing
+
+→ 人間が選定待ち（Claude 5問 + Claude-fallback 4問 = 9問）

@@ -218,10 +218,16 @@ Claude-fallbackはCodexと異なるモデルであり、独立した視点では
 ### Phase 1（生成）→ Phase 2（選定）ゲート
 人間に論点/問いを提示するには以下が必須:
 1. `/brainstorm`（Claude）で3-5問を生成済み
-2. **Codex（またはClaude-fallback）でも独立に3-5問を生成済み**
+2. **Codexで独立に3-5問を生成済み**（`codex exec`で実行）
 3. 両方の結果が `brainstorm_discussion.md` に記録済み
 4. `conversation.md` に両系統の結果サマリが記録済み
 5. 上記が揃っていない限り、人間に選定を求めてはならない
+
+**Codex利用の優先順位（厳守）:**
+- **第1選択: Codex**（`codex exec`コマンド）。独立モデルによる視点の多様性を確保
+- **第2選択: Claude-fallback**（Agentサブエージェント）。Codexが**技術的に利用不能な場合のみ**
+- Claude-fallbackを使う場合は、Codex利用を試みて失敗した証拠（エラーログ等）をconversation.mdに記録すること
+- **「楽だから」「速いから」はClaude-fallbackを使う理由にならない**
 
 ### Phase 2（選定）→ Phase 3（設計）ゲート
 設計に入るには以下が必須:
